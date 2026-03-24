@@ -2,7 +2,6 @@ import { createMcpHandler } from "agents/mcp";
 import { createServer } from "./server.js";
 
 interface Env {
-  PLAUSIBLE_API_KEY: string;
   PLAUSIBLE_BASE_URL?: string;
   PLAUSIBLE_DEFAULT_SITE_ID?: string;
 }
@@ -13,9 +12,23 @@ export default {
     env: Env,
     ctx: ExecutionContext
   ): Promise<Response> {
-    // Create a fresh server per request (required for MCP SDK 1.26.0+)
+    // Extract the user's Plausible API key from the Authorization header.
+    // Each user provides their own key — no shared secret.
+    const authHeader = request.headers.get("Authorization");
+    const apiKey = authHeader?.replace(/^Bearer\s+/i, "");
+
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({
+          error: "Missing Plausible API key. Pass it as a Bearer token in the Authorization header.",
+        }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Create a fresh server per request with the user's own API key
     const server = createServer({
-      apiKey: env.PLAUSIBLE_API_KEY,
+      apiKey,
       baseUrl: env.PLAUSIBLE_BASE_URL,
       defaultSiteId: env.PLAUSIBLE_DEFAULT_SITE_ID,
     });
