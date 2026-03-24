@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { createMcpHandler } from "agents/mcp";
 import { createServer } from "./server.js";
 
@@ -6,33 +7,62 @@ interface Env {
   PLAUSIBLE_DEFAULT_SITE_ID?: string;
 }
 
-export default {
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    // Extract the user's Plausible API key from the Authorization header.
-    // Each user provides their own key — no shared secret.
-    const authHeader = request.headers.get("Authorization");
-    const apiKey = authHeader?.replace(/^Bearer\s+/i, "");
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Mcp-Session-Id",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id",
+};
 
-    if (!apiKey) {
-      return new Response(
-        JSON.stringify({
-          error: "Missing Plausible API key. Pass it as a Bearer token in the Authorization header.",
-        }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
-    }
+function corsResponse(response: Response): Response {
+  const patched = new Response(response.body, response);
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    patched.headers.set(key, value);
+  }
+  return patched;
+}
 
-    // Create a fresh server per request with the user's own API key
-    const server = createServer({
-      apiKey,
-      baseUrl: env.PLAUSIBLE_BASE_URL,
-      defaultSiteId: env.PLAUSIBLE_DEFAULT_SITE_ID,
-    });
+export default Sentry.withSentry(
+  (env: Env) => ({
+    dsn: "https://134f0164571c61a45123cc7944c153e6@o4505994951065600.ingest.us.sentry.io/4511097506758656",
+    tracesSampleRate: 1.0,
+  }),
+  {
+    async fetch(
+      request: Request,
+      env: Env,
+      ctx: ExecutionContext
+    ): Promise<Response> {
+      // Handle CORS preflight
+      if (request.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: CORS_HEADERS });
+      }
 
-    return createMcpHandler(server)(request, env, ctx);
-  },
-} satisfies ExportedHandler<Env>;
+      // Extract the user's Plausible API key from the Authorization header.
+      // Each user provides their own key — no shared secret.
+      const authHeader = request.headers.get("Authorization");
+      const apiKey = authHeader?.replace(/^Bearer\s+/i, "");
+
+      if (!apiKey) {
+        return corsResponse(
+          new Response(
+            JSON.stringify({
+              error: "Missing Plausible API key. Pass it as a Bearer token in the Authorization header.",
+            }),
+            { status: 401, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+
+      // Create a fresh server per request with the user's own API key
+      const server = createServer({
+        apiKey,
+        baseUrl: env.PLAUSIBLE_BASE_URL,
+        defaultSiteId: env.PLAUSIBLE_DEFAULT_SITE_ID,
+      });
+
+      const response = await createMcpHandler(server)(request, env, ctx);
+      return corsResponse(response);
+    },
+  } satisfies ExportedHandler<Env>,
+);

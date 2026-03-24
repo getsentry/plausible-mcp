@@ -59,8 +59,7 @@ export class PlausibleClient {
     }
 
     if (params.filters?.length) {
-      body.filters =
-        params.filters.length === 1 ? params.filters[0] : ["and", ...params.filters];
+      body.filters = params.filters;
     }
 
     if (params.pagination) {

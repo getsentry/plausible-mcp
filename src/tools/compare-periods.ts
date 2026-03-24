@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
 import {
@@ -84,38 +85,56 @@ export function register(
       },
     },
     async (args) => {
-      const siteId = resolveSiteId(args.site_id, defaultSiteId);
-      const metrics = args.metrics ?? DEFAULT_METRICS;
+      return Sentry.startSpan(
+        { op: "mcp.server", name: "tools/call compare_periods" },
+        async (span) => {
+          span.setAttribute("mcp.tool.name", "compare_periods");
+          span.setAttribute("mcp.method.name", "tools/call");
+          span.setAttribute("mcp.transport", "http");
+          span.setAttribute("network.transport", "tcp");
 
-      const filters: unknown[][] = [];
-      if (args.page) filters.push(buildPageFilter(args.page));
-      if (args.goal) filters.push(buildGoalFilter(args.goal));
+          const siteId = resolveSiteId(args.site_id, defaultSiteId);
+          const metrics = args.metrics ?? DEFAULT_METRICS;
 
-      const queryBase = {
-        site_id: siteId,
-        metrics,
-        filters,
-      };
+          span.setAttribute("plausible.site_id", siteId);
+          span.setAttribute("plausible.period_a", args.period_a);
+          span.setAttribute("plausible.period_b", args.period_b);
+          if (args.page) span.setAttribute("plausible.page", args.page);
+          if (args.goal) span.setAttribute("plausible.goal", args.goal);
 
-      const [responseA, responseB] = await Promise.all([
-        client.query({ ...queryBase, date_range: args.period_a }),
-        client.query({ ...queryBase, date_range: args.period_b }),
-      ]);
+          const filters: unknown[][] = [];
+          if (args.page) filters.push(buildPageFilter(args.page));
+          if (args.goal) filters.push(buildGoalFilter(args.goal));
 
-      const metricsA = extractAggregateMetrics(responseA, metrics);
-      const metricsB = extractAggregateMetrics(responseB, metrics);
+          const queryBase = {
+            site_id: siteId,
+            metrics,
+            filters,
+          };
 
-      const comparison: PeriodComparison = {
-        period_a: { range: args.period_a, metrics: metricsA },
-        period_b: { range: args.period_b, metrics: metricsB },
-        deltas: computeDeltas(metricsA, metricsB),
-      };
+          const [responseA, responseB] = await Promise.all([
+            client.query({ ...queryBase, date_range: args.period_a }),
+            client.query({ ...queryBase, date_range: args.period_b }),
+          ]);
 
-      return {
-        content: [
-          { type: "text" as const, text: JSON.stringify(comparison, null, 2) },
-        ],
-      };
+          const metricsA = extractAggregateMetrics(responseA, metrics);
+          const metricsB = extractAggregateMetrics(responseB, metrics);
+
+          const comparison: PeriodComparison = {
+            period_a: { range: args.period_a, metrics: metricsA },
+            period_b: { range: args.period_b, metrics: metricsB },
+            deltas: computeDeltas(metricsA, metricsB),
+          };
+
+          span.setAttribute("mcp.tool.result.is_error", false);
+
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify(comparison, null, 2) },
+            ],
+          };
+        }
+      );
     }
   );
 }

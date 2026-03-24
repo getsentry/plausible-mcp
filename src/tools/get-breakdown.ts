@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PlausibleClient } from "../plausible.js";
@@ -42,25 +43,43 @@ export function register(
       },
     },
     async (args) => {
-      const siteId = resolveSiteId(args.site_id, defaultSiteId);
-      const metrics = args.metrics ?? ["visitors", "pageviews", "bounce_rate"];
-      const limit = args.limit ?? 20;
+      return Sentry.startSpan(
+        { op: "mcp.server", name: "tools/call get_breakdown" },
+        async (span) => {
+          span.setAttribute("mcp.tool.name", "get_breakdown");
+          span.setAttribute("mcp.method.name", "tools/call");
+          span.setAttribute("mcp.transport", "http");
+          span.setAttribute("network.transport", "tcp");
 
-      const filters: unknown[][] = [];
-      if (args.page) filters.push(buildPageFilter(args.page));
+          const siteId = resolveSiteId(args.site_id, defaultSiteId);
+          const metrics = args.metrics ?? ["visitors", "pageviews", "bounce_rate"];
+          const limit = args.limit ?? 20;
 
-      const result = await client.query({
-        site_id: siteId,
-        metrics,
-        date_range: args.date_range,
-        dimensions: [args.dimension],
-        filters,
-        pagination: { limit },
-      });
+          span.setAttribute("plausible.site_id", siteId);
+          span.setAttribute("plausible.date_range", args.date_range);
+          span.setAttribute("plausible.dimension", args.dimension);
+          if (args.page) span.setAttribute("plausible.page", args.page);
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-      };
+          const filters: unknown[][] = [];
+          if (args.page) filters.push(buildPageFilter(args.page));
+
+          const result = await client.query({
+            site_id: siteId,
+            metrics,
+            date_range: args.date_range,
+            dimensions: [args.dimension],
+            filters,
+            pagination: { limit },
+          });
+
+          span.setAttribute("mcp.tool.result.is_error", false);
+          span.setAttribute("mcp.tool.result.content_count", result.results.length);
+
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          };
+        }
+      );
     }
   );
 }

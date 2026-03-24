@@ -14,18 +14,26 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "eval": "bun run evals/run.ts"
+    "eval": "bun run evals/run.ts",
+    "deploy": "npx wrangler deploy --outdir .sentry-build && npx sentry-cli sourcemaps upload --org sergtech --project plausible-mcp .sentry-build && rm -rf .sentry-build"
   },
-  "keywords": ["mcp", "plausible", "analytics", "model-context-protocol"],
+  "keywords": [
+    "mcp",
+    "plausible",
+    "analytics",
+    "model-context-protocol"
+  ],
   "license": "MIT",
   "dependencies": {
     "@cloudflare/workers-types": "^4.20260317.1",
     "@modelcontextprotocol/sdk": "^1.7.0",
+    "@sentry/cloudflare": "^10.45.0",
     "agents": "^0.8.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@sentry/cli": "^3.3.3",
     "@types/bun": "latest",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

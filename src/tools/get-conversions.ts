@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PlausibleClient } from "../plausible.js";
@@ -36,28 +37,46 @@ export function register(
       },
     },
     async (args) => {
-      const siteId = resolveSiteId(args.site_id, defaultSiteId);
-      const metrics = ["visitors", "events", "conversion_rate"];
+      return Sentry.startSpan(
+        { op: "mcp.server", name: "tools/call get_conversions" },
+        async (span) => {
+          span.setAttribute("mcp.tool.name", "get_conversions");
+          span.setAttribute("mcp.method.name", "tools/call");
+          span.setAttribute("mcp.transport", "http");
+          span.setAttribute("network.transport", "tcp");
 
-      const filters: unknown[][] = [];
-      if (args.goal) filters.push(buildGoalFilter(args.goal));
-      if (args.page) filters.push(buildPageFilter(args.page));
+          const siteId = resolveSiteId(args.site_id, defaultSiteId);
+          const metrics = ["visitors", "events", "conversion_rate"];
 
-      const dimensions = args.breakdown_by_page
-        ? ["event:goal", "event:page"]
-        : ["event:goal"];
+          span.setAttribute("plausible.site_id", siteId);
+          span.setAttribute("plausible.date_range", args.date_range);
+          if (args.goal) span.setAttribute("plausible.goal", args.goal);
+          if (args.page) span.setAttribute("plausible.page", args.page);
 
-      const result = await client.query({
-        site_id: siteId,
-        metrics,
-        date_range: args.date_range,
-        dimensions,
-        filters,
-      });
+          const filters: unknown[][] = [];
+          if (args.goal) filters.push(buildGoalFilter(args.goal));
+          if (args.page) filters.push(buildPageFilter(args.page));
 
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-      };
+          const dimensions = args.breakdown_by_page
+            ? ["event:goal", "event:page"]
+            : ["event:goal"];
+
+          const result = await client.query({
+            site_id: siteId,
+            metrics,
+            date_range: args.date_range,
+            dimensions,
+            filters,
+          });
+
+          span.setAttribute("mcp.tool.result.is_error", false);
+          span.setAttribute("mcp.tool.result.content_count", result.results.length);
+
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          };
+        }
+      );
     }
   );
 }
