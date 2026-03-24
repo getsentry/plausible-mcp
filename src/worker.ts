@@ -5,6 +5,7 @@ import { createServer } from "./server.js";
 interface Env {
   PLAUSIBLE_BASE_URL?: string;
   PLAUSIBLE_DEFAULT_SITE_ID?: string;
+  SENTRY_RELEASE?: string;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -26,6 +27,7 @@ function corsResponse(response: Response): Response {
 export default Sentry.withSentry(
   (env: Env) => ({
     dsn: "https://134f0164571c61a45123cc7944c153e6@o4505994951065600.ingest.us.sentry.io/4511097506758656",
+    release: env.SENTRY_RELEASE,
     tracesSampleRate: 1.0,
     sendDefaultPii: true,
   }),
