@@ -72,7 +72,7 @@ describe("PlausibleClient", () => {
     expect(body.dimensions).toEqual(["time:day"]);
   });
 
-  it("wraps single filter without 'and'", async () => {
+  it("passes single filter as array", async () => {
     mockOk({ results: [], meta: {}, query: {} });
 
     await client.query({
@@ -83,10 +83,10 @@ describe("PlausibleClient", () => {
     });
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.filters).toEqual(["is", "event:page", ["/pricing"]]);
+    expect(body.filters).toEqual([["is", "event:page", ["/pricing"]]]);
   });
 
-  it("wraps multiple filters with 'and'", async () => {
+  it("passes multiple filters as array (implicit AND)", async () => {
     mockOk({ results: [], meta: {}, query: {} });
 
     await client.query({
@@ -101,7 +101,6 @@ describe("PlausibleClient", () => {
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.filters).toEqual([
-      "and",
       ["is", "event:page", ["/pricing"]],
       ["is", "event:goal", ["Signup"]],
     ]);

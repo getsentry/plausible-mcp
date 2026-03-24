@@ -4,3 +4,6 @@ dist/
 .env.local
 *.tsbuildinfo
 .sentry-build/
+
+# Sentry Config File
+.sentryclirc
