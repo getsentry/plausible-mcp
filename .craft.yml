@@ -1,0 +1,4 @@
+changelogPolicy: none
+preReleaseCommand: bash bin/bump-version.sh
+targets:
+  - name: github
