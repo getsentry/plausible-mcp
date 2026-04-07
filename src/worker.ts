@@ -68,12 +68,23 @@ export default Sentry.withSentry(
       const authHeader = request.headers.get("Authorization");
       const apiKey = authHeader?.replace(/^Bearer\s+/i, "").trim();
 
-      if (!apiKey || apiKey.length < 8) {
+      if (!apiKey) {
         return corsResponse(
           new Response(
             JSON.stringify({
               error:
                 "Missing Plausible API key. Pass it as a Bearer token in the Authorization header.",
+            }),
+            { status: 401, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
+      if (apiKey.length < 8) {
+        return corsResponse(
+          new Response(
+            JSON.stringify({
+              error: "Invalid API key. Key is too short.",
             }),
             { status: 401, headers: { "Content-Type": "application/json" } },
           ),
