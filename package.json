@@ -15,7 +15,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "eval": "bun run evals/run.ts",
-    "deploy": "SENTRY_RELEASE=$(git rev-parse --short HEAD) && npx wrangler deploy --outdir .sentry-build --var SENTRY_RELEASE:$SENTRY_RELEASE && npx sentry-cli releases new $SENTRY_RELEASE --org sergtech --project plausible-mcp && npx sentry-cli sourcemaps upload --org sergtech --project plausible-mcp --release $SENTRY_RELEASE .sentry-build && rm -rf .sentry-build"
+    "deploy": "SENTRY_RELEASE=$(git rev-parse --short HEAD) && npx wrangler deploy --outdir .sentry-build --var SENTRY_RELEASE:$SENTRY_RELEASE && npx sentry-cli releases new $SENTRY_RELEASE --org sentry-developer-experience --project plausible-mcp && npx sentry-cli sourcemaps upload --org sentry-developer-experience --project plausible-mcp --release $SENTRY_RELEASE .sentry-build && rm -rf .sentry-build"
   },
   "keywords": [
     "mcp",

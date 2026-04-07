@@ -5,7 +5,7 @@ Thanks for your interest in contributing!
 ## Development Setup
 
 ```bash
-git clone https://github.com/sergical/plausible-mcp.git
+git clone https://github.com/getsentry/plausible-mcp.git
 cd plausible-mcp
 bun install
 ```

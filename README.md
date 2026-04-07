@@ -37,7 +37,7 @@ When prompted for authentication, use your Plausible API key as the Bearer token
 If you prefer to run it locally:
 
 ```bash
-git clone https://github.com/sergical/plausible-mcp.git
+git clone https://github.com/getsentry/plausible-mcp.git
 cd plausible-mcp
 bun install
 ```
@@ -69,7 +69,7 @@ Or Claude Desktop (`claude_desktop_config.json`):
 Deploy your own instance:
 
 ```bash
-git clone https://github.com/sergical/plausible-mcp.git
+git clone https://github.com/getsentry/plausible-mcp.git
 cd plausible-mcp
 bun install
 npx wrangler deploy

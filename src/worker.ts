@@ -26,7 +26,7 @@ function corsResponse(response: Response): Response {
 
 export default Sentry.withSentry(
   (env: Env) => ({
-    dsn: "https://134f0164571c61a45123cc7944c153e6@o4505994951065600.ingest.us.sentry.io/4511097506758656",
+    dsn: "https://de333c4dff86900878d446e663271b2a@o4509446862274560.ingest.us.sentry.io/4511179029020672",
     release: env.SENTRY_RELEASE,
     tracesSampleRate: 1.0,
     sendDefaultPii: true,
