@@ -2,10 +2,15 @@ import * as Sentry from "@sentry/cloudflare";
 import { createMcpHandler } from "agents/mcp";
 import { createServer } from "./server.js";
 
+interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 interface Env {
   PLAUSIBLE_BASE_URL?: string;
   PLAUSIBLE_DEFAULT_SITE_ID?: string;
   SENTRY_RELEASE?: string;
+  RATE_LIMITER?: RateLimiter;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -42,6 +47,20 @@ export default Sentry.withSentry(
       // Handle CORS preflight
       if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
+      }
+
+      // Rate limit by IP
+      const clientIp = request.headers.get("CF-Connecting-IP") ?? "unknown";
+      if (env.RATE_LIMITER) {
+        const { success } = await env.RATE_LIMITER.limit({ key: clientIp });
+        if (!success) {
+          return corsResponse(
+            new Response(
+              JSON.stringify({ error: "Rate limit exceeded. Try again later." }),
+              { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "60" } },
+            ),
+          );
+        }
       }
 
       // Extract the user's Plausible API key from the Authorization header.
