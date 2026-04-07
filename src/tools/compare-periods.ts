@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/cloudflare";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
+import { PlausibleApiError, type PlausibleClient, type PlausibleResponse } from "../plausible.js";
 import {
   siteIdSchema,
   pageSchema,
@@ -137,8 +137,11 @@ export function register(
           } catch (error) {
             span.setAttribute("mcp.tool.result.is_error", true);
             Sentry.captureException(error);
+            const message = error instanceof PlausibleApiError
+              ? `Plausible API returned ${error.status}`
+              : error instanceof Error ? error.message : String(error);
             return {
-              content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+              content: [{ type: "text" as const, text: `Error: ${message}` }],
               isError: true,
             };
           }

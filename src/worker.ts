@@ -14,6 +14,8 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, Accept, Mcp-Session-Id",
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
+  "Cache-Control": "no-store",
+  "X-Content-Type-Options": "nosniff",
 };
 
 function corsResponse(response: Response): Response {
@@ -45,9 +47,9 @@ export default Sentry.withSentry(
       // Extract the user's Plausible API key from the Authorization header.
       // Each user provides their own key — no shared secret.
       const authHeader = request.headers.get("Authorization");
-      const apiKey = authHeader?.replace(/^Bearer\s+/i, "");
+      const apiKey = authHeader?.replace(/^Bearer\s+/i, "").trim();
 
-      if (!apiKey) {
+      if (!apiKey || apiKey.length < 8) {
         return corsResponse(
           new Response(
             JSON.stringify({

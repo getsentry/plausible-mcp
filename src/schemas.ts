@@ -57,12 +57,17 @@ export const siteIdSchema = z
 
 export const dateRangeSchema = z
   .string()
+  .regex(
+    /^(\d+d|\d+mo|day|month|year|all|\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2})$/,
+    'Must be "Nd", "Nmo", "day", "month", "year", "all", or "YYYY-MM-DD,YYYY-MM-DD"'
+  )
   .describe(
     'Date range: "7d", "30d", "12mo", "month", "year", "all", or "YYYY-MM-DD,YYYY-MM-DD"'
   );
 
 export const pageSchema = z
   .string()
+  .max(1024)
   .describe(
     "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*)"
   )
@@ -70,6 +75,7 @@ export const pageSchema = z
 
 export const goalSchema = z
   .string()
+  .max(1024)
   .describe("Filter by goal name (e.g. Signup, Purchase)")
   .optional();
 

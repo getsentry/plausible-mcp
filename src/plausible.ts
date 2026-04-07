@@ -39,10 +39,12 @@ export class PlausibleClient {
 
   constructor(config: PlausibleClientConfig) {
     this.apiKey = config.apiKey;
-    this.baseUrl = (config.baseUrl ?? "https://plausible.io").replace(
-      /\/$/,
-      ""
-    );
+    const raw = (config.baseUrl ?? "https://plausible.io").replace(/\/$/, "");
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") {
+      throw new Error("baseUrl must use HTTPS");
+    }
+    this.baseUrl = raw;
   }
 
   async query(params: PlausibleQueryParams): Promise<PlausibleResponse> {
