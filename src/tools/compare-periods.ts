@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PlausibleApiError, type PlausibleClient, type PlausibleResponse } from "../plausible.js";
+import { UserFacingError } from "../errors.js";
 import {
   siteIdSchema,
   dateRangeSchema,
@@ -135,7 +136,9 @@ export function register(
             Sentry.captureException(error);
             const message = error instanceof PlausibleApiError
               ? `Plausible API returned ${error.status}`
-              : "An unexpected error occurred";
+              : error instanceof UserFacingError
+                ? error.message
+                : "An unexpected error occurred";
             return {
               content: [{ type: "text" as const, text: `Error: ${message}` }],
               isError: true,

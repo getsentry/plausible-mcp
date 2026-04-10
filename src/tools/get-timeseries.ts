@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PlausibleApiError, type PlausibleClient } from "../plausible.js";
+import { UserFacingError } from "../errors.js";
 import {
   siteIdSchema,
   dateRangeSchema,
@@ -19,7 +20,7 @@ export function resolveSiteId(
 ): string {
   const siteId = explicit ?? defaultSiteId;
   if (!siteId) {
-    throw new Error(
+    throw new UserFacingError(
       "site_id is required. Pass it explicitly or set PLAUSIBLE_DEFAULT_SITE_ID."
     );
   }
@@ -92,7 +93,9 @@ export function register(
             Sentry.captureException(error);
             const message = error instanceof PlausibleApiError
               ? `Plausible API returned ${error.status}`
-              : "An unexpected error occurred";
+              : error instanceof UserFacingError
+                ? error.message
+                : "An unexpected error occurred";
             return {
               content: [{ type: "text" as const, text: `Error: ${message}` }],
               isError: true,

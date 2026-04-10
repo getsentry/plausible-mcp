@@ -41,6 +41,9 @@ export class PlausibleClient {
     this.apiKey = config.apiKey;
     const raw = (config.baseUrl ?? "https://plausible.io").replace(/\/$/, "");
     const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("baseUrl must use HTTPS (or HTTP for localhost)");
+    }
     if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") {
       throw new Error("baseUrl must use HTTPS");
     }
