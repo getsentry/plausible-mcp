@@ -84,7 +84,7 @@ export function register(
             Sentry.captureException(error);
             const message = error instanceof PlausibleApiError
               ? `Plausible API returned ${error.status}`
-              : error instanceof Error ? error.message : String(error);
+              : "An unexpected error occurred";
             return {
               content: [{ type: "text" as const, text: `Error: ${message}` }],
               isError: true,
