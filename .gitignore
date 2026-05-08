@@ -4,6 +4,8 @@ dist/
 .env.local
 *.tsbuildinfo
 .sentry-build/
+.dev.vars
+.wrangler/
 
 # Sentry Config File
 .sentryclirc
