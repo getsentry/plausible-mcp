@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PlausibleClient } from "./plausible.js";
 import { register as registerTimeseries } from "./tools/get-timeseries.js";
@@ -12,10 +13,12 @@ export interface ServerConfig {
 }
 
 export function createServer(config: ServerConfig): McpServer {
-  const server = new McpServer({
-    name: "plausible-mcp",
-    version: "0.1.0",
-  });
+  const server = Sentry.wrapMcpServerWithSentry(
+    new McpServer({
+      name: "plausible-mcp",
+      version: "0.1.0",
+    }),
+  );
 
   const client = new PlausibleClient({
     apiKey: config.apiKey,

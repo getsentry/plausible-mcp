@@ -52,57 +52,38 @@ export function register(
       },
     },
     async (args) => {
-      return Sentry.startSpan(
-        { op: "mcp.server", name: "tools/call get_timeseries" },
-        async (span) => {
-          span.setAttribute("mcp.tool.name", "get_timeseries");
-          span.setAttribute("mcp.method.name", "tools/call");
-          span.setAttribute("mcp.transport", "http");
-          span.setAttribute("network.transport", "tcp");
+      try {
+        const siteId = resolveSiteId(args.site_id, defaultSiteId);
+        const metrics = args.metrics ?? DEFAULT_METRICS;
+        const timeKey = `time:${args.granularity ?? "day"}`;
 
-          try {
-            const siteId = resolveSiteId(args.site_id, defaultSiteId);
-            const metrics = args.metrics ?? DEFAULT_METRICS;
-            const timeKey = `time:${args.granularity ?? "day"}`;
+        const filters: unknown[][] = [];
+        if (args.page) filters.push(buildPageFilter(args.page));
+        if (args.goal) filters.push(buildGoalFilter(args.goal));
 
-            span.setAttribute("plausible.site_id", siteId);
-            span.setAttribute("plausible.date_range", args.date_range);
-            if (args.page) span.setAttribute("plausible.page", args.page);
-            if (args.goal) span.setAttribute("plausible.goal", args.goal);
+        const result = await client.query({
+          site_id: siteId,
+          metrics,
+          date_range: args.date_range,
+          dimensions: [timeKey],
+          filters,
+        });
 
-            const filters: unknown[][] = [];
-            if (args.page) filters.push(buildPageFilter(args.page));
-            if (args.goal) filters.push(buildGoalFilter(args.goal));
-
-            const result = await client.query({
-              site_id: siteId,
-              metrics,
-              date_range: args.date_range,
-              dimensions: [timeKey],
-              filters,
-            });
-
-            span.setAttribute("mcp.tool.result.is_error", false);
-            span.setAttribute("mcp.tool.result.content_count", result.results.length);
-
-            return {
-              content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-            };
-          } catch (error) {
-            span.setAttribute("mcp.tool.result.is_error", true);
-            Sentry.captureException(error);
-            const message = error instanceof PlausibleApiError
-              ? `Plausible API returned ${error.status}`
-              : error instanceof UserFacingError
-                ? error.message
-                : "An unexpected error occurred";
-            return {
-              content: [{ type: "text" as const, text: `Error: ${message}` }],
-              isError: true,
-            };
-          }
-        }
-      );
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error) {
+        Sentry.captureException(error);
+        const message = error instanceof PlausibleApiError
+          ? `Plausible API returned ${error.status}`
+          : error instanceof UserFacingError
+            ? error.message
+            : "An unexpected error occurred";
+        return {
+          content: [{ type: "text" as const, text: `Error: ${message}` }],
+          isError: true,
+        };
+      }
     }
   );
 }
