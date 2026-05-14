@@ -19,7 +19,7 @@ bun run dev              # Run locally via STDIO
 bun run test             # Run all tests (vitest)
 bun run test:watch       # Watch mode
 bun run test -- __tests__/tools/get-timeseries.test.ts  # Single test file
-bun run deploy           # Deploy to Cloudflare Workers (includes Sentry sourcemaps)
+bun run deploy           # Deploy to Cloudflare Workers — passes package.json version as SENTRY_RELEASE
 
 # LLM evals (requires ANTHROPIC_API_KEY)
 ANTHROPIC_API_KEY=sk-... bun run eval

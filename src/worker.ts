@@ -9,6 +9,7 @@ interface RateLimiter {
 interface Env {
   PLAUSIBLE_BASE_URL?: string;
   PLAUSIBLE_DEFAULT_SITE_ID?: string;
+  SENTRY_DSN?: string;
   SENTRY_RELEASE?: string;
   RATE_LIMITER?: RateLimiter;
 }
@@ -17,7 +18,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, Accept, Mcp-Session-Id",
+    "Content-Type, Authorization, Accept, Mcp-Session-Id, X-Plausible-Site-Id",
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
   "Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
@@ -33,7 +34,9 @@ function corsResponse(response: Response): Response {
 
 export default Sentry.withSentry(
   (env: Env) => ({
-    dsn: "https://de333c4dff86900878d446e663271b2a@o4509446862274560.ingest.us.sentry.io/4511179029020672",
+    // Empty DSN disables the Sentry SDK. Set SENTRY_DSN as a wrangler secret
+    // when we want to start collecting telemetry into Frontic's Sentry org.
+    dsn: env.SENTRY_DSN ?? "",
     release: env.SENTRY_RELEASE,
     tracesSampleRate: 1.0,
     sendDefaultPii: true,
@@ -68,6 +71,15 @@ export default Sentry.withSentry(
       const authHeader = request.headers.get("Authorization");
       const apiKey = authHeader?.replace(/^Bearer\s+/i, "").trim();
 
+      // Per-request default site_id. Lets multi-tenant callers (e.g. the
+      // Frontic Studio bridge) bind a session to one Plausible site without
+      // having to thread `site_id` through every tool call. The header takes
+      // precedence over the env var; tool args (`args.site_id`) still win
+      // over both.
+      const requestSiteId = request.headers
+        .get("X-Plausible-Site-Id")
+        ?.trim();
+
       if (!apiKey) {
         return corsResponse(
           new Response(
@@ -97,7 +109,7 @@ export default Sentry.withSentry(
         server = createServer({
           apiKey,
           baseUrl: env.PLAUSIBLE_BASE_URL,
-          defaultSiteId: env.PLAUSIBLE_DEFAULT_SITE_ID,
+          defaultSiteId: requestSiteId || env.PLAUSIBLE_DEFAULT_SITE_ID,
         });
       } catch (error) {
         Sentry.captureException(error);

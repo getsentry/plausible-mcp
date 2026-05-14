@@ -3,11 +3,8 @@ main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat_v2"]
 
-# Set these via `wrangler secret put PLAUSIBLE_API_KEY`
-# or in the Cloudflare dashboard under Settings > Variables
-
 routes = [
-  { pattern = "plausible-mcp.sentry.dev", custom_domain = true }
+  { pattern = "plausible.mcp.frontic.com", custom_domain = true }
 ]
 
 [[unsafe.bindings]]
