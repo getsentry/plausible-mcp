@@ -52,13 +52,14 @@ If you prefer to run it locally:
 ```bash
 git clone https://github.com/getsentry/plausible-mcp.git
 cd plausible-mcp
-bun install
+pnpm install
+pnpm build
 ```
 
 Add to Claude Code:
 
 ```bash
-claude mcp add plausible -e PLAUSIBLE_API_KEY=your-key -- bun run src/index.ts
+claude mcp add plausible -e PLAUSIBLE_API_KEY=your-key -- node /path/to/plausible-mcp/dist/index.js
 ```
 
 Or Claude Desktop (`claude_desktop_config.json`):
@@ -67,8 +68,8 @@ Or Claude Desktop (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "plausible": {
-      "command": "bun",
-      "args": ["run", "/path/to/plausible-mcp/src/index.ts"],
+      "command": "node",
+      "args": ["/path/to/plausible-mcp/dist/index.js"],
       "env": {
         "PLAUSIBLE_API_KEY": "your-key"
       }
@@ -84,7 +85,7 @@ Deploy your own instance:
 ```bash
 git clone https://github.com/getsentry/plausible-mcp.git
 cd plausible-mcp
-bun install
+pnpm install
 npx wrangler deploy
 ```
 
@@ -115,16 +116,17 @@ This server wraps the [Plausible Stats API v2](https://plausible.io/docs/stats-a
 ## Development
 
 ```bash
-bun install
-bun run build      # TypeScript compilation
-bun run test       # Run 53 unit + integration tests
-bun run test:watch # Watch mode
+pnpm install
+pnpm build         # TypeScript compilation
+pnpm test          # Run unit + integration tests
+pnpm test:watch    # Watch mode
 ```
 
 ### Testing with MCP Inspector
 
 ```bash
-PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector bun run src/index.ts
+pnpm build
+PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
 ### LLM Evals
@@ -132,7 +134,7 @@ PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector bun run src/index
 Verifies Claude picks the right tool for natural language analytics questions:
 
 ```bash
-ANTHROPIC_API_KEY=sk-... bun run eval
+ANTHROPIC_API_KEY=sk-... pnpm eval
 ```
 
 ## Architecture

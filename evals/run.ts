@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env tsx
 
 import Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -9,7 +9,7 @@ import { cases } from "./cases.js";
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
   console.error("ANTHROPIC_API_KEY is required to run evals.");
-  console.error("Usage: ANTHROPIC_API_KEY=sk-... bun run eval");
+  console.error("Usage: ANTHROPIC_API_KEY=sk-... pnpm eval");
   process.exit(1);
 }
 

@@ -7,14 +7,15 @@
     "plausible-mcp": "./dist/index.js"
   },
   "main": "./dist/index.js",
+  "packageManager": "pnpm@11.1.3",
   "scripts": {
-    "build": "bun run tsc",
-    "dev": "bun run src/index.ts",
-    "start": "bun run dist/index.js",
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "eval": "bun run evals/run.ts",
+    "eval": "tsx evals/run.ts",
     "deploy": "SENTRY_RELEASE=$(node -p \"require('./package.json').version\") && npx wrangler deploy --outdir .sentry-build --var SENTRY_RELEASE:$SENTRY_RELEASE && npx sentry-cli releases new $SENTRY_RELEASE --org sentry-developer-experience --project plausible-mcp && npx sentry-cli sourcemaps upload --org sentry-developer-experience --project plausible-mcp --release $SENTRY_RELEASE .sentry-build && rm -rf .sentry-build"
   },
   "keywords": [
@@ -34,7 +35,8 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@sentry/cli": "^2",
-    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
