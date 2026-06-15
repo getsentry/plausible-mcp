@@ -22,12 +22,12 @@ All tools are **read-only** and annotated with `readOnlyHint: true`.
 
 ### Remote (Hosted)
 
-A hosted instance is available at **`https://plausible-mcp.sentry.dev`**. Each user provides their own Plausible API key as a Bearer token — no setup required.
+A hosted instance is available at **`https://plausible-mcp.sentry.dev`**.
 
-Add to Claude Code:
+**With your own Plausible API key** (any user):
 
 ```bash
-claude mcp add --transport http plausible https://plausible-mcp.sentry.dev/mcp --header "Authorization: Bearer YOUR_PLAUSIBLE_API_KEY"
+claude mcp add plausible --transport http --header "Authorization: Bearer YOUR_PLAUSIBLE_API_KEY" https://plausible-mcp.sentry.dev/mcp
 ```
 
 Or add manually to your MCP client config (Claude Desktop, Cursor, etc.):
@@ -44,6 +44,16 @@ Or add manually to your MCP client config (Claude Desktop, Cursor, etc.):
   }
 }
 ```
+
+**Sentry employees** (via OAuth 2.1 + Cloudflare Access):
+
+The `/internal` endpoint is an OAuth 2.1 server — no API key needed. Add it as a remote/custom connector in any OAuth-capable MCP client (Cowork, Claude.ai connectors, Claude Desktop):
+
+```
+https://plausible-mcp.sentry.dev/internal
+```
+
+The client discovers the OAuth endpoints automatically, sends you through Sentry SSO (Cloudflare Access), and only `@sentry.io` identities are granted access. Queries run against a shared, server-side Plausible API key — you never handle a key.
 
 ### Local (STDIO)
 
@@ -89,7 +99,33 @@ pnpm install
 npx wrangler deploy
 ```
 
-The worker is multi-tenant — each user passes their own Plausible API key via the `Authorization: Bearer` header. No shared secrets needed on the server.
+The worker exposes two endpoints:
+
+- **`/mcp`** — bring-your-own-key. Each user passes their own Plausible API key via the `Authorization: Bearer` header. No shared secrets needed on the server. Works with any header-capable MCP client (Claude Code, Cursor, MCP Inspector).
+- **`/internal`** — OAuth 2.1 server for managed connectors (Cowork, Claude.ai). Federates login to Cloudflare Access and queries a shared, server-side Plausible API key.
+
+#### Setting up the `/internal` OAuth endpoint
+
+1. **Create the KV namespace** (stores OAuth tokens/grants/state) and paste the id into `wrangler.toml`:
+   ```bash
+   npx wrangler kv namespace create OAUTH_KV
+   ```
+2. **Register a Cloudflare Access SaaS app** (Zero Trust → Access → Applications → *Add an application* → *SaaS* → **OIDC**):
+   - **Redirect URL**: `https://<your-worker-host>/callback`
+   - Scopes: `openid`, `email`, `profile`
+   - Add an Access **policy** restricting to your email domain (e.g. `@sentry.io`) and your identity provider (Google SSO).
+   - Copy the **Client ID**, **Client secret**, **Authorization endpoint**, and **Token endpoint**.
+3. **Set the worker secrets**:
+   ```bash
+   npx wrangler secret put CF_ACCESS_TEAM_DOMAIN      # https://<team>.cloudflareaccess.com
+   npx wrangler secret put ACCESS_CLIENT_ID
+   npx wrangler secret put ACCESS_CLIENT_SECRET
+   npx wrangler secret put ACCESS_AUTHORIZATION_URL
+   npx wrangler secret put ACCESS_TOKEN_URL
+   npx wrangler secret put COOKIE_ENCRYPTION_KEY      # openssl rand -hex 32
+   npx wrangler secret put PLAUSIBLE_API_KEY          # shared key for /internal queries
+   ```
+4. **Deploy** (`npx wrangler deploy`), then point an OAuth MCP client at `https://<your-worker-host>/internal`.
 
 ## Configuration
 

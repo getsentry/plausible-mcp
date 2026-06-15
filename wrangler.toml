@@ -1,14 +1,34 @@
 name = "plausible-mcp"
 main = "src/worker.ts"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
-
-# Set these via `wrangler secret put PLAUSIBLE_API_KEY`
-# or in the Cloudflare dashboard under Settings > Variables
+# global_fetch_strictly_public: required for OAuth CIMD (fetching client metadata
+# documents) and hardens it — fetch() can only reach public addresses, not internal
+# Worker/service bindings, blocking SSRF via a malicious client_id URL.
+compatibility_flags = ["nodejs_compat_v2", "global_fetch_strictly_public"]
 
 routes = [
   { pattern = "plausible-mcp.sentry.dev", custom_domain = true }
 ]
+
+[dev]
+port = 8787
+
+# KV namespace required by @cloudflare/workers-oauth-provider to persist OAuth
+# tokens, grants, and authorization state for the /internal (OAuth 2.1) endpoint.
+# Create with: npx wrangler kv namespace create OAUTH_KV  →  paste the id below.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "<run: wrangler kv namespace create OAUTH_KV>"
+
+# Secrets for the /internal OAuth endpoint (set via `wrangler secret put <NAME>`).
+# Values come from the Cloudflare Access "SaaS / OIDC" app that fronts this server:
+#   CF_ACCESS_TEAM_DOMAIN     https://<team>.cloudflareaccess.com  (for id_token JWKS + issuer)
+#   ACCESS_CLIENT_ID          Client ID
+#   ACCESS_CLIENT_SECRET      Client secret
+#   ACCESS_AUTHORIZATION_URL  Authorization endpoint
+#   ACCESS_TOKEN_URL          Token endpoint
+#   COOKIE_ENCRYPTION_KEY     openssl rand -hex 32
+# Plus the shared PLAUSIBLE_API_KEY used by /internal.
 
 [[unsafe.bindings]]
 name = "RATE_LIMITER"

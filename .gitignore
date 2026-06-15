@@ -2,9 +2,9 @@ node_modules/
 dist/
 .env
 .env.local
+.dev.vars
 *.tsbuildinfo
 .sentry-build/
-.dev.vars
 .wrangler/
 
 # Sentry Config File

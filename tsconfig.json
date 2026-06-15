@@ -13,5 +13,14 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "__tests__", "evals", "src/worker.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "__tests__",
+    "evals",
+    "src/worker.ts",
+    "src/env.ts",
+    "src/access-handler.ts",
+    "src/workers-oauth-utils.ts"
+  ]
 }
