@@ -88,6 +88,32 @@ describe("verifyCloudflareAccessJwt", () => {
     expect(await verifyCloudflareAccessJwt("onepart", config)).toBeNull();
   });
 
+  it("fails closed (returns null, does not throw) when a segment isn't valid base64/JSON", async () => {
+    const { jwk } = await makeValidJwt();
+    mockCertsEndpoint(jwk);
+
+    // Three parts (so it passes the length check and reaches segment decoding), but the
+    // header/payload aren't valid base64url-encoded JSON — atob/JSON.parse would throw.
+    const notJson = btoa("not json {").replace(/=+$/, "");
+    const invalidBase64 = "@@@";
+
+    await expect(
+      verifyCloudflareAccessJwt(`${notJson}.${notJson}.${notJson}`, config),
+    ).resolves.toBeNull();
+    await expect(
+      verifyCloudflareAccessJwt(`${invalidBase64}.${invalidBase64}.${invalidBase64}`, config),
+    ).resolves.toBeNull();
+  });
+
+  it("fails closed (returns null) when the certs fetch itself throws", async () => {
+    const { jwt } = await makeValidJwt();
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.reject(new Error("network down")),
+    );
+
+    await expect(verifyCloudflareAccessJwt(jwt, config)).resolves.toBeNull();
+  });
+
   it("returns email for a valid JWT", async () => {
     const { jwt, jwk } = await makeValidJwt();
     mockCertsEndpoint(jwk);

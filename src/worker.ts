@@ -98,6 +98,13 @@ const internalMcpHandler = {
       apiKey: env.PLAUSIBLE_API_KEY,
       baseUrl: env.PLAUSIBLE_BASE_URL,
       defaultSiteId: env.PLAUSIBLE_DEFAULT_SITE_ID,
+      // Deliberately record tool inputs/outputs into Sentry spans on /internal, attributed
+      // to the authenticated user via Sentry.setUser({ email }) above. This endpoint is
+      // SSO-gated to @sentry.io employees and uses a shared server-side key, so per-user
+      // I/O is what gives us attribution/abuse-tracing on the shared quota. The recorded
+      // data is analytics query params (site ids, date ranges) and aggregate traffic
+      // numbers — not personal PII — and Authorization/Cookie/JWT headers are still
+      // stripped globally by beforeSendSpan.
       recordPii: true,
     });
 
@@ -115,12 +122,15 @@ async function handleDirectMcp(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  const authHeader = request.headers.get("Authorization");
-  const apiKey = authHeader?.replace(/^Bearer\s+/i, "").trim();
+  // Require a well-formed `Bearer <key>` header — a bare token with no scheme is
+  // rejected rather than silently accepted, so an accidentally-pasted value fails loudly.
+  const authHeader = request.headers.get("Authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+  const apiKey = match?.[1]?.trim();
 
   if (!apiKey) {
     return jsonError(
-      "Missing Plausible API key. Pass it as a Bearer token in the Authorization header.",
+      "Missing or malformed Authorization header. Pass your Plausible API key as `Bearer <key>`.",
       401,
     );
   }

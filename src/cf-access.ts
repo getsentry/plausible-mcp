@@ -50,6 +50,20 @@ export async function verifyCloudflareAccessJwt(
   jwt: string,
   config: AccessConfig,
 ): Promise<{ email: string } | null> {
+  try {
+    return await verifyInner(jwt, config);
+  } catch {
+    // Fail closed: a malformed segment (bad base64/JSON), a JWKS fetch error, or any
+    // other unexpected throw must surface as "not authorized" (caller returns 403),
+    // never as an uncaught 500. The upstream id_token from /callback flows through here.
+    return null;
+  }
+}
+
+async function verifyInner(
+  jwt: string,
+  config: AccessConfig,
+): Promise<{ email: string } | null> {
   const parts = jwt.split(".");
   if (parts.length !== 3) return null;
 

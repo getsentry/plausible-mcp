@@ -20,6 +20,18 @@ const SERVER_INFO = {
     "Query Plausible Analytics traffic and conversion data. Sentry SSO (Cloudflare Access) is required to connect.",
 };
 
+// The OAuth federation endpoints derive the /callback redirect_uri from request.url
+// (see redirectToAccess + fetchUpstreamAuthToken). request.url is attacker-influenced
+// input, so we pin the accepted Host(s): production is served on the custom domain
+// (see wrangler.toml `routes`), plus localhost for `wrangler dev`. This is defense in
+// depth — it prevents redirect_uri from ever pointing at an unexpected origin if the
+// route set is ever widened (e.g. a *.workers.dev fallback).
+const ALLOWED_HOSTS = new Set([
+  "plausible-mcp.sentry.dev",
+  "localhost",
+  "127.0.0.1",
+]);
+
 /**
  * Implements the MCP client-facing OAuth authorize/callback endpoints, federating
  * the actual login to Cloudflare Access (configured as an upstream OIDC provider).
@@ -37,7 +49,13 @@ export async function handleAccessRequest(
   env: Env,
   _ctx: ExecutionContext,
 ): Promise<Response> {
-  const { pathname, searchParams } = new URL(request.url);
+  const url = new URL(request.url);
+  const { pathname, searchParams } = url;
+
+  // Reject unexpected Hosts before deriving any redirect_uri from request.url.
+  if (!ALLOWED_HOSTS.has(url.hostname)) {
+    return new Response("Unexpected host", { status: 400 });
+  }
 
   if (request.method === "GET" && pathname === "/authorize") {
     const oauthReqInfo = await env.OAUTH_PROVIDER.parseAuthRequest(request);
@@ -85,6 +103,23 @@ export async function handleAccessRequest(
 
       if (!state.oauthReqInfo || !state.oauthReqInfo.clientId) {
         return new Response("Invalid request", { status: 400 });
+      }
+
+      // The oauthReqInfo here is round-tripped through an attacker-influenceable hidden
+      // form field, so don't trust its redirect_uri. Re-validate it against the client's
+      // registered redirect URIs before it's persisted and later used to send the auth
+      // code back — otherwise a tampered field could exfiltrate the code to another origin.
+      const client = await env.OAUTH_PROVIDER.lookupClient(
+        state.oauthReqInfo.clientId,
+      );
+      if (!client) {
+        return new Response("Invalid request", { status: 400 });
+      }
+      if (
+        !state.oauthReqInfo.redirectUri ||
+        !client.redirectUris?.includes(state.oauthReqInfo.redirectUri)
+      ) {
+        return new Response("Invalid redirect_uri", { status: 400 });
       }
 
       const approvedClientCookie = await addApprovedClient(
