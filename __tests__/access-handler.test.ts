@@ -11,6 +11,7 @@ const REGISTERED_REDIRECT = "https://claude.ai/api/mcp/auth_callback";
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
+    SERVICE_HOSTNAME: "plausible-mcp.sentry.dev",
     COOKIE_ENCRYPTION_KEY: COOKIE_KEY,
     ACCESS_CLIENT_ID: "access-client-id",
     ACCESS_CLIENT_SECRET: "access-client-secret",
@@ -53,7 +54,7 @@ function postAuthorize(redirectUri: string, host = HOST): Request {
 const ctx = {} as ExecutionContext;
 
 describe("handleAccessRequest — host guard", () => {
-  it("rejects requests to an unexpected host", async () => {
+  it("rejects an unexpected host when SERVICE_HOSTNAME is configured", async () => {
     const res = await handleAccessRequest(
       new Request("https://evil.example/authorize", { method: "GET" }),
       makeEnv(),
@@ -63,13 +64,31 @@ describe("handleAccessRequest — host guard", () => {
     expect(await res.text()).toBe("Unexpected host");
   });
 
-  it("allows the production custom domain", async () => {
+  it("allows the configured SERVICE_HOSTNAME", async () => {
     const res = await handleAccessRequest(
       new Request(`${HOST}/unknown-path`, { method: "GET" }),
       makeEnv(),
       ctx,
     );
     // Passes the host guard; falls through to the 404 for unknown routes.
+    expect(res.status).toBe(404);
+  });
+
+  it("allows localhost for wrangler dev", async () => {
+    const res = await handleAccessRequest(
+      new Request("http://localhost:8787/unknown-path", { method: "GET" }),
+      makeEnv(),
+      ctx,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("skips the host check when SERVICE_HOSTNAME is unset (self-hosting)", async () => {
+    const res = await handleAccessRequest(
+      new Request("https://my-own-worker.example.com/unknown-path", { method: "GET" }),
+      makeEnv({ SERVICE_HOSTNAME: undefined }),
+      ctx,
+    );
     expect(res.status).toBe(404);
   });
 });

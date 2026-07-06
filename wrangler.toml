@@ -10,6 +10,12 @@ routes = [
   { pattern = "plausible-mcp.sentry.dev", custom_domain = true }
 ]
 
+[vars]
+# Public host this worker is served on. Pins the OAuth authorize/callback Host as
+# defense in depth. Self-hosting on a different host? Change this to your host (or
+# remove it to disable the check). localhost is always allowed for `wrangler dev`.
+SERVICE_HOSTNAME = "plausible-mcp.sentry.dev"
+
 [dev]
 port = 8787
 

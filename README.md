@@ -125,7 +125,8 @@ The worker exposes two endpoints:
    npx wrangler secret put COOKIE_ENCRYPTION_KEY      # openssl rand -hex 32
    npx wrangler secret put PLAUSIBLE_API_KEY          # shared key for /internal queries
    ```
-4. **Deploy** (`npx wrangler deploy`), then point an OAuth MCP client at `https://<your-worker-host>/internal`.
+4. **Set `SERVICE_HOSTNAME`** in `wrangler.toml` `[vars]` to your worker host (the default is `plausible-mcp.sentry.dev`). It pins the accepted Host on the OAuth authorize/callback endpoints; remove it to disable that check.
+5. **Deploy** (`npx wrangler deploy`), then point an OAuth MCP client at `https://<your-worker-host>/internal`.
 
 ## Configuration
 

@@ -21,16 +21,16 @@ const SERVER_INFO = {
 };
 
 // The OAuth federation endpoints derive the /callback redirect_uri from request.url
-// (see redirectToAccess + fetchUpstreamAuthToken). request.url is attacker-influenced
-// input, so we pin the accepted Host(s): production is served on the custom domain
-// (see wrangler.toml `routes`), plus localhost for `wrangler dev`. This is defense in
-// depth — it prevents redirect_uri from ever pointing at an unexpected origin if the
-// route set is ever widened (e.g. a *.workers.dev fallback).
-const ALLOWED_HOSTS = new Set([
-  "plausible-mcp.sentry.dev",
-  "localhost",
-  "127.0.0.1",
-]);
+// (see redirectToAccess + fetchUpstreamAuthToken), which is attacker-influenced input.
+// When SERVICE_HOSTNAME is configured we pin the accepted Host to it (plus localhost for
+// `wrangler dev`) as defense in depth against redirect_uri pointing at an unexpected
+// origin if the route set is ever widened. When it's unset the check is skipped so
+// self-hosted deploys on any hostname still work (see README).
+function isAllowedHost(hostname: string, env: Env): boolean {
+  if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+  if (!env.SERVICE_HOSTNAME) return true;
+  return hostname === env.SERVICE_HOSTNAME;
+}
 
 /**
  * Implements the MCP client-facing OAuth authorize/callback endpoints, federating
@@ -53,7 +53,7 @@ export async function handleAccessRequest(
   const { pathname, searchParams } = url;
 
   // Reject unexpected Hosts before deriving any redirect_uri from request.url.
-  if (!ALLOWED_HOSTS.has(url.hostname)) {
+  if (!isAllowedHost(url.hostname, env)) {
     return new Response("Unexpected host", { status: 400 });
   }
 

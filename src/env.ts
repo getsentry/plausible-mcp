@@ -22,6 +22,14 @@ export interface Env {
   // Sentry
   SENTRY_RELEASE?: string;
 
+  /**
+   * Optional: the public host this worker is served on (e.g. plausible-mcp.sentry.dev).
+   * When set, the OAuth authorize/callback endpoints reject requests to any other Host
+   * as defense in depth (the /callback redirect_uri is derived from request.url). Leave
+   * unset to disable the check — required for self-hosted deploys on a different host.
+   */
+  SERVICE_HOSTNAME?: string;
+
   // Cloudflare bindings
   RATE_LIMITER?: RateLimiter;
   /** KV namespace required by @cloudflare/workers-oauth-provider for tokens/grants/state. */
