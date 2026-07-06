@@ -2,13 +2,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   verifyCloudflareAccessJwt,
   clearCertsCache,
+  parseAllowedEmailDomains,
   type AccessConfig,
 } from "../src/cf-access.js";
 
 const TEAM_DOMAIN = "https://sentry.cloudflareaccess.com";
 const AUD = "test-audience-tag";
 
-const config: AccessConfig = { teamDomain: TEAM_DOMAIN, aud: AUD };
+const config: AccessConfig = {
+  teamDomain: TEAM_DOMAIN,
+  aud: AUD,
+  allowedEmailDomains: ["sentry.io"],
+};
 
 function base64Url(obj: Record<string, unknown>): string {
   return btoa(JSON.stringify(obj))
@@ -158,6 +163,23 @@ describe("verifyCloudflareAccessJwt", () => {
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
+  it("accepts an email in a configured custom domain (self-hosting)", async () => {
+    const { jwt, jwk } = await makeValidJwt({
+      payload: { email: "user@acme.com" },
+    });
+    mockCertsEndpoint(jwk);
+
+    const customConfig: AccessConfig = {
+      ...config,
+      allowedEmailDomains: ["acme.com", "contractors.acme.com"],
+    };
+    expect(await verifyCloudflareAccessJwt(jwt, customConfig)).toEqual({
+      email: "user@acme.com",
+    });
+    // The default sentry.io gate must NOT admit the custom-domain user.
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+  });
+
   it("returns null for wrong issuer", async () => {
     const { jwt, jwk } = await makeValidJwt({
       payload: { iss: "https://evil.cloudflareaccess.com" },
@@ -233,6 +255,17 @@ describe("verifyCloudflareAccessJwt", () => {
     );
 
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+  });
+
+  it("parseAllowedEmailDomains normalizes and defaults", () => {
+    expect(parseAllowedEmailDomains(undefined)).toEqual(["sentry.io"]);
+    expect(parseAllowedEmailDomains("")).toEqual(["sentry.io"]);
+    expect(parseAllowedEmailDomains("  ")).toEqual(["sentry.io"]);
+    expect(parseAllowedEmailDomains("@acme.com")).toEqual(["acme.com"]);
+    expect(parseAllowedEmailDomains("Acme.com, @Contractors.Acme.com")).toEqual([
+      "acme.com",
+      "contractors.acme.com",
+    ]);
   });
 
   it("caches certs across calls", async () => {

@@ -15,6 +15,25 @@ interface AccessJwtPayload {
 export interface AccessConfig {
   teamDomain: string;
   aud: string;
+  /**
+   * Email domains allowed to authenticate, without the leading "@" (e.g.
+   * ["sentry.io"]). The verified identity's email must end with one of these.
+   * Defense in depth on top of the upstream Cloudflare Access policy.
+   */
+  allowedEmailDomains: string[];
+}
+
+/**
+ * Parses the ALLOWED_EMAIL_DOMAIN env value (comma-separated, "@" optional) into a
+ * normalized list. Defaults to ["sentry.io"] when unset/empty so the canonical hosted
+ * deploy stays Sentry-only and self-hosters fail closed until they configure their own.
+ */
+export function parseAllowedEmailDomains(raw?: string): string[] {
+  const domains = (raw ?? "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+    .filter((d) => d.length > 0);
+  return domains.length > 0 ? domains : ["sentry.io"];
 }
 
 let cachedCerts: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
@@ -120,8 +139,12 @@ async function verifyInner(
   if (!payload.iss || payload.iss !== config.teamDomain) return null;
 
   const email = payload.email;
+  if (!email) return null;
   // Case-insensitive: identity providers may return mixed-case local parts.
-  if (!email || !email.toLowerCase().endsWith("@sentry.io")) return null;
+  const normalizedEmail = email.toLowerCase();
+  if (!config.allowedEmailDomains.some((d) => normalizedEmail.endsWith(`@${d}`))) {
+    return null;
+  }
 
   return { email };
 }

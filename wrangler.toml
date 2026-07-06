@@ -15,6 +15,10 @@ routes = [
 # defense in depth. Self-hosting on a different host? Change this to your host (or
 # remove it to disable the check). localhost is always allowed for `wrangler dev`.
 SERVICE_HOSTNAME = "plausible-mcp.sentry.dev"
+# Email domain(s) allowed to sign in to the /internal OAuth endpoint (comma-separated,
+# "@" optional). The hosted instance is Sentry-only. Self-hosting? Set this to your own
+# domain(s) — the upstream Cloudflare Access policy is not sufficient on its own.
+ALLOWED_EMAIL_DOMAIN = "sentry.io"
 
 [dev]
 port = 8787

@@ -55,6 +55,8 @@ https://plausible-mcp.sentry.dev/internal
 
 The client discovers the OAuth endpoints automatically, sends you through Sentry SSO (Cloudflare Access), and only `@sentry.io` identities are granted access. Queries run against a shared, server-side Plausible API key — you never handle a key.
 
+> The **hosted** `/internal` at `plausible-mcp.sentry.dev` is Sentry-only and can't be used outside the org. To run `/internal` for a different organization, [self-host](#self-hosting-cloudflare-workers) and set `ALLOWED_EMAIL_DOMAIN` to your own domain. (The public `/mcp` bring-your-own-key endpoint has no such restriction.)
+
 ### Local (STDIO)
 
 If you prefer to run it locally:
@@ -102,7 +104,7 @@ npx wrangler deploy
 The worker exposes two endpoints:
 
 - **`/mcp`** — bring-your-own-key. Each user passes their own Plausible API key via the `Authorization: Bearer` header. No shared secrets needed on the server. Works with any header-capable MCP client (Claude Code, Cursor, MCP Inspector).
-- **`/internal`** — OAuth 2.1 server for managed connectors (Cowork, Claude.ai). Federates login to Cloudflare Access and queries a shared, server-side Plausible API key.
+- **`/internal`** — OAuth 2.1 server for managed connectors (Cowork, Claude.ai). Federates login to Cloudflare Access and queries a shared, server-side Plausible API key. Access is gated to the email domain(s) in `ALLOWED_EMAIL_DOMAIN` (defaults to `sentry.io`) — **not** tied to Sentry when you self-host; set it to your own domain.
 
 #### Setting up the `/internal` OAuth endpoint
 
@@ -113,7 +115,7 @@ The worker exposes two endpoints:
 2. **Register a Cloudflare Access SaaS app** (Zero Trust → Access → Applications → *Add an application* → *SaaS* → **OIDC**):
    - **Redirect URL**: `https://<your-worker-host>/callback`
    - Scopes: `openid`, `email`, `profile`
-   - Add an Access **policy** restricting to your email domain (e.g. `@sentry.io`) and your identity provider (Google SSO).
+   - Add an Access **policy** restricting to your email domain (e.g. `@acme.com`) and your identity provider (Google SSO).
    - Copy the **Client ID**, **Client secret**, **Authorization endpoint**, and **Token endpoint**.
 3. **Set the worker secrets**:
    ```bash
@@ -125,7 +127,9 @@ The worker exposes two endpoints:
    npx wrangler secret put COOKIE_ENCRYPTION_KEY      # openssl rand -hex 32
    npx wrangler secret put PLAUSIBLE_API_KEY          # shared key for /internal queries
    ```
-4. **Set `SERVICE_HOSTNAME`** in `wrangler.toml` `[vars]` to your worker host (the default is `plausible-mcp.sentry.dev`). It pins the accepted Host on the OAuth authorize/callback endpoints; remove it to disable that check.
+4. **Set the `[vars]` in `wrangler.toml`**:
+   - `SERVICE_HOSTNAME` — your worker host (default `plausible-mcp.sentry.dev`). Pins the accepted Host on the OAuth authorize/callback endpoints; remove it to disable that check.
+   - `ALLOWED_EMAIL_DOMAIN` — the email domain(s) allowed to sign in, comma-separated, `@` optional (default `sentry.io`). This is enforced in code **in addition to** the Access policy in step 2, so you must set it to your own domain — otherwise every login is rejected.
 5. **Deploy** (`npx wrangler deploy`), then point an OAuth MCP client at `https://<your-worker-host>/internal`.
 
 ## Configuration
@@ -135,8 +139,10 @@ The worker exposes two endpoints:
 | `PLAUSIBLE_API_KEY` | Yes (STDIO) | — | Your Plausible API key ([get one here](https://plausible.io/docs/stats-api)) |
 | `PLAUSIBLE_BASE_URL` | No | `https://plausible.io` | URL of your Plausible instance (for self-hosted) |
 | `PLAUSIBLE_DEFAULT_SITE_ID` | No | — | Default site domain so you don't have to pass `site_id` every call |
+| `SERVICE_HOSTNAME` | No (Worker) | — | Public host to pin the OAuth authorize/callback endpoints to (defense in depth). Skipped when unset. |
+| `ALLOWED_EMAIL_DOMAIN` | No (Worker `/internal`) | `sentry.io` | Comma-separated email domain(s) allowed to sign in to `/internal`. Set to your own domain when self-hosting. |
 
-For the Cloudflare Worker, `PLAUSIBLE_API_KEY` is not needed as an env var — each user passes their own key via the `Authorization: Bearer` header.
+On the Worker, the `/mcp` endpoint needs no server-side key — each user passes their own via `Authorization: Bearer`. The `/internal` OAuth endpoint uses a shared server-side `PLAUSIBLE_API_KEY` secret (see [self-hosting](#setting-up-the-internal-oauth-endpoint)).
 
 ## Plausible API
 

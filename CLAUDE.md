@@ -67,3 +67,5 @@ Worker `/internal` (OAuth 2.1 via Cloudflare Access) also needs these secrets �
 | `ACCESS_AUTHORIZATION_URL` / `ACCESS_TOKEN_URL` | Access OIDC authorize/token endpoints (upstream) |
 | `COOKIE_ENCRYPTION_KEY` | `openssl rand -hex 32` — signs approval/CSRF cookies |
 | `OAUTH_KV` (binding) | KV namespace for OAuth tokens/grants/state |
+| `SERVICE_HOSTNAME` (var, optional) | Pins the accepted Host on `/authorize` + `/callback`; skipped when unset |
+| `ALLOWED_EMAIL_DOMAIN` (var, optional) | Comma-separated email domain(s) gating `/internal` login. Defaults to `sentry.io`; the `@sentry.io` gate is **not** hardcoded — self-hosters set their own domain |

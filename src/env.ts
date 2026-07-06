@@ -30,6 +30,14 @@ export interface Env {
    */
   SERVICE_HOSTNAME?: string;
 
+  /**
+   * Optional: comma-separated email domain(s) allowed to sign in to /internal (the "@"
+   * is optional, e.g. "acme.com" or "acme.com,contractors.acme.com"). Defaults to
+   * "sentry.io". Self-hosters must set this to their own domain(s) — the upstream Access
+   * policy alone is not enough, the verified email is also checked here.
+   */
+  ALLOWED_EMAIL_DOMAIN?: string;
+
   // Cloudflare bindings
   RATE_LIMITER?: RateLimiter;
   /** KV namespace required by @cloudflare/workers-oauth-provider for tokens/grants/state. */

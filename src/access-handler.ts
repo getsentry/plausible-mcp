@@ -1,5 +1,5 @@
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
-import { verifyCloudflareAccessJwt } from "./cf-access.js";
+import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access.js";
 import type { Env, Props } from "./env.js";
 import {
   addApprovedClient,
@@ -179,17 +179,20 @@ export async function handleAccessRequest(
       return errResponse;
     }
 
-    // Reuse the same JWKS-based verifier as the legacy CF Access path: the id_token
-    // is signed by the team's /cdn-cgi/access/certs, its `aud` is our OIDC client_id,
-    // its `iss` is the team domain, and the email must be @sentry.io.
+    // Verify the id_token: signed by the team's /cdn-cgi/access/certs, its `aud` is our
+    // OIDC client_id, its `iss` is the team domain, and the email must be in one of the
+    // allowed domains (defaults to sentry.io; configurable via ALLOWED_EMAIL_DOMAIN).
+    const allowedEmailDomains = parseAllowedEmailDomains(env.ALLOWED_EMAIL_DOMAIN);
     const identity = await verifyCloudflareAccessJwt(idToken, {
       teamDomain: env.CF_ACCESS_TEAM_DOMAIN,
       aud: env.ACCESS_CLIENT_ID,
+      allowedEmailDomains,
     });
     if (!identity) {
-      return new Response("Forbidden: a valid @sentry.io identity is required.", {
-        status: 403,
-      });
+      return new Response(
+        `Forbidden: a valid identity in an allowed domain (${allowedEmailDomains.join(", ")}) is required.`,
+        { status: 403 },
+      );
     }
 
     // Keep plaintext PII out of the (unencrypted) grant store: the OAuth `userId`
