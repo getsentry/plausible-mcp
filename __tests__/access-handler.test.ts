@@ -93,6 +93,35 @@ describe("handleAccessRequest — host guard", () => {
   });
 });
 
+describe("handleAccessRequest — GET /authorize", () => {
+  it("returns 400 (not an uncaught 500) when the approval-dialog state can't be encoded", async () => {
+    const env = makeEnv({
+      OAUTH_PROVIDER: {
+        // Client-supplied `state` with a non-Latin1 char makes btoa throw in the dialog.
+        parseAuthRequest: vi.fn().mockResolvedValue({
+          clientId: CLIENT_ID,
+          redirectUri: REGISTERED_REDIRECT,
+          responseType: "code",
+          scope: ["mcp"],
+          state: "emoji-\u{1F600}",
+        }),
+        lookupClient: vi.fn().mockResolvedValue({
+          clientId: CLIENT_ID,
+          redirectUris: [REGISTERED_REDIRECT],
+        }),
+      } as unknown as Env["OAUTH_PROVIDER"],
+    });
+
+    // No approved-client cookie → falls through to rendering the consent dialog.
+    const res = await handleAccessRequest(
+      new Request(`${HOST}/authorize?client_id=${CLIENT_ID}`, { method: "GET" }),
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("handleAccessRequest — POST /authorize redirect_uri validation", () => {
   it("rejects a redirect_uri not registered to the client (tampered state)", async () => {
     const env = makeEnv();

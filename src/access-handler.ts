@@ -74,14 +74,22 @@ export async function handleAccessRequest(
       return redirectToAccess(request, env, stateToken, codeChallenge);
     }
 
+    const client = await env.OAUTH_PROVIDER.lookupClient(clientId);
     const { token: csrfToken, setCookie } = generateCSRFProtection();
-    return renderApprovalDialog(request, {
-      client: await env.OAUTH_PROVIDER.lookupClient(clientId),
-      csrfToken,
-      server: SERVER_INFO,
-      setCookie,
-      state: { oauthReqInfo },
-    });
+    try {
+      // renderApprovalDialog base64-encodes the request state; btoa throws a DOMException
+      // on non-ASCII characters (the client-supplied `state`/redirect params are arbitrary).
+      // It's pure/no-I/O, so a throw here is bad input — return 400, not an uncaught 500.
+      return renderApprovalDialog(request, {
+        client,
+        csrfToken,
+        server: SERVER_INFO,
+        setCookie,
+        state: { oauthReqInfo },
+      });
+    } catch {
+      return new Response("Invalid request", { status: 400 });
+    }
   }
 
   if (request.method === "POST" && pathname === "/authorize") {
@@ -204,7 +212,8 @@ export async function handleAccessRequest(
       props: { email: identity.email } satisfies Props,
       request: oauthReqInfo,
       scope: oauthReqInfo.scope,
-      userId: await sha256Hex(identity.email),
+      // Normalize casing so a mixed-case email from the IdP maps to one stable grant.
+      userId: await sha256Hex(identity.email.toLowerCase()),
     });
     return Response.redirect(redirectTo, 302);
   }
