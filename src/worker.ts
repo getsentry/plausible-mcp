@@ -32,6 +32,16 @@ function corsResponse(response: Response): Response {
   for (const [key, value] of Object.entries(CORS_HEADERS)) {
     patched.headers.set(key, value);
   }
+  // Reconstructing a Response can collapse repeated Set-Cookie headers into one on
+  // some runtimes. Re-apply them individually (read from the original) so the POST
+  // /authorize redirect keeps BOTH the approved-client and CSRF-clear cookies.
+  const setCookies =
+    (response.headers as Headers & { getSetCookie?: () => string[] })
+      .getSetCookie?.() ?? [];
+  if (setCookies.length > 0) {
+    patched.headers.delete("Set-Cookie");
+    for (const cookie of setCookies) patched.headers.append("Set-Cookie", cookie);
+  }
   return patched;
 }
 
