@@ -189,6 +189,29 @@ describe("verifyCloudflareAccessJwt", () => {
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
+  it("normalizes a trailing slash on teamDomain so the issuer still matches", async () => {
+    const { jwt, jwk } = await makeValidJwt();
+    mockCertsEndpoint(jwk);
+
+    // Access issues `iss` with no trailing slash; a misconfigured trailing slash on
+    // CF_ACCESS_TEAM_DOMAIN must not reject every token.
+    const trailingSlashConfig: AccessConfig = {
+      ...config,
+      teamDomain: `${TEAM_DOMAIN}/`,
+    };
+    expect(await verifyCloudflareAccessJwt(jwt, trailingSlashConfig)).toEqual({
+      email: "user@sentry.io",
+    });
+  });
+
+  it("returns null when exp equals now (rejects on the expiry second)", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const { jwt, jwk } = await makeValidJwt({ payload: { exp: nowSec } });
+    mockCertsEndpoint(jwk);
+
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+  });
+
   it("returns null when kid doesn't match any cert even after refresh", async () => {
     const { jwt, jwk } = await makeValidJwt({ kid: "unknown-kid" });
     (jwk as Record<string, unknown>).kid = "different-kid";

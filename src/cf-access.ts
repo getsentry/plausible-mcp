@@ -86,7 +86,12 @@ async function verifyInner(
   const parts = jwt.split(".");
   if (parts.length !== 3) return null;
 
-  let certs = await getAccessCerts(config.teamDomain);
+  // Normalize a trailing slash on the configured team domain. Access `iss` claims and
+  // the JWKS path carry none, so "https://team.cloudflareaccess.com/" would otherwise
+  // fail the issuer check for every token (and double-slash the certs URL).
+  const teamDomain = config.teamDomain.replace(/\/+$/, "");
+
+  let certs = await getAccessCerts(teamDomain);
   if (!certs) return null;
 
   const header = JSON.parse(base64UrlDecode(parts[0])) as {
@@ -100,7 +105,7 @@ async function verifyInner(
 
   let jwk = certs.keys.find((k) => (k as JsonWebKey & { kid?: string }).kid === header.kid);
   if (!jwk) {
-    certs = await getAccessCerts(config.teamDomain, true);
+    certs = await getAccessCerts(teamDomain, true);
     if (!certs) return null;
     jwk = certs.keys.find((k) => (k as JsonWebKey & { kid?: string }).kid === header.kid);
     if (!jwk) return null;
@@ -131,12 +136,13 @@ async function verifyInner(
   const payload = JSON.parse(base64UrlDecode(parts[1])) as AccessJwtPayload;
 
   const now = Math.floor(Date.now() / 1000);
-  if (payload.exp == null || payload.exp < now) return null;
+  // Reject on or after exp (RFC 7519: the token must not be accepted at/after exp).
+  if (payload.exp == null || payload.exp <= now) return null;
 
   const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (!aud.includes(config.aud)) return null;
 
-  if (!payload.iss || payload.iss !== config.teamDomain) return null;
+  if (!payload.iss || payload.iss !== teamDomain) return null;
 
   const email = payload.email;
   if (!email) return null;
