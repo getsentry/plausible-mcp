@@ -7,15 +7,15 @@ Thanks for your interest in contributing!
 ```bash
 git clone https://github.com/getsentry/plausible-mcp.git
 cd plausible-mcp
-bun install
+pnpm install
 ```
 
 ## Running Tests
 
 ```bash
-bun run test          # All tests
-bun run test:watch    # Watch mode
-bun run test:coverage # With coverage report
+pnpm test          # All tests
+pnpm test:watch    # Watch mode
+pnpm test:coverage # With coverage report
 ```
 
 Tests use [Vitest](https://vitest.dev) with mocked `fetch` — no Plausible account needed to run them.
@@ -34,17 +34,18 @@ Tests use [Vitest](https://vitest.dev) with mocked `fetch` — no Plausible acco
 Requires an Anthropic API key:
 
 ```bash
-ANTHROPIC_API_KEY=sk-... bun run eval
+ANTHROPIC_API_KEY=sk-... pnpm eval
 ```
 
 ## Testing the MCP Server Locally
 
 ```bash
-PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector bun run src/index.ts
+pnpm build
+PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
 ## Pull Requests
 
-- Make sure `bun run test` passes
-- Make sure `bun run build` compiles cleanly
+- Make sure `pnpm test` passes
+- Make sure `pnpm build` compiles cleanly
 - Keep PRs focused — one feature or fix per PR

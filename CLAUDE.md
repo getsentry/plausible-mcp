@@ -13,19 +13,19 @@ Two entry points:
 ## Commands
 
 ```bash
-bun install              # Install dependencies
-bun run build            # TypeScript compilation (tsc)
-bun run dev              # Run locally via STDIO
-bun run test             # Run all tests (vitest)
-bun run test:watch       # Watch mode
-bun run test -- __tests__/tools/get-timeseries.test.ts  # Single test file
-bun run deploy           # Deploy to Cloudflare Workers (includes Sentry sourcemaps)
+pnpm install             # Install dependencies
+pnpm build               # TypeScript compilation (tsc)
+pnpm dev                 # Run locally via STDIO (tsx)
+pnpm test                # Run all tests (vitest)
+pnpm test:watch          # Watch mode
+pnpm test __tests__/tools/get-timeseries.test.ts  # Single test file
+pnpm deploy              # Deploy to Cloudflare Workers (includes Sentry sourcemaps)
 
 # LLM evals (requires ANTHROPIC_API_KEY)
-ANTHROPIC_API_KEY=sk-... bun run eval
+ANTHROPIC_API_KEY=sk-... pnpm eval
 
 # Test with MCP Inspector
-PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector bun run src/index.ts
+pnpm build && PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
 ## Architecture

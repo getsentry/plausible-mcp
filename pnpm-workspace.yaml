@@ -1,0 +1,14 @@
+# esbuild (used by tsx + vitest) and @sentry/cli need their post-install
+# scripts to fetch platform binaries; pnpm blocks build scripts by default.
+onlyBuiltDependencies:
+  - "@sentry/cli"
+  - esbuild
+allowBuilds:
+  "@sentry/cli": true
+  esbuild: true
+  core-js-pure: false
+
+# Force esbuild (transitive via tsx + vitest) to the patched 0.28.1 — earlier
+# versions have a high-severity advisory (GHSA-gv7w-rqvm-qjhr).
+overrides:
+  esbuild: ">=0.28.1"
