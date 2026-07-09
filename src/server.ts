@@ -10,6 +10,7 @@ export interface ServerConfig {
   apiKey: string;
   baseUrl?: string;
   defaultSiteId?: string;
+  recordPii?: boolean;
 }
 
 export function createServer(config: ServerConfig): McpServer {
@@ -18,6 +19,10 @@ export function createServer(config: ServerConfig): McpServer {
       name: "plausible-mcp",
       version: "0.2.0",
     }),
+    {
+      recordInputs: config.recordPii ?? false,
+      recordOutputs: config.recordPii ?? false,
+    },
   );
 
   const client = new PlausibleClient({

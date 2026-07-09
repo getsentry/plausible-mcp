@@ -1,14 +1,29 @@
-name = "plausible-mcp"
+# Isolated TEST worker for the Cloudflare Access "Managed OAuth" (native) approach.
+# Deploys to *.workers.dev (no custom domain / route) so it can NEVER overwrite the
+# production `plausible-mcp` worker or its plausible-mcp.sentry.dev route. Prove a real
+# Cowork connection here before porting to a production PR.
+name = "plausible-mcp-accesstest"
 main = "src/worker.ts"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat_v2"]
+# nodejs_compat_v2: Node built-ins for the SDK. global_fetch_strictly_public: hardens
+# the JWKS fetch — fetch() can only reach public addresses, blocking SSRF via internal
+# service bindings.
+compatibility_flags = ["nodejs_compat_v2", "global_fetch_strictly_public"]
 
-# Set these via `wrangler secret put PLAUSIBLE_API_KEY`
-# or in the Cloudflare dashboard under Settings > Variables
+[vars]
+# Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
+# Enforced in code in ADDITION to the upstream Access policy. Self-hosting? Set your own.
+ALLOWED_EMAIL_DOMAIN = "sentry.io"
 
-routes = [
-  { pattern = "plausible-mcp.sentry.dev", custom_domain = true }
-]
+[dev]
+port = 8787
+
+# Secrets for /internal (set via `wrangler secret put <NAME>`). With Managed OAuth,
+# Cloudflare Access runs the OAuth server; the Worker only verifies the assertion Access
+# injects, so no OAuth client id/secret, cookie key, or KV namespace is needed.
+#   CF_ACCESS_TEAM_DOMAIN   https://<team>.cloudflareaccess.com  (assertion JWKS + issuer)
+#   CF_ACCESS_AUD           the Access application's Application Audience (AUD) tag
+# Plus the shared PLAUSIBLE_API_KEY used by /internal.
 
 [[unsafe.bindings]]
 name = "RATE_LIMITER"
