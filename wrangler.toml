@@ -28,7 +28,7 @@ port = 8787
 # Create with: npx wrangler kv namespace create OAUTH_KV  →  paste the id below.
 [[kv_namespaces]]
 binding = "OAUTH_KV"
-id = "<run: wrangler kv namespace create OAUTH_KV>"
+id = "d3f3c881306a4df28a36c5a215055a06"
 
 # Secrets for the /internal OAuth endpoint (set via `wrangler secret put <NAME>`).
 # Values come from the Cloudflare Access "SaaS / OIDC" app that fronts this server:
