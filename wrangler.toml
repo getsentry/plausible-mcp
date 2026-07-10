@@ -14,16 +14,20 @@ compatibility_flags = ["nodejs_compat_v2", "global_fetch_strictly_public"]
 # Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
 # Enforced in code in ADDITION to the upstream Access policy. Self-hosting? Set your own.
 ALLOWED_EMAIL_DOMAIN = "sentry.io"
+# Cloudflare Access team domain — verifies the Cf-Access-Jwt-Assertion JWKS + issuer.
+# Not a secret (public JWKS URL); must match the team the Access app lives in. No slash.
+CF_ACCESS_TEAM_DOMAIN = "https://getsentry.cloudflareaccess.com"
+# The Access application's Application Audience (AUD) tag — checked against the token
+# `aud`. Not a secret (an app identifier, not a credential).
+CF_ACCESS_AUD = "156afdfa9b601e73fce11ab794c6865d6a7f376969c96318ba125e3c2c77517c"
 
 [dev]
 port = 8787
 
-# Secrets for /internal (set via `wrangler secret put <NAME>`). With Managed OAuth,
-# Cloudflare Access runs the OAuth server; the Worker only verifies the assertion Access
-# injects, so no OAuth client id/secret, cookie key, or KV namespace is needed.
-#   CF_ACCESS_TEAM_DOMAIN   https://<team>.cloudflareaccess.com  (assertion JWKS + issuer)
-#   CF_ACCESS_AUD           the Access application's Application Audience (AUD) tag
-# Plus the shared PLAUSIBLE_API_KEY used by /internal.
+# With Managed OAuth, Cloudflare Access runs the OAuth server; the Worker only verifies
+# the assertion Access injects, so no OAuth client id/secret, cookie key, or KV is needed.
+# The one true secret is the shared Plausible key — set it out-of-band, not in this file:
+#   wrangler secret put PLAUSIBLE_API_KEY
 
 [[unsafe.bindings]]
 name = "RATE_LIMITER"
