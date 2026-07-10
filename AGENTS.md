@@ -12,6 +12,8 @@ Two entry points:
   - `/mcp` — bring-your-own-key: each user passes their own Plausible API key via `Authorization: Bearer` (header clients like Claude Code/Cursor).
   - `/internal` — for managed connectors (Cowork/Claude.ai), fronted by a Cloudflare Access application with **Managed OAuth** enabled. Access runs the OAuth 2.1 handshake with the client and forwards each request with a `Cf-Access-Jwt-Assertion` header; the Worker verifies that header (`src/cf-access.ts`), gates on `@sentry.io`, and queries a shared server-side `PLAUSIBLE_API_KEY`. The Worker itself runs **no** OAuth server — no `@cloudflare/workers-oauth-provider`, KV, or cookies.
 
+  Managed OAuth forces the Access app to cover the **bare hostname, no path** (Cloudflare errors `domain can not have a path if oauth is configured` otherwise), so it also gates `/mcp`. A **second, path-scoped (`/mcp`) Access app with a `Bypass` policy** carves BYOK back out — most-specific path wins. This is Cloudflare-side config, not code; see README "Setting up the `/internal` endpoint" for the full two-app setup and troubleshooting table.
+
 ## Commands
 
 ```bash
