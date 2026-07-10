@@ -74,7 +74,7 @@ export async function verifyCloudflareAccessJwt(
   } catch {
     // Fail closed: a malformed segment (bad base64/JSON), a JWKS fetch error, or any
     // other unexpected throw must surface as "not authorized" (caller returns 403),
-    // never as an uncaught 500. The upstream id_token from /callback flows through here.
+    // never as an uncaught 500. The Cf-Access-Jwt-Assertion header flows through here.
     return null;
   }
 }

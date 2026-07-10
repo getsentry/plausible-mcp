@@ -163,6 +163,17 @@ describe("verifyCloudflareAccessJwt", () => {
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
+  it("rejects a subdomain of an allowed domain (the gate is @-anchored)", async () => {
+    // e.g. user@evil.sentry.io must NOT pass the sentry.io allowlist: endsWith("@sentry.io")
+    // is false because the char before "sentry.io" is ".", not "@".
+    const { jwt, jwk } = await makeValidJwt({
+      payload: { email: "user@evil.sentry.io" },
+    });
+    mockCertsEndpoint(jwk);
+
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+  });
+
   it("accepts an email in a configured custom domain (self-hosting)", async () => {
     const { jwt, jwk } = await makeValidJwt({
       payload: { email: "user@acme.com" },
