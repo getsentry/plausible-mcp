@@ -37,6 +37,7 @@
     "@cloudflare/workers-types": "^5.20260708.1",
     "@sentry/cli": "^3.6.0",
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.10"
