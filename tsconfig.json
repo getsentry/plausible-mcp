@@ -19,8 +19,6 @@
     "__tests__",
     "evals",
     "src/worker.ts",
-    "src/env.ts",
-    "src/access-handler.ts",
-    "src/workers-oauth-utils.ts"
+    "src/env.ts"
   ]
 }

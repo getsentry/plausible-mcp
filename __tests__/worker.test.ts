@@ -127,6 +127,17 @@ describe("verifyCloudflareAccessJwt", () => {
     expect(result).toEqual({ email: "user@sentry.io" });
   });
 
+  it("returns the lowercased email so attribution is stable", async () => {
+    const { jwt, jwk } = await makeValidJwt({
+      payload: { email: "User.Name@Sentry.IO" },
+    });
+    mockCertsEndpoint(jwk);
+
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toEqual({
+      email: "user.name@sentry.io",
+    });
+  });
+
   it("returns null for expired JWT", async () => {
     const { jwt, jwk } = await makeValidJwt({
       payload: { exp: Math.floor(Date.now() / 1000) - 60 },

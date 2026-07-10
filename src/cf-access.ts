@@ -152,5 +152,7 @@ async function verifyInner(
     return null;
   }
 
-  return { email };
+  // Return the normalized (lowercased) email so downstream attribution (Sentry.setUser)
+  // is stable — the same identity in mixed case must not create duplicate users.
+  return { email: normalizedEmail };
 }
