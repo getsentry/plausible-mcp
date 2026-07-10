@@ -116,7 +116,7 @@ export function register(
           ],
         };
       } catch (error) {
-        Sentry.captureException(error);
+        if (!(error instanceof UserFacingError)) Sentry.captureException(error);
         const message = error instanceof PlausibleApiError
           ? `Plausible API returned ${error.status}`
           : error instanceof UserFacingError
