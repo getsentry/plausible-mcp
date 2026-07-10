@@ -27,8 +27,10 @@ A hosted instance is available at **`https://plausible-mcp.sentry.dev`**.
 **With your own Plausible API key** (any user):
 
 ```bash
-claude mcp add plausible --transport http --header "Authorization: Bearer YOUR_PLAUSIBLE_API_KEY" https://plausible-mcp.sentry.dev/mcp
+claude mcp add --transport http plausible https://plausible-mcp.sentry.dev/mcp --header "Authorization: Bearer YOUR_PLAUSIBLE_API_KEY"
 ```
+
+> Keep the URL **before** `--header`. `--header` is variadic, so if it comes last it swallows the URL and the CLI fails with `error: missing required argument 'commandOrUrl'`.
 
 Or add manually to your MCP client config (Claude Desktop, Cursor, etc.):
 
@@ -104,26 +106,41 @@ npx wrangler deploy
 The worker exposes two endpoints:
 
 - **`/mcp`** — bring-your-own-key. Each user passes their own Plausible API key via the `Authorization: Bearer` header. No shared secrets needed on the server. Works with any header-capable MCP client (Claude Code, Cursor, MCP Inspector).
-- **`/internal`** — Access-protected MCP endpoint for managed connectors (Cowork, Claude.ai). A Cloudflare Access application with **Managed OAuth** sits in front of it: Access runs the OAuth 2.1 handshake with the client and forwards each request to the Worker with a `Cf-Access-Jwt-Assertion` header. The Worker verifies that header and queries a shared, server-side Plausible API key. Access is gated to the email domain(s) in `ALLOWED_EMAIL_DOMAIN` (defaults to `sentry.io`) — **not** tied to Sentry when you self-host; set it to your own domain.
+- **`/internal`** — Access-protected MCP endpoint for managed connectors (Cowork, Claude.ai). A Cloudflare Access application with **Managed OAuth** fronts the **whole Worker hostname** (see the constraint below): Access runs the OAuth 2.1 handshake with the client and forwards each request to the Worker with a `Cf-Access-Jwt-Assertion` header. The Worker verifies that header and queries a shared, server-side Plausible API key. Access is gated to the email domain(s) in `ALLOWED_EMAIL_DOMAIN` (defaults to `sentry.io`) — **not** tied to Sentry when you self-host; set it to your own domain.
+
+Because the Managed OAuth application must cover the **bare hostname with no path** (Cloudflare rejects a path when OAuth is enabled — `domain can not have a path if oauth is configured`), it also gates `/mcp`. To keep the bring-your-own-key `/mcp` endpoint public you add a **second, more-specific Access application scoped to the `/mcp` path with a `Bypass` policy**. Cloudflare matches the most specific hostname+path first, so `/mcp` requests bypass Access entirely while everything else goes through OAuth. Both apps live on one hostname; no separate subdomain is required.
 
 > **Beta / client requirement.** Cloudflare Access [Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/) is in Beta and **requires an MCP client that supports [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)** (resource indicators). Confirm your connector supports it before relying on this path.
 
 #### Setting up the `/internal` endpoint (Cloudflare Access Managed OAuth)
 
-The Worker runs **no OAuth server** — Cloudflare Access is the authorization server. There is no `OAUTH_KV`, no cookie key, and no OAuth client id/secret.
+The Worker runs **no OAuth server** — Cloudflare Access is the authorization server. There is no `OAUTH_KV`, no cookie key, and no OAuth client id/secret. You create **two** Access applications on the same hostname.
 
-1. **Create an Access application** covering the Worker's `/internal` URL (Zero Trust → **Access controls**): either a [self-hosted app](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/) scoped to `/internal`, or an [MCP server application](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/secure-mcp-servers/) (AI controls → MCP servers).
-   - Add an Access **policy** restricting to your email domain (e.g. `@acme.com`) and identity provider.
-2. **Enable Managed OAuth** on that application (Advanced settings → **Managed OAuth**), and set **Allowed redirect URIs** to your connector's callback (e.g. `https://…/*`). Copy the application's **AUD tag**.
+1. **Create the Managed OAuth application over the bare hostname** (Zero Trust → **Access** → Applications): a [self-hosted app](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/) or [MCP server application](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/secure-mcp-servers/) whose domain is `plausible-mcp.sentry.dev` **with no path**.
+   - ⚠️ **Do not scope it to `/internal`.** Once Managed OAuth is enabled, Cloudflare rejects any path with `access.api.error.invalid_request: domain can not have a path if oauth is configured`. The app must be the whole host; the Worker enforces the `/internal` route itself.
+   - Add an Access **policy** (Action `Allow`) restricting to your email domain (e.g. `@acme.com`) and identity provider.
+   - **Enable Managed OAuth** (Advanced settings → **Managed OAuth**) and set **Allowed redirect URIs** to your connector's actual callback — for Claude/Cowork that is `https://claude.ai/api/mcp/auth_callback`. Public HTTPS callbacks **must** be listed or Dynamic Client Registration fails with `invalid_client_metadata: redirect_uri is not allowed by the account configuration`; loopback (`http://localhost:*`) callbacks are allowed by default.
+   - Copy the application's **AUD tag** → this becomes `CF_ACCESS_AUD`.
+2. **Carve `/mcp` back out with a second, path-scoped Bypass application.** Because step 1 covers the whole host, `/mcp` (bring-your-own-key) is now gated too. Create another self-hosted app, domain `plausible-mcp.sentry.dev` **path `mcp`**, with **Managed OAuth OFF**, and a policy whose **Action is `Bypass`** with the selector **`Everyone`**.
+   - `Bypass` ≠ `Allow`: an `Allow` policy still forces an interactive login (the client gets an HTML `302` to the login page and fails with `Unexpected content type: text/html`). Only `Bypass` lets the request through with no authentication, so the Worker's own Bearer-key check applies.
 3. **Set the worker secrets**:
    ```bash
    npx wrangler secret put CF_ACCESS_TEAM_DOMAIN      # https://<team>.cloudflareaccess.com  (no trailing slash)
-   npx wrangler secret put CF_ACCESS_AUD              # the Access application's AUD tag
+   npx wrangler secret put CF_ACCESS_AUD              # the Managed OAuth application's AUD tag (from step 1)
    npx wrangler secret put PLAUSIBLE_API_KEY          # shared key for /internal queries
    ```
 4. **Set the `[vars]` in `wrangler.toml`**:
    - `ALLOWED_EMAIL_DOMAIN` — the email domain(s) allowed to sign in, comma-separated, `@` optional (default `sentry.io`). Enforced in code **in addition to** the Access policy in step 1, so set it to your own domain — otherwise every login is rejected.
 5. **Deploy** (`npx wrangler deploy`), then point an RFC 8707-capable MCP client at `https://<your-worker-host>/internal`.
+
+**Troubleshooting.** All of these are Cloudflare Access configuration, not the Worker — a request only reaches the Worker (and its Sentry spans) once Access forwards it:
+
+| Symptom (in the connector) | Cause | Fix |
+|---|---|---|
+| `Couldn't register … / add an OAuth Client ID` | Connector callback isn't in **Allowed redirect URIs** | Add the exact callback (step 1); read the rejected `redirect_uri` from Zero Trust → Logs → Access |
+| `domain can not have a path if oauth is configured` | Managed OAuth app scoped to a path | Rescope app 1 to the bare host (step 1) |
+| `/mcp`: `Unexpected content type: text/html` | `/mcp` app policy is `Allow`, not `Bypass` | Set the app-2 policy Action to `Bypass` (step 2) |
+| `/mcp`: OAuth `401 invalid_token` | No `/mcp` bypass app; the whole-host OAuth app is gating it | Create app 2 (step 2) |
 
 ## Configuration
 
