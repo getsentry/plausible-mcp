@@ -36,10 +36,10 @@
     "@anthropic-ai/sdk": "^0.110.0",
     "@cloudflare/workers-types": "^5.20260708.1",
     "@sentry/cli": "^3.6.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.0",
-    "typescript": "^5.7.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
 }
