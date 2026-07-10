@@ -1,8 +1,7 @@
 changelog:
   policy: auto
 preReleaseCommand: bash bin/bump-version.sh
-# This repo publishes only a git tag + GitHub release (no build artifacts uploaded by
-# CI). Without this, craft's publish fails with "Can't find any artifacts for revision".
+# No build artifacts are uploaded; releases are a git tag + GitHub release only.
 artifactProvider:
   name: none
 targets:
