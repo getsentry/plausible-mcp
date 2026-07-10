@@ -27,7 +27,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@cloudflare/workers-types": "^4.20260317.1",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@sentry/cloudflare": "^10.64.0",
     "agents": "^0.17.3",
@@ -35,10 +34,11 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@sentry/cli": "^2",
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "@sentry/cli": "^3.6.0",
     "@types/node": "^22.0.0",
     "tsx": "^4.23.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.10"
   }
 }
