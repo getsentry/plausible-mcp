@@ -58,7 +58,10 @@ async function getAccessCerts(
   if (!forceRefresh && cachedCerts && Date.now() - cachedCerts.fetchedAt < CERTS_CACHE_TTL_MS) {
     return cachedCerts;
   }
-  return await fetchCerts(teamDomain) ?? cachedCerts;
+  // Fail closed once the cache is past its TTL: if the JWKS fetch fails we return null
+  // (caller → 403) rather than fall back to stale keys, which could include a revoked
+  // signing key. Cached keys are only ever trusted within the TTL checked above.
+  return await fetchCerts(teamDomain);
 }
 
 export function clearCertsCache(): void {

@@ -313,6 +313,29 @@ describe("verifyCloudflareAccessJwt", () => {
     ]);
   });
 
+  it("fails closed when the cache is stale and the JWKS refresh fails (no stale-key fallback)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    try {
+      const { jwt, jwk } = await makeValidJwt();
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ keys: [jwk] }), { status: 200 }),
+      );
+
+      // Prime the cache with a successful fetch.
+      expect(await verifyCloudflareAccessJwt(jwt, config)).toEqual({ email: "user@sentry.io" });
+
+      // Move past the 5-minute cache TTL, then make the JWKS endpoint unreachable.
+      vi.advanceTimersByTime(6 * 60 * 1000);
+      fetchSpy.mockRejectedValue(new Error("jwks unreachable"));
+
+      // The token is still unexpired, but stale keys must NOT be used — reject.
+      expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("caches certs across calls", async () => {
     const { jwt, jwk } = await makeValidJwt();
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
