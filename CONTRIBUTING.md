@@ -49,3 +49,14 @@ PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector node dist/index.j
 - Make sure `pnpm test` passes
 - Make sure `pnpm build` compiles cleanly
 - Keep PRs focused — one feature or fix per PR
+- Your **PR title becomes the changelog line** for the next release, so write it for a reader (see Releasing below)
+
+## Releasing
+
+Releases are automated with [craft](https://github.com/getsentry/craft). **Don't bump the version in `package.json` or edit `CHANGELOG.md` by hand** — both are generated.
+
+1. Merge your PR to `main`. The changelog is auto-generated from merged PR titles since the last tag (`.craft.yml` → `changelog.policy: auto`).
+2. A maintainer runs the **Release** workflow (Actions → Release → *Run workflow*) and selects the bump type (`patch` / `minor` / `major`).
+3. craft cuts a `release/X.Y.Z` branch, then publishes a git tag and GitHub release once CI is green.
+
+Deploying the Cloudflare Worker (`pnpm deploy`) is separate from cutting a release.
