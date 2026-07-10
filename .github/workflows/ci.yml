@@ -1,0 +1,35 @@
+name: CI
+
+# release/** is included because craft gates publishing on the release commit's CI status.
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: typecheck, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # pnpm@11 (pinned via package.json packageManager) requires Node >= 22.13.
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm build
+
+      - run: pnpm test

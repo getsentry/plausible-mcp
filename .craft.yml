@@ -1,4 +1,8 @@
-changelogPolicy: none
+changelog:
+  policy: auto
 preReleaseCommand: bash bin/bump-version.sh
+# No build artifacts are uploaded; releases are a git tag + GitHub release only.
+artifactProvider:
+  name: none
 targets:
   - name: github
