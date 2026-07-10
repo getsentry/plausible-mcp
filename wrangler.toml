@@ -1,14 +1,13 @@
-# Isolated TEST worker for the Cloudflare Access "Managed OAuth" (native) approach.
-# Deploys to *.workers.dev (no custom domain / route) so it can NEVER overwrite the
-# production `plausible-mcp` worker or its plausible-mcp.sentry.dev route. Prove a real
-# Cowork connection here before porting to a production PR.
-name = "plausible-mcp-accesstest"
+name = "plausible-mcp"
 main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 # nodejs_compat_v2: Node built-ins for the SDK. global_fetch_strictly_public: hardens
-# the JWKS fetch — fetch() can only reach public addresses, blocking SSRF via internal
-# service bindings.
+# the JWKS fetch — fetch() can only reach public addresses, blocking SSRF.
 compatibility_flags = ["nodejs_compat_v2", "global_fetch_strictly_public"]
+
+routes = [
+  { pattern = "plausible-mcp.sentry.dev", custom_domain = true }
+]
 
 [vars]
 # Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
