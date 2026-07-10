@@ -10,5 +10,9 @@ allowBuilds:
 
 # Force esbuild (transitive via tsx + vitest) to the patched 0.28.1 — earlier
 # versions have a high-severity advisory (GHSA-gv7w-rqvm-qjhr).
+# Force form-data (transitive via @anthropic-ai/sdk > @types/node-fetch) to the
+# patched 4.0.6 — earlier versions have a high-severity CRLF injection advisory
+# (GHSA-hmw2-7cc7-3qxx).
 overrides:
   esbuild: ">=0.28.1"
+  form-data: ">=4.0.6"
