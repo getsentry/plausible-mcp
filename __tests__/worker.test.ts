@@ -163,6 +163,17 @@ describe("verifyCloudflareAccessJwt", () => {
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
+  it("rejects a subdomain of an allowed domain (the gate is @-anchored)", async () => {
+    // e.g. user@evil.sentry.io must NOT pass the sentry.io allowlist: endsWith("@sentry.io")
+    // is false because the char before "sentry.io" is ".", not "@".
+    const { jwt, jwk } = await makeValidJwt({
+      payload: { email: "user@evil.sentry.io" },
+    });
+    mockCertsEndpoint(jwk);
+
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+  });
+
   it("accepts an email in a configured custom domain (self-hosting)", async () => {
     const { jwt, jwk } = await makeValidJwt({
       payload: { email: "user@acme.com" },
@@ -184,6 +195,29 @@ describe("verifyCloudflareAccessJwt", () => {
     const { jwt, jwk } = await makeValidJwt({
       payload: { iss: "https://evil.cloudflareaccess.com" },
     });
+    mockCertsEndpoint(jwk);
+
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+  });
+
+  it("normalizes a trailing slash on teamDomain so the issuer still matches", async () => {
+    const { jwt, jwk } = await makeValidJwt();
+    mockCertsEndpoint(jwk);
+
+    // Access issues `iss` with no trailing slash; a misconfigured trailing slash on
+    // CF_ACCESS_TEAM_DOMAIN must not reject every token.
+    const trailingSlashConfig: AccessConfig = {
+      ...config,
+      teamDomain: `${TEAM_DOMAIN}/`,
+    };
+    expect(await verifyCloudflareAccessJwt(jwt, trailingSlashConfig)).toEqual({
+      email: "user@sentry.io",
+    });
+  });
+
+  it("returns null when exp equals now (rejects on the expiry second)", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const { jwt, jwk } = await makeValidJwt({ payload: { exp: nowSec } });
     mockCertsEndpoint(jwk);
 
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
