@@ -2,14 +2,19 @@ name: Changelog Preview
 
 # Posts/updates a comment on each PR previewing how it will appear in the auto-generated
 # changelog (craft `changelog.policy: auto`). See getsentry/craft docs.
+# Uses pull_request_target (not pull_request) so fork PRs get a writable token to post
+# the comment — the standard pull_request event is read-only for forks and 403s. Safe
+# here: the reusable workflow only reads PR metadata/git history, it runs no PR code.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, edited, labeled]
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 permissions:
   contents: read
   pull-requests: write
+  statuses: write
 
 jobs:
   changelog-preview:
     uses: getsentry/craft/.github/workflows/changelog-preview.yml@v2
+    secrets: inherit
