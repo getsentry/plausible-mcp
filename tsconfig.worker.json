@@ -1,0 +1,14 @@
+{
+  // Type-checks the Cloudflare Worker files (worker.ts, env.ts) that the main
+  // tsconfig.json excludes. They need Workers globals instead of Node + DOM, so we
+  // swap the lib/types here and only type-check (no emit — wrangler/esbuild does the
+  // actual bundling).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "__tests__", "evals", "src/index.ts"]
+}
