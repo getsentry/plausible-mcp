@@ -1,0 +1,15 @@
+name: Changelog Preview
+
+# Posts/updates a comment on each PR previewing how it will appear in the auto-generated
+# changelog (craft `changelog.policy: auto`). See getsentry/craft docs.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  changelog-preview:
+    uses: getsentry/craft/.github/workflows/changelog-preview.yml@v2

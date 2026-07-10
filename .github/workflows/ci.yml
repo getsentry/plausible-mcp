@@ -1,0 +1,36 @@
+name: CI
+
+# Runs on PRs, pushes to main, and — importantly — pushes to release/** branches.
+# craft's publish step waits for the release commit's CI status ("ci-pending"); without
+# a check that runs on the release branch, that gate never clears and the release stalls.
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: typecheck, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm build
+
+      - run: pnpm test
