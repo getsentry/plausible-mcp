@@ -39,10 +39,19 @@ ANTHROPIC_API_KEY=sk-... pnpm eval
 
 ## Testing the MCP Server Locally
 
+Put your Plausible key in `.env.local` (copy `.env.example`), then:
+
 ```bash
-pnpm build
-PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector node dist/index.js
+pnpm inspect       # build + open the MCP Inspector UI, auto-connected to the server
+pnpm inspect:cli   # headless: build + print the tool list (handy for a quick check or CI)
 ```
+
+Both read [`mcp.json`](./mcp.json), which launches the server with
+`node --env-file-if-exists=.env.local` — so your key loads from `.env.local` when it's
+there, and falls back to whatever `PLAUSIBLE_API_KEY` is already in the environment when
+it isn't (e.g. in CI). No need to paste it anywhere. `inspect` opens the browser UI (it
+prints a pre-authed `http://localhost:6274/?...` URL); `inspect:cli` just prints
+`tools/list` and exits.
 
 ## Pull Requests
 

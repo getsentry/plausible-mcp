@@ -13,6 +13,8 @@
     "typecheck": "tsc -p tsconfig.worker.json",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
+    "inspect": "pnpm build && npx @modelcontextprotocol/inspector --config mcp.json --server plausible-mcp",
+    "inspect:cli": "pnpm build && npx @modelcontextprotocol/inspector --cli --config mcp.json --server plausible-mcp --method tools/list",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
