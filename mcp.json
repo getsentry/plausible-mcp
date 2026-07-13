@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "plausible-mcp": {
+      "command": "node",
+      "args": ["--env-file=.env.local", "dist/index.js"]
+    }
+  }
+}
