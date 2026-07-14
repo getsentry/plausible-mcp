@@ -1,0 +1,64 @@
+name: Deploy to Cloudflare
+
+# Deploys the Worker when a new version is released (craft publishes the GitHub
+# Release), so production always tracks a released tag — never raw main. Also
+# runnable manually via workflow_dispatch.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `pnpm run deploy` runs wrangler deploy + the Sentry release & sourcemap
+      # upload. wrangler and sentry-cli both read their credentials from the env
+      # vars below, so no interactive login is needed in CI.
+      - name: Deploy worker
+        id: deploy
+        run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      - name: Wait for propagation
+        if: steps.deploy.outcome == 'success'
+        run: sleep 15
+
+      # Assert the live worker answers the MCP handshake and reports the version
+      # we just released. Fails the job (→ rollback) on any mismatch.
+      - name: Smoke test
+        id: smoke
+        if: steps.deploy.outcome == 'success'
+        run: node bin/smoke.mjs "https://plausible-mcp.sentry.dev/mcp" "$(node -p "require('./package.json').version")"
+
+      - name: Roll back on smoke failure
+        if: steps.smoke.outcome == 'failure'
+        uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: rollback
+          packageManager: pnpm
+
+      - name: Fail the job if smoke test failed
+        if: steps.smoke.outcome == 'failure'
+        run: exit 1
