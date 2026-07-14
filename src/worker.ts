@@ -3,6 +3,13 @@ import { createMcpHandler } from "agents/mcp";
 import { createServer } from "./server.js";
 import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access.js";
 import { anonymizeEventWithoutEmail } from "./redaction.js";
+import {
+  classifyRoute,
+  resolveClientFamily,
+  statusClass,
+  transactionDropReason,
+  type TrackedRoute,
+} from "./telemetry.js";
 import type { Env } from "./env.js";
 
 // @sentry/cloudflare doesn't re-export SpanJSON; derive it from the option type.
@@ -48,6 +55,10 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
     release: env.SENTRY_RELEASE,
     tracesSampleRate: 1.0,
     sendDefaultPii: false,
+    // Count traffic in cheap, bounded metrics (see recordResponseMetric) instead of
+    // reading volume off 100%-sampled spans. This is what lets beforeSendTransaction
+    // drop scanner/keepalive spans below without losing uptime/volume dashboards.
+    enableMetrics: true,
     // BYOK (`/mcp`) privacy guardrail: only `/internal` sets an identity via Sentry.setUser.
     // Strip the ingest-inferred client IP from every other (anonymous) event so BYOK traffic
     // carries tool names and failures, never who made them. See ./redaction.ts.
@@ -57,6 +68,11 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
     },
     beforeSendTransaction(event) {
       anonymizeEventWithoutEmail(event);
+      // Drop transaction spans that are pure noise: internet scanners hitting
+      // untracked routes, and all but a thin sample of MCP handshake/keepalive
+      // (`ping`, healthcheck `initialize`). Volume/health still counts 100% via
+      // metrics; errors are separate events and are never dropped here.
+      if (transactionDropReason(event, Math.random())) return null;
       return event;
     },
     beforeSendSpan(span: SpanJSON): SpanJSON {
@@ -191,6 +207,31 @@ async function handleDirectMcp(
   return createMcpHandler(server)(request, env, ctx);
 }
 
+/**
+ * Emit the `app.server.response` counter for tracked endpoints. Low-cardinality
+ * attributes only (normalized route, status class, bucketed client family) so it's
+ * safe to group by. This is the volume/health signal that replaces counting off raw
+ * spans; untracked scanner routes are skipped so their noise never enters dashboards.
+ */
+function recordResponseMetric(
+  request: Request,
+  response: Response,
+  tracked: TrackedRoute | null,
+  clientFamily: string,
+): void {
+  if (!tracked) return;
+  Sentry.metrics.count("app.server.response", 1, {
+    attributes: {
+      "http.request.method": request.method,
+      "http.route": tracked.route,
+      "app.route.group": tracked.group,
+      "http.response.status_code": response.status,
+      "app.response.status_class": statusClass(response.status),
+      "app.client.family": clientFamily,
+    },
+  });
+}
+
 const handler = {
   async fetch(
     request: Request,
@@ -201,19 +242,37 @@ const handler = {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    const limited = await rateLimited(request, env);
-    if (limited) return corsResponse(limited);
-
     const { pathname } = new URL(request.url);
+    const tracked = classifyRoute(pathname);
+    const clientFamily = resolveClientFamily(request.headers.get("User-Agent"));
+
+    // Stamp the root request span with a bounded client family + route group so real
+    // tool-call traces are groupable without the initialize-only, caller-controlled
+    // mcp.client.name. Only for tracked routes — scanner-route transactions are
+    // dropped in beforeSendTransaction regardless.
+    if (tracked) {
+      const span = Sentry.getActiveSpan();
+      if (span) {
+        span.setAttribute("http.route", tracked.route);
+        span.setAttribute("app.route.group", tracked.group);
+        span.setAttribute("app.client.family", clientFamily);
+      }
+    }
+
+    const limited = await rateLimited(request, env);
 
     let response: Response;
-    if (pathname === "/internal" || pathname.startsWith("/internal/")) {
+    if (limited) {
+      response = limited;
+    } else if (pathname === "/internal" || pathname.startsWith("/internal/")) {
       response = await handleInternalMcp(request, env, ctx);
     } else if (pathname === "/mcp" || pathname.startsWith("/mcp/")) {
       response = await handleDirectMcp(request, env, ctx);
     } else {
       response = jsonError("Not found.", 404);
     }
+
+    recordResponseMetric(request, response, tracked, clientFamily);
 
     return corsResponse(response);
   },
