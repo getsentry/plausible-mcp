@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+### New Features ✨
+
+- (worker) Cut Sentry span noise with metrics and bounded client family by @sergical in [#26](https://github.com/getsentry/plausible-mcp/pull/26)
+
 ## 0.5.0
 
 ### New Features ✨
