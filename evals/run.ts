@@ -44,7 +44,7 @@ async function runEval(
   evalCase: (typeof cases)[0]
 ): Promise<{ pass: boolean; errors: string[] }> {
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-5",
     max_tokens: 1024,
     system:
       "You are a marketing analytics assistant. When the user asks about website analytics, use the available tools. Always specify the site_id as 'example.com' unless told otherwise.",

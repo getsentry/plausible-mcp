@@ -10,6 +10,8 @@ import {
   metricsSchema,
   VALID_DIMENSIONS,
   buildPageFilter,
+  queryResultOutputSchema,
+  buildQueryStructuredContent,
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
@@ -24,7 +26,8 @@ export function register(
       title: "Get Breakdown",
       description:
         "Break down metrics by a dimension: page, traffic source, country, device, etc. Use to find top pages, sources, or segment traffic.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      outputSchema: queryResultOutputSchema,
       inputSchema: {
         site_id: siteIdSchema,
         date_range: dateRangeSchema,
@@ -63,6 +66,7 @@ export function register(
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          structuredContent: buildQueryStructuredContent(result, metrics, [args.dimension]),
         };
       } catch (error) {
         Sentry.captureException(error);

@@ -10,6 +10,8 @@ import {
   goalSchema,
   buildPageFilter,
   buildGoalFilter,
+  queryResultOutputSchema,
+  buildQueryStructuredContent,
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
@@ -24,7 +26,8 @@ export function register(
       title: "Get Conversions",
       description:
         "Get goal conversion rates and counts. Can break down by page to see which pages drive conversions.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      outputSchema: queryResultOutputSchema,
       inputSchema: {
         site_id: siteIdSchema,
         date_range: dateRangeSchema,
@@ -60,6 +63,7 @@ export function register(
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          structuredContent: buildQueryStructuredContent(result, metrics, dimensions),
         };
       } catch (error) {
         Sentry.captureException(error);

@@ -12,6 +12,8 @@ import {
   DEFAULT_METRICS,
   buildPageFilter,
   buildGoalFilter,
+  queryResultOutputSchema,
+  buildQueryStructuredContent,
 } from "../schemas.js";
 
 export function resolveSiteId(
@@ -38,7 +40,8 @@ export function register(
       title: "Get Timeseries",
       description:
         "Get traffic and conversion metrics over time for a site or specific page. Use to spot trends and changes around deploys.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      outputSchema: queryResultOutputSchema,
       inputSchema: {
         site_id: siteIdSchema,
         date_range: dateRangeSchema,
@@ -71,6 +74,7 @@ export function register(
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+          structuredContent: buildQueryStructuredContent(result, metrics, [timeKey]),
         };
       } catch (error) {
         Sentry.captureException(error);
