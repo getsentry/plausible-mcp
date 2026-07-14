@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { createMcpHandler } from "agents/mcp";
 import { createServer } from "./server.js";
 import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access.js";
+import { anonymizeEventWithoutEmail } from "./redaction.js";
 import type { Env } from "./env.js";
 
 // @sentry/cloudflare doesn't re-export SpanJSON; derive it from the option type.
@@ -41,12 +42,23 @@ function jsonError(message: string, status: number): Response {
   );
 }
 
-function sentryConfig(env: Env) {
+function sentryConfig(env: Env): Sentry.CloudflareOptions {
   return {
     dsn: "https://de333c4dff86900878d446e663271b2a@o4509446862274560.ingest.us.sentry.io/4511179029020672",
     release: env.SENTRY_RELEASE,
     tracesSampleRate: 1.0,
     sendDefaultPii: false,
+    // BYOK (`/mcp`) privacy guardrail: only `/internal` sets an identity via Sentry.setUser.
+    // Strip the ingest-inferred client IP from every other (anonymous) event so BYOK traffic
+    // carries tool names and failures, never who made them. See ./redaction.ts.
+    beforeSend(event) {
+      anonymizeEventWithoutEmail(event);
+      return event;
+    },
+    beforeSendTransaction(event) {
+      anonymizeEventWithoutEmail(event);
+      return event;
+    },
     beforeSendSpan(span: SpanJSON): SpanJSON {
       if (span.data) {
         for (const key of Object.keys(span.data)) {
@@ -130,7 +142,8 @@ async function handleInternalMcp(
     // attribution/abuse-tracing on the shared quota. Recorded data is analytics query
     // params (site ids, date ranges) and aggregate traffic numbers — not personal PII
     // — and Authorization/Cookie/JWT headers are still stripped by beforeSendSpan.
-    recordPii: true,
+    // BYOK (/mcp) deliberately leaves this off: that traffic is a third party's own data.
+    recordToolIO: true,
   });
 
   return createMcpHandler(server, { route: "/internal" })(request, env, ctx);

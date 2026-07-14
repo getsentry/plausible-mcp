@@ -36,17 +36,20 @@ pnpm build && PLAUSIBLE_API_KEY=your-key npx @modelcontextprotocol/inspector nod
 
 `PlausibleClient` (`src/plausible.ts`) is a standalone API client with zero MCP dependency. Each tool in `src/tools/` exports a `register(server, client, defaultSiteId?)` function that registers itself on the `McpServer`. `src/server.ts` wires them together via `createServer()`.
 
-The worker (`src/worker.ts`) creates a fresh server per request using the caller's Bearer token. Sentry instrumentation wraps the worker and each tool handler has its own Sentry span.
+The worker (`src/worker.ts`) creates a fresh server per request using the caller's Bearer token. Sentry instrumentation wraps the worker and each tool handler has its own Sentry span. `createServer()` also sets MCP server `instructions` (Stats API v2 usage rules, injected into the client's model context to cut malformed-query 400s).
 
-Shared Zod schemas and filter builders live in `src/schemas.ts`. Plausible filters use array format: `["is", "event:page", ["/pricing"]]` or `["contains", "event:page", ["/blog"]]` for wildcard.
+**Data-collection posture (endpoint-dependent).** `ServerConfig.recordToolIO` gates whether tool inputs/outputs land in Sentry spans. `/internal` sets `recordToolIO: true` and `Sentry.setUser({ email })`; the BYOK `/mcp` path leaves both off and `src/redaction.ts` (`beforeSend`/`beforeSendTransaction`) strips the ingest-inferred IP from any event without an email, so BYOK stays fully anonymous. Keep this invariant: **no PII on `/mcp`, attributed tracking on `/internal`.**
+
+Tools declare an `outputSchema` and return `structuredContent` (plus the text block) — the query tools share `queryResultOutputSchema`/`buildQueryStructuredContent` from `src/schemas.ts`. Shared Zod schemas and filter builders also live there. Plausible filters use array format: `["is", "event:page", ["/pricing"]]` or `["contains", "event:page", ["/blog"]]` for wildcard.
 
 ## Adding a New Tool
 
 1. Create `src/tools/your-tool.ts` with `export function register(server, client, defaultSiteId?)`
-2. Add `annotations: { readOnlyHint: true }` (all tools are read-only)
-3. Register it in `src/server.ts`
-4. Add tests in `__tests__/tools/your-tool.test.ts`
-5. Add eval cases in `evals/cases.ts`
+2. Add `annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true }` (all tools are read-only queries against an external API)
+3. Declare an `outputSchema` and return `structuredContent` alongside the text block (reuse `queryResultOutputSchema`/`buildQueryStructuredContent` for query-shaped results)
+4. Register it in `src/server.ts`
+5. Add tests in `__tests__/tools/your-tool.test.ts`
+6. Add eval cases in `evals/cases.ts`
 
 ## Testing
 

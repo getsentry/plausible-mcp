@@ -165,7 +165,9 @@ This server wraps the [Plausible Stats API v2](https://plausible.io/docs/stats-a
 
 ### Supported Dimensions
 
-`event:page`, `event:goal`, `event:hostname`, `visit:entry_page`, `visit:exit_page`, `visit:source`, `visit:referrer`, `visit:channel`, `visit:utm_medium`, `visit:utm_source`, `visit:utm_campaign`, `visit:utm_content`, `visit:utm_term`, `visit:device`, `visit:browser`, `visit:browser_version`, `visit:os`, `visit:os_version`, `visit:country`, `visit:region`, `visit:city`
+`event:page`, `event:goal`, `event:hostname`, `visit:entry_page`, `visit:exit_page`, `visit:source`, `visit:referrer`, `visit:channel`, `visit:utm_medium`, `visit:utm_source`, `visit:utm_campaign`, `visit:utm_content`, `visit:utm_term`, `visit:device`, `visit:browser`, `visit:browser_version`, `visit:os`, `visit:os_version`, `visit:country`, `visit:region`, `visit:city`, `visit:country_name`, `visit:region_name`, `visit:city_name`
+
+The `*_name` geography dimensions return human-readable names (e.g. "Canada"); the plain `visit:country`/`region`/`city` return ISO/Geoname codes.
 
 ## Development
 
@@ -208,6 +210,15 @@ src/
 ```
 
 `PlausibleClient` has zero MCP dependency and can be used standalone.
+
+### Observability & data collection
+
+The Worker reports to Sentry with an endpoint-dependent privacy posture:
+
+- **`/mcp` (bring-your-own-key)** — fully anonymous. Tool inputs and outputs are **not** recorded (that data belongs to the caller and their own key), no identity is attached, and the ingest-inferred client IP is stripped (`src/redaction.ts`). Only operational telemetry remains: tool names, span timings, and failures.
+- **`/internal` (SSO-gated)** — attributed. Requests carry the authenticated `@sentry.io` email (`Sentry.setUser`), and tool inputs/outputs **are** recorded (`recordToolIO`) for attribution and abuse-tracing on the shared server-side key.
+
+`Authorization` / `Cookie` / `Cf-Access-Jwt-Assertion` headers are stripped from spans on both paths. As a belt-and-suspenders backstop, enable **Prevent Storing of IP Addresses** in the Sentry project's Security & Privacy settings.
 
 ## License
 

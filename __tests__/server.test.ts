@@ -63,6 +63,46 @@ describe("MCP Server Integration", () => {
     }
   });
 
+  it("each tool declares an output schema and read-only annotations", async () => {
+    const { tools } = await client.listTools();
+    for (const tool of tools) {
+      expect(tool.outputSchema).toBeDefined();
+      expect(tool.outputSchema?.type).toBe("object");
+      expect(tool.annotations?.readOnlyHint).toBe(true);
+      expect(tool.annotations?.idempotentHint).toBe(true);
+    }
+  });
+
+  it("exposes server instructions documenting the API constraints", () => {
+    const instructions = client.getInstructions();
+    expect(instructions).toBeTruthy();
+    expect(instructions).toContain("date_range");
+    expect(instructions).toContain("Session metrics");
+  });
+
+  it("returns structuredContent alongside the text block", async () => {
+    mockPlausibleOk();
+
+    const result = await client.callTool({
+      name: "get_breakdown",
+      arguments: {
+        site_id: "example.com",
+        date_range: "30d",
+        dimension: "visit:country_name",
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as {
+      metrics: string[];
+      dimensions: string[];
+      results: unknown[];
+    };
+    expect(structured.dimensions).toEqual(["visit:country_name"]);
+    expect(structured.metrics).toEqual(["visitors", "pageviews", "bounce_rate"]);
+    expect(Array.isArray(structured.results)).toBe(true);
+  });
+
   it("get_timeseries returns data", async () => {
     mockPlausibleOk();
 

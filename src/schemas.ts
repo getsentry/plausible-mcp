@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PlausibleResponse } from "./plausible.js";
 
 export const VALID_METRICS = [
   "visitors",
@@ -39,6 +40,11 @@ export const VALID_DIMENSIONS = [
   "visit:country",
   "visit:region",
   "visit:city",
+  // Human-readable geo names (vs the ISO/Geoname codes above). Prefer these when
+  // presenting geography to end users. See issue #3.
+  "visit:country_name",
+  "visit:region_name",
+  "visit:city_name",
 ] as const;
 
 export const DEFAULT_METRICS = [
@@ -101,4 +107,49 @@ export function buildPageFilter(page: string): unknown[] {
  */
 export function buildGoalFilter(goal: string): unknown[] {
   return ["is", "event:goal", [goal]];
+}
+
+/**
+ * Shared `outputSchema` (a ZodRawShape) for the query-style tools. Declaring it makes the
+ * tools return machine-readable `structuredContent` (validated by the MCP SDK) alongside the
+ * human-readable text block. `metrics`/`dimensions` label the parallel arrays in each row so
+ * consumers know what each number means without re-deriving it from the request.
+ *
+ * Value types are kept permissive (`number | string | null`) so an unexpected Plausible value
+ * can't trip the SDK's output validation and turn a successful query into a tool error.
+ */
+export const queryResultOutputSchema = {
+  metrics: z
+    .array(z.string())
+    .describe("Metric keys, in the order they appear in each row's `metrics` array"),
+  dimensions: z
+    .array(z.string())
+    .describe("Dimension keys, in the order they appear in each row's `dimensions` array"),
+  results: z
+    .array(
+      z.object({
+        dimensions: z.array(z.union([z.string(), z.number()])),
+        metrics: z.array(z.union([z.number(), z.string(), z.null()])),
+      })
+    )
+    .describe("One row per dimension-value combination returned by Plausible"),
+};
+
+/**
+ * Normalize a raw Plausible response into the `structuredContent` shape described by
+ * {@link queryResultOutputSchema}, tagging the rows with the metric/dimension keys used.
+ */
+export function buildQueryStructuredContent(
+  response: PlausibleResponse,
+  metrics: string[],
+  dimensions: string[]
+) {
+  return {
+    metrics,
+    dimensions,
+    results: response.results.map((row) => ({
+      dimensions: row.dimensions,
+      metrics: row.metrics,
+    })),
+  };
 }

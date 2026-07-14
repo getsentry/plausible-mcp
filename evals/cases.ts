@@ -84,4 +84,20 @@ export const cases: EvalCase[] = [
       return errors;
     },
   },
+  {
+    name: "traffic by country (human-readable names)",
+    prompt:
+      "Which countries send the most visitors to example.com this month? Show country names.",
+    expectedTool: "get_breakdown",
+    assertions: (args) => {
+      const errors: string[] = [];
+      const dimension = String(args.dimension ?? "");
+      if (dimension !== "visit:country_name" && dimension !== "visit:country") {
+        errors.push(
+          `Expected dimension "visit:country_name" (or "visit:country"), got "${dimension}"`
+        );
+      }
+      return errors;
+    },
+  },
 ];

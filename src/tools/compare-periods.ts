@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/cloudflare";
+import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PlausibleApiError, type PlausibleClient, type PlausibleResponse } from "../plausible.js";
 import { UserFacingError } from "../errors.js";
@@ -14,11 +15,33 @@ import {
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
-interface PeriodComparison {
+// A type alias (not an interface) so it satisfies the SDK's `structuredContent`
+// index-signature constraint (`{ [x: string]: unknown }`).
+type PeriodComparison = {
   period_a: { range: string; metrics: Record<string, number | null> };
   period_b: { range: string; metrics: Record<string, number | null> };
   deltas: Record<string, { absolute: number | null; percent: number | null }>;
-}
+};
+
+const nullableNumber = z.union([z.number(), z.null()]);
+const periodSchema = z.object({
+  range: z.string().describe("The date range this period covers"),
+  metrics: z
+    .record(z.string(), nullableNumber)
+    .describe("Aggregate value per requested metric for this period"),
+});
+
+/** `outputSchema` for compare_periods — two period aggregates plus per-metric deltas. */
+const comparePeriodsOutputSchema = {
+  period_a: periodSchema,
+  period_b: periodSchema,
+  deltas: z
+    .record(
+      z.string(),
+      z.object({ absolute: nullableNumber, percent: nullableNumber })
+    )
+    .describe("Per-metric change from period_a to period_b (absolute and percent)"),
+};
 
 function extractAggregateMetrics(
   response: PlausibleResponse,
@@ -67,7 +90,8 @@ export function register(
       title: "Compare Periods",
       description:
         "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. Returns aggregate values for each period plus the delta (absolute and %).",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+      outputSchema: comparePeriodsOutputSchema,
       inputSchema: {
         site_id: siteIdSchema,
         period_a: dateRangeSchema.describe(
@@ -114,6 +138,7 @@ export function register(
           content: [
             { type: "text" as const, text: JSON.stringify(comparison, null, 2) },
           ],
+          structuredContent: comparison,
         };
       } catch (error) {
         Sentry.captureException(error);

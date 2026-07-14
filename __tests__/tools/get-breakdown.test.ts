@@ -70,6 +70,40 @@ describe("get_breakdown tool", () => {
     );
   });
 
+  it("accepts human-readable geo dimensions (issue #3)", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    for (const dimension of [
+      "visit:country_name",
+      "visit:region_name",
+      "visit:city_name",
+    ]) {
+      const result = await handler({
+        site_id: "example.com",
+        date_range: "30d",
+        dimension,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(client.query).toHaveBeenCalledWith(
+        expect.objectContaining({ dimensions: [dimension] })
+      );
+    }
+  });
+
+  it("returns structuredContent labelled with the metric and dimension keys", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    const result = await handler({
+      site_id: "example.com",
+      date_range: "7d",
+      dimension: "visit:source",
+      metrics: ["visitors"],
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      metrics: ["visitors"],
+      dimensions: ["visit:source"],
+    });
+  });
+
   it("uses custom metrics", async () => {
     const handler = getToolHandler(server, "get_breakdown");
     await handler({
