@@ -40,6 +40,8 @@ The worker (`src/worker.ts`) creates a fresh server per request using the caller
 
 **Data-collection posture (endpoint-dependent).** `ServerConfig.recordToolIO` gates whether tool inputs/outputs land in Sentry spans. `/internal` sets `recordToolIO: true` and `Sentry.setUser({ email })`; the BYOK `/mcp` path leaves both off and `src/redaction.ts` (`beforeSend`/`beforeSendTransaction`) strips the ingest-inferred IP from any event without an email, so BYOK stays fully anonymous. Keep this invariant: **no PII on `/mcp`, attributed tracking on `/internal`.**
 
+**Telemetry (`src/telemetry.ts`, doc in `TELEMETRY.md`).** Volume/health is counted in the `app.server.response` **metric** (`enableMetrics`), not off raw spans, so `beforeSendTransaction` can drop scanner-route transactions and sample MCP `ping`/healthcheck `initialize` down to 1% without losing dashboards. Client attribution is a bounded `app.client.family` bucketed from the User-Agent (`resolveClientFamily`) and stamped on the root span — *not* the caller-controlled, `initialize`-only `mcp.client.name`. `src/telemetry.ts` is pure (Node tsconfig, unit-tested); worker.ts owns the Sentry wiring.
+
 Tools declare an `outputSchema` and return `structuredContent` (plus the text block) — the query tools share `queryResultOutputSchema`/`buildQueryStructuredContent` from `src/schemas.ts`. Shared Zod schemas and filter builders also live there. Plausible filters use array format: `["is", "event:page", ["/pricing"]]` or `["contains", "event:page", ["/blog"]]` for wildcard.
 
 ## Adding a New Tool
