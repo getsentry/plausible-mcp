@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+### New Features ✨
+
+- MCP instructions, structured tool output, geo-name dimensions, and BYOK privacy guardrails by @sergical in [#25](https://github.com/getsentry/plausible-mcp/pull/25)
+
 ## 0.4.0
 
 - Fix stale MCP serverInfo version (0.2.0) and keep it synced on release by @sergical in [#23](https://github.com/getsentry/plausible-mcp/pull/23)
