@@ -4,7 +4,9 @@ import {
   resolveClientFamily,
   statusClass,
   transactionDropReason,
+  errorDropReason,
   HEARTBEAT_SPAN_KEEP_RATE,
+  type ErrorEventLike,
   type TransactionLike,
 } from "../src/telemetry.js";
 
@@ -68,6 +70,43 @@ describe("resolveClientFamily", () => {
     expect(resolveClientFamily("healthcheck")).toBe("other");
     expect(resolveClientFamily("openclaw-bundle-mcp")).toBe("other");
     expect(resolveClientFamily("some-random-agent/9")).toBe("other");
+  });
+});
+
+describe("errorDropReason", () => {
+  it("drops the expected MCP 406 raised for a GET without SSE support", () => {
+    const event: ErrorEventLike = {
+      exception: {
+        values: [{
+          value: "Not Acceptable: Client must accept text/event-stream",
+          mechanism: {
+            type: "auto.ai.mcp_server",
+            data: { error_type: "transport" },
+          },
+        }],
+      },
+    };
+
+    expect(errorDropReason(event)).toBe("mcp-get-without-sse-accept");
+  });
+
+  it("keeps other transport and application errors", () => {
+    expect(errorDropReason({
+      exception: {
+        values: [{
+          value: "Unexpected transport failure",
+          mechanism: {
+            type: "auto.ai.mcp_server",
+            data: { error_type: "transport" },
+          },
+        }],
+      },
+    })).toBeNull();
+    expect(errorDropReason({
+      exception: {
+        values: [{ value: "Not Acceptable: Client must accept text/event-stream" }],
+      },
+    })).toBeNull();
   });
 });
 

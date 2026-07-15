@@ -33,6 +33,11 @@ export interface PlausibleClientConfig {
   baseUrl?: string;
 }
 
+function encodeDateRange(dateRange: string): string | [string, string] {
+  const absoluteRange = /^(\d{4}-\d{2}-\d{2}),(\d{4}-\d{2}-\d{2})$/.exec(dateRange);
+  return absoluteRange ? [absoluteRange[1], absoluteRange[2]] : dateRange;
+}
+
 export class PlausibleClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -56,7 +61,7 @@ export class PlausibleClient {
     const body: Record<string, unknown> = {
       site_id: params.site_id,
       metrics: params.metrics,
-      date_range: params.date_range,
+      date_range: encodeDateRange(params.date_range),
     };
 
     if (params.dimensions?.length) {

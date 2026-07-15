@@ -110,6 +110,40 @@ export function resolveClientFamily(userAgent: string | null | undefined): strin
   return "other";
 }
 
+// --- Expected error filtering (beforeSend) -----------------------------------
+
+interface ErrorMechanismLike {
+  type?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface ErrorEventLike {
+  exception?: {
+    values?: Array<{
+      value?: string;
+      mechanism?: ErrorMechanismLike;
+    }>;
+  };
+}
+
+/**
+ * Drop expected protocol rejections that the MCP SDK reports through its error hook.
+ * The HTTP 406 is still returned and counted by `app.server.response`; it is not an
+ * application exception that needs an issue in Sentry.
+ */
+export function errorDropReason(event: ErrorEventLike): string | null {
+  for (const exception of event.exception?.values ?? []) {
+    if (
+      exception.value === "Not Acceptable: Client must accept text/event-stream" &&
+      exception.mechanism?.type === "auto.ai.mcp_server" &&
+      exception.mechanism.data?.["error_type"] === "transport"
+    ) {
+      return "mcp-get-without-sse-accept";
+    }
+  }
+  return null;
+}
+
 // --- Transaction noise filtering (beforeSendTransaction) ---------------------
 
 interface SpanLike {

@@ -11,6 +11,21 @@ describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
     expect(event.user).toEqual({ ip_address: null });
   });
 
+  it("strips tool input from an anonymous /mcp error event", () => {
+    const event: RedactableEvent = {
+      request: {
+        data: {
+          method: "tools/call",
+          params: { arguments: { site_id: "private.example" } },
+        },
+      },
+    };
+
+    anonymizeEventWithoutEmail(event);
+
+    expect(event.request?.data).toBeUndefined();
+  });
+
   it("anonymizes when there is no user at all", () => {
     const event: RedactableEvent = {};
     anonymizeEventWithoutEmail(event);
@@ -26,6 +41,18 @@ describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
       email: "user@sentry.io",
       ip_address: "2a06:98c0::1",
     });
+  });
+
+  it("keeps tool input for an authenticated /internal event", () => {
+    const data = { method: "tools/call", params: { arguments: { site_id: "example.com" } } };
+    const event: RedactableEvent = {
+      user: { email: "user@sentry.io" },
+      request: { data },
+    };
+
+    anonymizeEventWithoutEmail(event);
+
+    expect(event.request?.data).toBe(data);
   });
 
   it("treats an empty-string email as anonymous", () => {

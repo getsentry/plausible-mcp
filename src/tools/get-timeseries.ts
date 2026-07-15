@@ -1,8 +1,7 @@
-import * as Sentry from "@sentry/cloudflare";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { PlausibleApiError, type PlausibleClient } from "../plausible.js";
-import { UserFacingError } from "../errors.js";
+import type { PlausibleClient } from "../plausible.js";
+import { reportToolError, UserFacingError } from "../errors.js";
 import {
   siteIdSchema,
   dateRangeSchema,
@@ -77,12 +76,7 @@ export function register(
           structuredContent: buildQueryStructuredContent(result, metrics, [timeKey]),
         };
       } catch (error) {
-        Sentry.captureException(error);
-        const message = error instanceof PlausibleApiError
-          ? `Plausible API returned ${error.status}`
-          : error instanceof UserFacingError
-            ? error.message
-            : "An unexpected error occurred";
+        const message = reportToolError(error, "get_timeseries");
         return {
           content: [{ type: "text" as const, text: `Error: ${message}` }],
           isError: true,
