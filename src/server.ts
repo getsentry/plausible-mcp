@@ -46,7 +46,7 @@ export function createServer(config: ServerConfig): McpServer {
     new McpServer(
       {
         name: "plausible-mcp",
-        version: "0.5.1",
+        version: "0.5.2",
       },
       { instructions: SERVER_INSTRUCTIONS },
     ),
