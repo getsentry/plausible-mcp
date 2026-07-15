@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+### Bug Fixes 🐛
+
+- (mcp) Preserve expected tool errors without Sentry issue noise by @sergical in [#27](https://github.com/getsentry/plausible-mcp/pull/27)
+
 ## 0.5.1
 
 ### New Features ✨
