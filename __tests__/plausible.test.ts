@@ -58,6 +58,19 @@ describe("PlausibleClient", () => {
     });
   });
 
+  it("encodes an absolute date range as the Plausible v2 tuple", async () => {
+    mockOk({ results: [], meta: {}, query: {} });
+
+    await client.query({
+      site_id: "example.com",
+      metrics: ["visitors"],
+      date_range: "2026-07-01,2026-07-07",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.date_range).toEqual(["2026-07-01", "2026-07-07"]);
+  });
+
   it("includes dimensions when provided", async () => {
     mockOk({ results: [], meta: {}, query: {} });
 

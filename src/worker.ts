@@ -5,6 +5,7 @@ import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access
 import { anonymizeEventWithoutEmail } from "./redaction.js";
 import {
   classifyRoute,
+  errorDropReason,
   resolveClientFamily,
   statusClass,
   transactionDropReason,
@@ -64,6 +65,7 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
     // carries tool names and failures, never who made them. See ./redaction.ts.
     beforeSend(event) {
       anonymizeEventWithoutEmail(event);
+      if (errorDropReason(event)) return null;
       return event;
     },
     beforeSendTransaction(event) {

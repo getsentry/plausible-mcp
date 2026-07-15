@@ -35,6 +35,21 @@ volume never enters dashboards. All attributes are low-cardinality:
 | `app.response.status_class` | Status bucket | `2xx`, `4xx`, `5xx` |
 | `app.client.family` | Bucketed client (see below) | `claude-code`, `cursor`, `codex`, `mcp-remote`, `claude`, `openai`, `python`, `node`, `go`, `java`, `other`, `unknown` |
 
+### Metric: `mcp.tool.error` (counter, one per failed tool call)
+
+Tool failures are returned to MCP clients as `isError: true` inside a successful JSON-RPC
+response, so the outer HTTP status is normally 200. This counter preserves visibility without
+turning expected caller failures into exception issues:
+
+| Attribute | Meaning | Example values |
+| --- | --- | --- |
+| `mcp.tool.name` | Fixed registered tool name | `get_timeseries`, `compare_periods` |
+| `error.kind` | Bounded failure category | `user_input`, `plausible_api`, `unexpected` |
+| `http.response.status_code` | Plausible status, when applicable | `400`, `401`, `429`, `503` |
+
+Unexpected failures and Plausible 5xx responses are also captured as exceptions. User input
+failures and Plausible 4xx responses remain visible through this metric only.
+
 ### Span attributes (stamped on the root `http.server` span, tracked routes only)
 
 `http.route`, `app.route.group`, `app.client.family` — so real tool-call traces are
@@ -55,15 +70,18 @@ still on `initialize` spans for per-trace deep dives; it's just not a dashboard 
 - **`ping` and healthcheck `initialize`**: sampled to `HEARTBEAT_SPAN_KEEP_RATE` (1%) —
   a thin heartbeat in Trace Explorer without the flood. The `app.server.response` metric
   still counts 100% of them, so uptime/volume is unaffected.
-- **Errors are never dropped here** — they're separate events routed through `beforeSend`.
+- **Errors are separate events** routed through `beforeSend`. The expected MCP 406 raised when
+  a GET client does not accept `text/event-stream` is dropped as issue noise; its HTTP response
+  is still counted by `app.server.response`. Other error events are retained.
 
 ## Privacy (unchanged)
 
-`/mcp` (BYOK) stays anonymous: `beforeSend`/`beforeSendTransaction` strip the
-ingest-inferred IP from any event without an email (`src/redaction.ts`), and
-`beforeSendSpan` filters `Authorization`/`Cookie`/`Cf-Access-Jwt-Assertion` span data.
-Only `/internal` attaches `Sentry.setUser({ email })` and records tool I/O. The new
-`app.client.family` attribute is a bounded bucket, not PII.
+`/mcp` (BYOK) stays anonymous: `beforeSend` strips both the ingest-inferred IP and any
+JSON-RPC request body from events without an email (`src/redaction.ts`),
+`beforeSendTransaction` applies the same identity guardrail, and `beforeSendSpan` filters
+`Authorization`/`Cookie`/`Cf-Access-Jwt-Assertion` span data. Only `/internal` attaches
+`Sentry.setUser({ email })` and records tool I/O. The `app.client.family` attribute is a
+bounded bucket, not PII.
 
 ## Query recipes
 
