@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  classifyMcpRequest,
   classifyRoute,
   resolveClientFamily,
   statusClass,
+  traceSampleValue,
   transactionDropReason,
   errorDropReason,
   HEARTBEAT_SPAN_KEEP_RATE,
@@ -33,6 +35,39 @@ describe("classifyRoute", () => {
   it("does not treat lookalike prefixes as tracked", () => {
     expect(classifyRoute("/mcpx")).toBeNull();
     expect(classifyRoute("/internalstuff")).toBeNull();
+  });
+});
+
+describe("classifyMcpRequest", () => {
+  it("classifies heartbeat, tool, and control requests", () => {
+    expect(classifyMcpRequest({ jsonrpc: "2.0", id: 123, method: "ping" }))
+      .toEqual({ method: "ping", kind: "heartbeat" });
+    expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1, method: "tools/call" }))
+      .toEqual({ method: "tools/call", kind: "tool_call" });
+    expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" }))
+      .toEqual({ method: "tools/list", kind: "control" });
+  });
+
+  it("recognizes only the exact healthcheck initialize client", () => {
+    expect(classifyMcpRequest({
+      method: "initialize",
+      params: { clientInfo: { name: "healthcheck" } },
+    })).toEqual({ method: "initialize", kind: "heartbeat" });
+    expect(classifyMcpRequest({
+      method: "initialize",
+      params: { clientInfo: { name: "claude-code" } },
+    })).toEqual({ method: "initialize", kind: "control" });
+  });
+
+  it("bounds caller-controlled and malformed input", () => {
+    expect(classifyMcpRequest({ method: "attacker-defined-method" }))
+      .toEqual({ method: "other", kind: "unknown" });
+    expect(classifyMcpRequest(null))
+      .toEqual({ method: "unknown", kind: "unknown" });
+    expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1 }))
+      .toEqual({ method: "unknown", kind: "unknown" });
+    expect(classifyMcpRequest([{ method: "ping" }]))
+      .toEqual({ method: "batch", kind: "control" });
   });
 });
 
@@ -185,5 +220,58 @@ describe("transactionDropReason", () => {
       },
     };
     expect(transactionDropReason(event, 0.9)).toBe("ping");
+  });
+
+  it("samples an HTTP root from its stamped MCP classification", () => {
+    const pingRoot: TransactionLike = {
+      transaction: "POST /mcp",
+      request: { url: "https://plausible-mcp.sentry.dev/mcp" },
+      contexts: {
+        trace: {
+          op: "http.server",
+          data: {
+            "mcp.method.name": "ping",
+            "app.mcp.request.kind": "heartbeat",
+          },
+        },
+      },
+    };
+    expect(transactionDropReason(pingRoot, 0.9)).toBe("ping");
+
+    const healthcheckRoot: TransactionLike = {
+      ...pingRoot,
+      contexts: {
+        trace: {
+          op: "http.server",
+          data: {
+            "mcp.method.name": "initialize",
+            "app.mcp.request.kind": "heartbeat",
+          },
+        },
+      },
+    };
+    expect(transactionDropReason(healthcheckRoot, 0.9))
+      .toBe("healthcheck-initialize");
+  });
+});
+
+describe("traceSampleValue", () => {
+  it("returns the same sampling value for a root and child in one trace", () => {
+    const traceId = "80000000000000000000000000000000";
+    const root: TransactionLike = {
+      contexts: { trace: { op: "http.server", trace_id: traceId } },
+    };
+    const child: TransactionLike = {
+      contexts: { trace: { op: "mcp.server", trace_id: traceId } },
+    };
+
+    expect(traceSampleValue(root)).toBe(0.5);
+    expect(traceSampleValue(child)).toBe(traceSampleValue(root));
+  });
+
+  it("returns null when no valid trace id is available", () => {
+    expect(traceSampleValue({})).toBeNull();
+    expect(traceSampleValue({ contexts: { trace: { trace_id: "not-hex" } } }))
+      .toBeNull();
   });
 });

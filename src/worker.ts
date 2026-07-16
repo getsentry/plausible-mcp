@@ -4,11 +4,14 @@ import { createServer } from "./server.js";
 import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access.js";
 import { anonymizeEventWithoutEmail } from "./redaction.js";
 import {
+  classifyMcpRequest,
   classifyRoute,
   errorDropReason,
   resolveClientFamily,
   statusClass,
+  traceSampleValue,
   transactionDropReason,
+  type McpRequestTelemetry,
   type TrackedRoute,
 } from "./telemetry.js";
 import type { Env } from "./env.js";
@@ -74,7 +77,8 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       // untracked routes, and all but a thin sample of MCP handshake/keepalive
       // (`ping`, healthcheck `initialize`). Volume/health still counts 100% via
       // metrics; errors are separate events and are never dropped here.
-      if (transactionDropReason(event, Math.random())) return null;
+      const sampleValue = traceSampleValue(event) ?? Math.random();
+      if (transactionDropReason(event, sampleValue)) return null;
       return event;
     },
     beforeSendSpan(span: SpanJSON): SpanJSON {
@@ -94,6 +98,37 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       return span;
     },
   };
+}
+
+const MAX_INSPECTED_MCP_BODY_BYTES = 64 * 1024;
+
+/**
+ * Read a clone of a small JSON-RPC request so the HTTP root can carry the same
+ * bounded method classification as its separately-exported MCP child transaction.
+ * Never retain request ids, params, tool arguments, or unknown method names.
+ */
+async function inspectMcpRequest(
+  request: Request,
+): Promise<McpRequestTelemetry | null> {
+  if (request.method !== "POST") return null;
+  if (!request.headers.get("Content-Type")?.toLowerCase().includes("application/json")) {
+    return null;
+  }
+
+  const contentLength = Number(request.headers.get("Content-Length"));
+  if (
+    !Number.isSafeInteger(contentLength) ||
+    contentLength <= 0 ||
+    contentLength > MAX_INSPECTED_MCP_BODY_BYTES
+  ) {
+    return null;
+  }
+
+  try {
+    return classifyMcpRequest(await request.clone().json());
+  } catch {
+    return null;
+  }
 }
 
 async function rateLimited(request: Request, env: Env): Promise<Response | null> {
@@ -220,6 +255,7 @@ function recordResponseMetric(
   response: Response,
   tracked: TrackedRoute | null,
   clientFamily: string,
+  mcpRequest: McpRequestTelemetry | null,
 ): void {
   if (!tracked) return;
   Sentry.metrics.count("app.server.response", 1, {
@@ -230,6 +266,8 @@ function recordResponseMetric(
       "http.response.status_code": response.status,
       "app.response.status_class": statusClass(response.status),
       "app.client.family": clientFamily,
+      "mcp.method.name": mcpRequest?.method ?? "unknown",
+      "app.mcp.request.kind": mcpRequest?.kind ?? "unknown",
     },
   });
 }
@@ -262,6 +300,17 @@ const handler = {
     }
 
     const limited = await rateLimited(request, env);
+    const mcpRequest = limited || !tracked
+      ? null
+      : await inspectMcpRequest(request);
+
+    if (mcpRequest) {
+      const span = Sentry.getActiveSpan();
+      if (span) {
+        span.setAttribute("mcp.method.name", mcpRequest.method);
+        span.setAttribute("app.mcp.request.kind", mcpRequest.kind);
+      }
+    }
 
     let response: Response;
     if (limited) {
@@ -274,7 +323,7 @@ const handler = {
       response = jsonError("Not found.", 404);
     }
 
-    recordResponseMetric(request, response, tracked, clientFamily);
+    recordResponseMetric(request, response, tracked, clientFamily, mcpRequest);
 
     return corsResponse(response);
   },
