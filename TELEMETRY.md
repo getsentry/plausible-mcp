@@ -34,6 +34,8 @@ volume never enters dashboards. All attributes are low-cardinality:
 | `http.response.status_code` | Final status | `200`, `401`, `429` |
 | `app.response.status_class` | Status bucket | `2xx`, `4xx`, `5xx` |
 | `app.client.family` | Bucketed client (see below) | `claude-code`, `cursor`, `codex`, `mcp-remote`, `claude`, `openai`, `python`, `node`, `go`, `java`, `other`, `unknown` |
+| `mcp.method.name` | Protocol method from a fixed allow-list | `ping`, `initialize`, `tools/call`, `other`, `unknown` |
+| `app.mcp.request.kind` | Bounded request classification | `heartbeat`, `tool_call`, `control`, `unknown` |
 
 ### Metric: `mcp.tool.error` (counter, one per failed tool call)
 
@@ -52,8 +54,11 @@ failures and Plausible 4xx responses remain visible through this metric only.
 
 ### Span attributes (stamped on the root `http.server` span, tracked routes only)
 
-`http.route`, `app.route.group`, `app.client.family` — so real tool-call traces are
-groupable by a bounded client family instead of the initialize-only `mcp.client.name`.
+`http.route`, `app.route.group`, `app.client.family`, `mcp.method.name`, and
+`app.mcp.request.kind` — so real tool-call traces are groupable by a bounded client family
+instead of the initialize-only `mcp.client.name`, while HTTP roots can be sampled together
+with their separately-exported MCP child transactions. The Worker parses only small JSON
+request clones and retains no request ids, params, tool arguments, or unknown method names.
 
 ### Client family
 
@@ -68,8 +73,10 @@ still on `initialize` spans for per-trace deep dives; it's just not a dashboard 
 
 - **Untracked routes** (`/.env`, `/wp-admin/*`, `/`, `favicon.ico`, …): dropped entirely.
 - **`ping` and healthcheck `initialize`**: sampled to `HEARTBEAT_SPAN_KEEP_RATE` (1%) —
-  a thin heartbeat in Trace Explorer without the flood. The `app.server.response` metric
-  still counts 100% of them, so uptime/volume is unaffected.
+  a thin heartbeat in Trace Explorer without the flood. Sampling is deterministic from the
+  trace id, so the outer HTTP root and separately-exported MCP child are kept or dropped
+  together rather than producing empty roots or orphan children. The `app.server.response`
+  metric still counts 100% of them, so uptime/volume is unaffected.
 - **Errors are separate events** routed through `beforeSend`. The expected MCP 406 raised when
   a GET client does not accept `text/event-stream` is dropped as issue noise; its HTTP response
   is still counted by `app.server.response`. Other error events are retained.

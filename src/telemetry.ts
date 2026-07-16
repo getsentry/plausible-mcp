@@ -20,6 +20,13 @@
  */
 
 export type RouteGroup = "mcp" | "internal";
+export type McpRequestKind = "heartbeat" | "tool_call" | "control" | "unknown";
+
+export interface McpRequestTelemetry {
+  /** Protocol method normalized to a fixed allow-list. */
+  method: string;
+  kind: McpRequestKind;
+}
 
 export interface TrackedRoute {
   group: RouteGroup;
@@ -35,6 +42,68 @@ export interface TrackedRoute {
  * uptime/volume dashboards are unaffected by this span sampling.
  */
 export const HEARTBEAT_SPAN_KEEP_RATE = 0.01;
+
+const KNOWN_MCP_METHODS = new Set([
+  "initialize",
+  "ping",
+  "tools/list",
+  "tools/call",
+  "resources/list",
+  "resources/templates/list",
+  "resources/read",
+  "resources/subscribe",
+  "resources/unsubscribe",
+  "prompts/list",
+  "prompts/get",
+  "completion/complete",
+  "logging/setLevel",
+  "roots/list",
+  "sampling/createMessage",
+  "elicitation/create",
+  "notifications/initialized",
+  "notifications/cancelled",
+  "notifications/progress",
+  "notifications/roots/list_changed",
+]);
+
+/**
+ * Extract only bounded protocol metadata from an already-parsed JSON-RPC body.
+ * Request ids, params, tool arguments, and caller-defined method names are ignored.
+ */
+export function classifyMcpRequest(payload: unknown): McpRequestTelemetry {
+  if (Array.isArray(payload)) return { method: "batch", kind: "control" };
+  if (!payload || typeof payload !== "object") {
+    return { method: "unknown", kind: "unknown" };
+  }
+
+  const message = payload as Record<string, unknown>;
+  const rawMethod = typeof message.method === "string" ? message.method : "";
+  if (!rawMethod) return { method: "unknown", kind: "unknown" };
+  const method = KNOWN_MCP_METHODS.has(rawMethod) ? rawMethod : "other";
+
+  if (method === "ping") return { method, kind: "heartbeat" };
+  if (method === "tools/call") return { method, kind: "tool_call" };
+
+  if (method === "initialize") {
+    const params = message.params;
+    const clientInfo =
+      params && typeof params === "object"
+        ? (params as Record<string, unknown>).clientInfo
+        : undefined;
+    const clientName =
+      clientInfo && typeof clientInfo === "object"
+        ? (clientInfo as Record<string, unknown>).name
+        : undefined;
+    if (clientName === "healthcheck") {
+      return { method, kind: "heartbeat" };
+    }
+  }
+
+  return {
+    method,
+    kind: method === "other" ? "unknown" : "control",
+  };
+}
 
 /**
  * Map a request path to one of our two real endpoints, or null for anything else.
@@ -155,7 +224,13 @@ interface SpanLike {
 export interface TransactionLike {
   transaction?: string;
   request?: { url?: string };
-  contexts?: { trace?: { op?: string; data?: Record<string, unknown> } };
+  contexts?: {
+    trace?: {
+      op?: string;
+      trace_id?: string;
+      data?: Record<string, unknown>;
+    };
+  };
   spans?: SpanLike[];
 }
 
@@ -178,14 +253,30 @@ function transactionPathname(event: TransactionLike): string | null {
   return null;
 }
 
-/** The MCP span carrying method/client attributes (root or a child), if any. */
+/** The span carrying MCP method metadata (HTTP root, MCP root, or child), if any. */
 function mcpSpanData(event: TransactionLike): Record<string, unknown> | null {
   const trace = event.contexts?.trace;
-  if (trace?.op === "mcp.server" && trace.data) return trace.data;
+  if (
+    trace?.data &&
+    (trace.op === "mcp.server" || "mcp.method.name" in trace.data)
+  ) {
+    return trace.data;
+  }
   for (const span of event.spans ?? []) {
     if (span.op === "mcp.server" && span.data) return span.data;
   }
   return null;
+}
+
+/**
+ * Stable 0..1 sample value shared by every transaction in a trace. Sampling the
+ * HTTP root and MCP child independently creates the misleading empty/orphan traces
+ * this filter is intended to prevent.
+ */
+export function traceSampleValue(event: TransactionLike): number | null {
+  const traceId = event.contexts?.trace?.trace_id;
+  if (!traceId || !/^[0-9a-f]{32}$/i.test(traceId)) return null;
+  return Number.parseInt(traceId.slice(0, 8), 16) / 0x1_0000_0000;
 }
 
 /**
@@ -210,9 +301,13 @@ export function transactionDropReason(
   if (data) {
     const method = data["mcp.method.name"];
     const client = data["mcp.client.name"];
+    const requestKind = data["app.mcp.request.kind"];
     if (rand >= HEARTBEAT_SPAN_KEEP_RATE) {
       if (method === "ping") return "ping";
-      if (method === "initialize" && client === "healthcheck") {
+      if (
+        method === "initialize" &&
+        (client === "healthcheck" || requestKind === "heartbeat")
+      ) {
         return "healthcheck-initialize";
       }
     }
