@@ -1,6 +1,6 @@
 {
   "name": "plausible-mcp",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "MCP server for Plausible Analytics — query traffic, conversions, and compare periods from any AI tool",
   "type": "module",
   "bin": {

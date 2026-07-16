@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+### Bug Fixes 🐛
+
+- (telemetry) Sample MCP heartbeat traces consistently by @sergical in [#28](https://github.com/getsentry/plausible-mcp/pull/28)
+
 ## 0.5.2
 
 ### Bug Fixes 🐛
