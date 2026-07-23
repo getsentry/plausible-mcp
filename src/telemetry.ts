@@ -197,17 +197,25 @@ export interface ErrorEventLike {
 
 /**
  * Drop expected protocol rejections that the MCP SDK reports through its error hook.
- * The HTTP 406 is still returned and counted by `app.server.response`; it is not an
+ * The transport already answers these itself (406 for GET without SSE support, 400
+ * with a JSON-RPC -32700 for an unparseable POST body — scanners and curl probes),
+ * and both responses are still counted by `app.server.response`; neither is an
  * application exception that needs an issue in Sentry.
  */
 export function errorDropReason(event: ErrorEventLike): string | null {
   for (const exception of event.exception?.values ?? []) {
+    if (exception.mechanism?.type !== "auto.ai.mcp_server") continue;
     if (
       exception.value === "Not Acceptable: Client must accept text/event-stream" &&
-      exception.mechanism?.type === "auto.ai.mcp_server" &&
       exception.mechanism.data?.["error_type"] === "transport"
     ) {
       return "mcp-get-without-sse-accept";
+    }
+    if (
+      exception.value === "Parse error: Invalid JSON" ||
+      exception.value === "Parse error: Invalid JSON-RPC message"
+    ) {
+      return "mcp-body-parse-error";
     }
   }
   return null;

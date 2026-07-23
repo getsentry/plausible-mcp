@@ -20,6 +20,11 @@ export interface Env {
   PLAUSIBLE_API_KEY?: string;
 
   // Sentry
+  /**
+   * Sentry DSN for the Worker's own telemetry. Set as a secret on deployments that
+   * want Sentry (`wrangler secret put SENTRY_DSN`); leave unset to run without it.
+   */
+  SENTRY_DSN?: string;
   SENTRY_RELEASE?: string;
 
   /**

@@ -81,4 +81,5 @@ Worker `/internal` (Cloudflare Access Managed OAuth) also needs these secrets �
 |----------|-------------|
 | `CF_ACCESS_TEAM_DOMAIN` | `https://<team>.cloudflareaccess.com` — verifies the `Cf-Access-Jwt-Assertion` JWKS + issuer (no trailing slash) |
 | `CF_ACCESS_AUD` | The Access application's Application Audience (AUD) tag — checked against the assertion `aud` |
+| `SENTRY_DSN` (secret, optional) | Sentry DSN for the Worker's own telemetry. Deliberately a secret, not committed: a hardcoded DSN made third-party deployments of this public repo report into our Sentry project. Unset = SDK disabled |
 | `ALLOWED_EMAIL_DOMAIN` (var, optional) | Comma-separated email domain(s) gating `/internal` login. Defaults to `sentry.io`; the `@sentry.io` gate is **not** hardcoded — self-hosters set their own domain |

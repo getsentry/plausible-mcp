@@ -125,6 +125,34 @@ describe("errorDropReason", () => {
     expect(errorDropReason(event)).toBe("mcp-get-without-sse-accept");
   });
 
+  it("drops the parse errors the MCP transport reports for malformed POST bodies", () => {
+    for (const value of [
+      "Parse error: Invalid JSON",
+      "Parse error: Invalid JSON-RPC message",
+    ]) {
+      const event: ErrorEventLike = {
+        exception: {
+          values: [{
+            value,
+            mechanism: { type: "auto.ai.mcp_server" },
+          }],
+        },
+      };
+      expect(errorDropReason(event)).toBe("mcp-body-parse-error");
+    }
+  });
+
+  it("keeps parse-error lookalikes not reported by the MCP server hook", () => {
+    expect(errorDropReason({
+      exception: {
+        values: [{
+          value: "Parse error: Invalid JSON",
+          mechanism: { type: "generic" },
+        }],
+      },
+    })).toBeNull();
+  });
+
   it("keeps other transport and application errors", () => {
     expect(errorDropReason({
       exception: {

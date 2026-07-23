@@ -55,7 +55,10 @@ function jsonError(message: string, status: number): Response {
 
 function sentryConfig(env: Env): Sentry.CloudflareOptions {
   return {
-    dsn: "https://de333c4dff86900878d446e663271b2a@o4509446862274560.ingest.us.sentry.io/4511179029020672",
+    // Set out-of-band (`wrangler secret put SENTRY_DSN`), never hardcoded: this repo is
+    // public and forks deploy it as-is, so a baked-in DSN makes every third-party
+    // deployment report into the DSN owner's Sentry project. Unset disables the SDK.
+    dsn: env.SENTRY_DSN,
     release: env.SENTRY_RELEASE,
     tracesSampleRate: 1.0,
     sendDefaultPii: false,

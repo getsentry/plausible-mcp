@@ -3,6 +3,12 @@
 How this Worker reports to Sentry, and how to query it. Sentry project
 `4511179029020672` (org `sentry-developer-experience`).
 
+Telemetry only runs when a `SENTRY_DSN` secret is set on the deployment
+(`wrangler secret put SENTRY_DSN`). The DSN is deliberately not in the repo: this is a
+public codebase, and a hardcoded DSN made every third-party deployment report into our
+project — re-opening resolved issues with errors from stale forks. Unset means the SDK
+is disabled, which is the right default for forks and self-hosters.
+
 ## The model
 
 This is a **public** endpoint, so most requests aren't users — uptime monitors and
@@ -77,9 +83,11 @@ still on `initialize` spans for per-trace deep dives; it's just not a dashboard 
   trace id, so the outer HTTP root and separately-exported MCP child are kept or dropped
   together rather than producing empty roots or orphan children. The `app.server.response`
   metric still counts 100% of them, so uptime/volume is unaffected.
-- **Errors are separate events** routed through `beforeSend`. The expected MCP 406 raised when
-  a GET client does not accept `text/event-stream` is dropped as issue noise; its HTTP response
-  is still counted by `app.server.response`. Other error events are retained.
+- **Errors are separate events** routed through `beforeSend`. Two expected MCP transport
+  rejections are dropped as issue noise: the 406 raised when a GET client does not accept
+  `text/event-stream`, and the `Parse error` raised when a POST body is not valid JSON-RPC
+  (scanners and curl probes; the transport already answers 400 itself). Both HTTP responses
+  are still counted by `app.server.response`. Other error events are retained.
 
 ## Privacy (unchanged)
 

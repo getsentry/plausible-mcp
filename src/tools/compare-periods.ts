@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
 import { reportToolError } from "../errors.js";
 import {
-  siteIdSchema,
+  siteIdSchemaFor,
   dateRangeSchema,
   pageSchema,
   goalSchema,
@@ -92,7 +92,7 @@ export function register(
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: comparePeriodsOutputSchema,
       inputSchema: {
-        site_id: siteIdSchema,
+        site_id: siteIdSchemaFor(defaultSiteId),
         period_a: dateRangeSchema.describe(
           'First date range, e.g. "2024-01-01,2024-01-07" or "7d"'
         ),
