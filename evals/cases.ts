@@ -100,4 +100,40 @@ export const cases: EvalCase[] = [
       return errors;
     },
   },
+  {
+    name: "breakdown by a custom property",
+    prompt:
+      "Break down visitors by the custom property `destination_host` for example.com this month.",
+    expectedTool: "get_breakdown",
+    assertions: (args) => {
+      const errors: string[] = [];
+      if (args.dimension !== "event:props:destination_host") {
+        errors.push(
+          `Expected dimension "event:props:destination_host", got "${args.dimension}"`
+        );
+      }
+      return errors;
+    },
+  },
+  {
+    name: "filter timeseries by a custom property value",
+    prompt:
+      "Show daily visitors to example.com over the last 30 days, but only for events where the custom property `plan` is `pro`.",
+    expectedTool: "get_timeseries",
+    assertions: (args) => {
+      const errors: string[] = [];
+      const filters = args.property_filters as
+        | Array<{ property?: string; values?: string[] }>
+        | undefined;
+      const match = filters?.find(
+        (f) => f.property === "plan" && (f.values ?? []).includes("pro")
+      );
+      if (!match) {
+        errors.push(
+          `Expected a property_filters entry for plan=pro, got ${JSON.stringify(args.property_filters)}`
+        );
+      }
+      return errors;
+    },
+  },
 ];

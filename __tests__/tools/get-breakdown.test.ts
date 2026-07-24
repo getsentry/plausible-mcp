@@ -89,6 +89,58 @@ describe("get_breakdown tool", () => {
     }
   });
 
+  it("breaks down by a custom property dimension", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    const result = await handler({
+      site_id: "example.com",
+      date_range: "30d",
+      dimension: "event:props:destination_host",
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dimensions: ["event:props:destination_host"],
+      })
+    );
+  });
+
+  it("adds custom property filters", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    await handler({
+      site_id: "example.com",
+      date_range: "7d",
+      dimension: "event:page",
+      property_filters: [{ property: "plan", operator: "is", values: ["pro"] }],
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: [["is", "event:props:plan", ["pro"]]],
+      })
+    );
+  });
+
+  it("combines page and custom property filters", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    await handler({
+      site_id: "example.com",
+      date_range: "7d",
+      dimension: "event:props:destination_host",
+      page: "/pricing",
+      property_filters: [{ property: "ctry", operator: "is", values: ["US"] }],
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: [
+          ["is", "event:page", ["/pricing"]],
+          ["is", "event:props:ctry", ["US"]],
+        ],
+      })
+    );
+  });
+
   it("returns structuredContent labelled with the metric and dimension keys", async () => {
     const handler = getToolHandler(server, "get_breakdown");
     const result = await handler({

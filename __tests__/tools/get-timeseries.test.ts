@@ -131,6 +131,25 @@ describe("get_timeseries tool", () => {
     );
   });
 
+  it("adds custom property filters alongside page filters", async () => {
+    const handler = getToolHandler(server, "get_timeseries");
+    await handler({
+      site_id: "example.com",
+      date_range: "7d",
+      page: "/pricing",
+      property_filters: [{ property: "plan", operator: "is", values: ["pro"] }],
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: [
+          ["is", "event:page", ["/pricing"]],
+          ["is", "event:props:plan", ["pro"]],
+        ],
+      })
+    );
+  });
+
   it("uses custom metrics", async () => {
     const handler = getToolHandler(server, "get_timeseries");
     await handler({

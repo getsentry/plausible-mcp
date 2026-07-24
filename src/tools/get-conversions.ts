@@ -7,8 +7,10 @@ import {
   dateRangeSchema,
   pageSchema,
   goalSchema,
+  propertyFiltersSchema,
   buildPageFilter,
   buildGoalFilter,
+  buildPropertyFilters,
   queryResultOutputSchema,
   buildQueryStructuredContent,
 } from "../schemas.js";
@@ -32,6 +34,7 @@ export function register(
         date_range: dateRangeSchema,
         goal: goalSchema,
         page: pageSchema,
+        property_filters: propertyFiltersSchema,
         breakdown_by_page: z
           .boolean()
           .default(false)
@@ -47,6 +50,9 @@ export function register(
         const filters: unknown[][] = [];
         if (args.goal) filters.push(buildGoalFilter(args.goal));
         if (args.page) filters.push(buildPageFilter(args.page));
+        if (args.property_filters?.length) {
+          filters.push(...buildPropertyFilters(args.property_filters));
+        }
 
         const dimensions = args.breakdown_by_page
           ? ["event:goal", "event:page"]

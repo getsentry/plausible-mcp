@@ -139,6 +139,20 @@ describe("compare_periods tool", () => {
     }
   });
 
+  it("passes custom property filters to both calls", async () => {
+    const handler = getToolHandler(server, "compare_periods");
+    await handler({
+      site_id: "example.com",
+      period_a: "2024-01-01,2024-01-07",
+      period_b: "2024-01-08,2024-01-14",
+      property_filters: [{ property: "plan", operator: "is", values: ["pro"] }],
+    });
+
+    for (const call of client.query.mock.calls) {
+      expect(call[0].filters).toEqual([["is", "event:props:plan", ["pro"]]]);
+    }
+  });
+
   it("uses default site_id", async () => {
     const handler = getToolHandler(server, "compare_periods");
     await handler({
