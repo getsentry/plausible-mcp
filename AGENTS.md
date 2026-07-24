@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents (Claude Code, and others via the
 
 ## What This Is
 
-MCP server for Plausible Analytics — wraps the Plausible Stats API v2 (`POST /api/v2/query`). Provides four read-only tools (`get_timeseries`, `get_breakdown`, `get_conversions`, `compare_periods`) for querying traffic and conversion data from any MCP-compatible AI tool.
+MCP server for Plausible Analytics — wraps the Plausible Stats API v2 (`POST /api/v2/query`). Provides four read-only tools (`get_timeseries`, `get_breakdown`, `get_conversions`, `compare_periods`) for querying traffic and conversion data from any MCP-compatible AI tool. On the Worker, a fifth tool (`send_feedback`, gated by `ServerConfig.enableFeedbackTool`) lets calling agents file friction reports into Sentry User Feedback; the STDIO entry point leaves it off since it has no Sentry SDK.
 
 Two entry points:
 - **STDIO** (`src/index.ts`) — local use, reads `PLAUSIBLE_API_KEY` from env

@@ -16,7 +16,9 @@ Built for teams that want to ask questions like:
 | `get_conversions` | Goal conversion rates, optionally per-page |
 | `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas |
 
-All tools are **read-only** and annotated with `readOnlyHint: true`.
+All query tools are **read-only** and annotated with `readOnlyHint: true`.
+
+Hosted deployments additionally expose `send_feedback`, which files feedback about the server itself (confusing errors, missing capabilities) into the maintainers' Sentry User Feedback inbox. It is only registered when the server runs with Sentry (`enableFeedbackTool`).
 
 ## Quick Start
 

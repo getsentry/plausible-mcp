@@ -5,6 +5,7 @@ import { register as registerTimeseries } from "./tools/get-timeseries.js";
 import { register as registerBreakdown } from "./tools/get-breakdown.js";
 import { register as registerConversions } from "./tools/get-conversions.js";
 import { register as registerComparePeriods } from "./tools/compare-periods.js";
+import { register as registerSendFeedback } from "./tools/send-feedback.js";
 
 export interface ServerConfig {
   apiKey: string;
@@ -16,6 +17,13 @@ export interface ServerConfig {
    * bring-your-own-key `/mcp` traffic, whose inputs/outputs are the caller's own data.
    */
   recordToolIO?: boolean;
+  /**
+   * Register the `send_feedback` tool, which files agent/user feedback into Sentry User
+   * Feedback. Only meaningful where the Sentry SDK is initialized (the Worker); the STDIO
+   * entry point leaves it off so the tool is never offered somewhere submissions would be
+   * dropped.
+   */
+  enableFeedbackTool?: boolean;
 }
 
 /**
@@ -41,6 +49,10 @@ COMBINATION RULES:
 
 SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's default site is used; if there is no default, the call fails — ask the user which site to query.`;
 
+const FEEDBACK_INSTRUCTIONS = `
+
+FEEDBACK: If a tool result confuses you, an error message doesn't help you fix the call, or you cannot express the query you need, report it with send_feedback — it goes straight to the server's maintainers.`;
+
 export function createServer(config: ServerConfig): McpServer {
   const server = Sentry.wrapMcpServerWithSentry(
     new McpServer(
@@ -48,7 +60,11 @@ export function createServer(config: ServerConfig): McpServer {
         name: "plausible-mcp",
         version: "0.5.4",
       },
-      { instructions: SERVER_INSTRUCTIONS },
+      {
+        instructions: config.enableFeedbackTool
+          ? SERVER_INSTRUCTIONS + FEEDBACK_INSTRUCTIONS
+          : SERVER_INSTRUCTIONS,
+      },
     ),
     {
       recordInputs: config.recordToolIO ?? false,
@@ -65,6 +81,9 @@ export function createServer(config: ServerConfig): McpServer {
   registerBreakdown(server, client, config.defaultSiteId);
   registerConversions(server, client, config.defaultSiteId);
   registerComparePeriods(server, client, config.defaultSiteId);
+  if (config.enableFeedbackTool) {
+    registerSendFeedback(server);
+  }
 
   return server;
 }
