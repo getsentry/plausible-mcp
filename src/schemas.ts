@@ -61,6 +61,20 @@ export const siteIdSchema = z
   )
   .optional();
 
+const requiredSiteIdSchema = z
+  .string()
+  .describe("Plausible site domain (e.g. example.com). Required.");
+
+/**
+ * site_id is only truly optional when the server has a default site to fall back
+ * on. Without one, marking it required in the tool schema turns a guaranteed
+ * runtime failure ("site_id is required") into an upfront validation error the
+ * client can self-correct from the schema alone.
+ */
+export function siteIdSchemaFor(defaultSiteId: string | undefined) {
+  return defaultSiteId ? siteIdSchema : requiredSiteIdSchema;
+}
+
 export const dateRangeSchema = z
   .string()
   .regex(

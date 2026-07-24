@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PlausibleClient } from "../plausible.js";
 import { reportToolError } from "../errors.js";
 import {
-  siteIdSchema,
+  siteIdSchemaFor,
   dateRangeSchema,
   pageSchema,
   goalSchema,
@@ -28,7 +28,7 @@ export function register(
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,
       inputSchema: {
-        site_id: siteIdSchema,
+        site_id: siteIdSchemaFor(defaultSiteId),
         date_range: dateRangeSchema,
         goal: goalSchema,
         page: pageSchema,

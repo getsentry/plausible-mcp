@@ -151,6 +151,7 @@ The Worker runs **no OAuth server** — Cloudflare Access is the authorization s
 | `PLAUSIBLE_DEFAULT_SITE_ID` | No | — | Default site domain so you don't have to pass `site_id` every call |
 | `CF_ACCESS_TEAM_DOMAIN` | Yes (Worker `/internal`) | — | `https://<team>.cloudflareaccess.com` — verifies the `Cf-Access-Jwt-Assertion` JWKS + issuer. No trailing slash. |
 | `CF_ACCESS_AUD` | Yes (Worker `/internal`) | — | The Access application's Application Audience (AUD) tag — checked against the assertion's `aud`. |
+| `SENTRY_DSN` | No (Worker) | — | Sentry DSN for the Worker's own telemetry (`wrangler secret put SENTRY_DSN`). Unset disables Sentry — use your own DSN if you want telemetry on a self-hosted deployment. |
 | `ALLOWED_EMAIL_DOMAIN` | No (Worker `/internal`) | `sentry.io` | Comma-separated email domain(s) allowed to sign in to `/internal`. Set to your own domain when self-hosting. |
 
 On the Worker, the `/mcp` endpoint needs no server-side key — each user passes their own via `Authorization: Bearer`. The `/internal` endpoint is fronted by Cloudflare Access Managed OAuth and uses a shared server-side `PLAUSIBLE_API_KEY` secret (see [self-hosting](#setting-up-the-internal-endpoint-cloudflare-access-managed-oauth)).

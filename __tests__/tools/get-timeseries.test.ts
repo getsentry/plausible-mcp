@@ -37,6 +37,18 @@ describe("get_timeseries tool", () => {
     register(server, client, "default.com");
   });
 
+  it("declares site_id optional when a default site is configured", () => {
+    const tool = (server as any)._registeredTools["get_timeseries"];
+    expect(tool.inputSchema.shape.site_id.isOptional()).toBe(true);
+  });
+
+  it("declares site_id required when no default site is configured", () => {
+    const bareServer = new McpServer({ name: "test", version: "0.0.1" });
+    register(bareServer, client);
+    const tool = (bareServer as any)._registeredTools["get_timeseries"];
+    expect(tool.inputSchema.shape.site_id.isOptional()).toBe(false);
+  });
+
   it("registers the tool", async () => {
     // Tool should be findable via the server's tool list
     const tools = await (server as any).getRegisteredTools?.();

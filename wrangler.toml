@@ -27,6 +27,9 @@ port = 8787
 # the assertion Access injects, so no OAuth client id/secret, cookie key, or KV is needed.
 # The one true secret is the shared Plausible key — set it out-of-band, not in this file:
 #   wrangler secret put PLAUSIBLE_API_KEY
+# Optional: the Worker's own Sentry telemetry. Deliberately a secret rather than a var so
+# forks of this repo don't report into someone else's Sentry project. Unset = SDK disabled.
+#   wrangler secret put SENTRY_DSN
 
 [[unsafe.bindings]]
 name = "RATE_LIMITER"
