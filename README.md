@@ -172,6 +172,13 @@ This server wraps the [Plausible Stats API v2](https://plausible.io/docs/stats-a
 
 The `*_name` geography dimensions return human-readable names (e.g. "Canada"); the plain `visit:country`/`region`/`city` return ISO/Geoname codes.
 
+### Custom Properties
+
+Sites send their own [custom event properties](https://plausible.io/docs/custom-props/introduction), addressed as `event:props:<name>`. These are site-specific, so there's no fixed list.
+
+- **Break down by** a custom property: pass `get_breakdown` a `dimension` of `event:props:<name>` (e.g. `event:props:plan`).
+- **Filter by** a custom property on any query tool via `property_filters`, e.g. `[{ "property": "plan", "operator": "is", "values": ["pro"] }]`. The `property` is the bare name (no `event:props:` prefix); operators are `is`, `is_not`, `contains`, `contains_not`, and multiple entries combine with AND.
+
 ## Development
 
 ```bash

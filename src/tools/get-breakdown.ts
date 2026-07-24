@@ -7,8 +7,10 @@ import {
   dateRangeSchema,
   pageSchema,
   metricsSchema,
-  VALID_DIMENSIONS,
+  dimensionSchema,
+  propertyFiltersSchema,
   buildPageFilter,
+  buildPropertyFilters,
   queryResultOutputSchema,
   buildQueryStructuredContent,
 } from "../schemas.js";
@@ -30,10 +32,9 @@ export function register(
       inputSchema: {
         site_id: siteIdSchemaFor(defaultSiteId),
         date_range: dateRangeSchema,
-        dimension: z
-          .enum(VALID_DIMENSIONS)
-          .describe("Dimension to group results by"),
+        dimension: dimensionSchema,
         page: pageSchema,
+        property_filters: propertyFiltersSchema,
         metrics: metricsSchema,
         limit: z
           .number()
@@ -53,6 +54,9 @@ export function register(
 
         const filters: unknown[][] = [];
         if (args.page) filters.push(buildPageFilter(args.page));
+        if (args.property_filters?.length) {
+          filters.push(...buildPropertyFilters(args.property_filters));
+        }
 
         const result = await client.query({
           site_id: siteId,

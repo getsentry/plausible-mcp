@@ -74,6 +74,25 @@ describe("get_conversions tool", () => {
     );
   });
 
+  it("filters by a custom property", async () => {
+    const handler = getToolHandler(server, "get_conversions");
+    await handler({
+      site_id: "example.com",
+      date_range: "30d",
+      goal: "Signup",
+      property_filters: [{ property: "plan", operator: "is", values: ["pro"] }],
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: [
+          ["is", "event:goal", ["Signup"]],
+          ["is", "event:props:plan", ["pro"]],
+        ],
+      })
+    );
+  });
+
   it("uses default site_id", async () => {
     const handler = getToolHandler(server, "get_conversions");
     await handler({ date_range: "7d" });

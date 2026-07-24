@@ -124,6 +124,85 @@ export function buildGoalFilter(goal: string): unknown[] {
 }
 
 /**
+ * Custom event properties are addressed in the Stats API v2 as `event:props:<name>`, both
+ * as breakdown dimensions and as filter operands. The set of property names is defined by
+ * whatever the site's own tracker sends, so it can't be enumerated here — the tools accept
+ * any `event:props:<name>` generically.
+ */
+export const CUSTOM_PROPERTY_PREFIX = "event:props:";
+
+export function isCustomPropertyDimension(value: string): boolean {
+  return (
+    value.startsWith(CUSTOM_PROPERTY_PREFIX) &&
+    value.length > CUSTOM_PROPERTY_PREFIX.length
+  );
+}
+
+const customPropertyDimensionSchema = z
+  .string()
+  .regex(
+    /^event:props:\S/,
+    'Custom property dimension must look like "event:props:<name>"'
+  )
+  .max(200);
+
+export const dimensionSchema = z
+  .union([z.enum(VALID_DIMENSIONS), customPropertyDimensionSchema])
+  .describe(
+    'Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan).'
+  );
+
+export const PROPERTY_FILTER_OPERATORS = [
+  "is",
+  "is_not",
+  "contains",
+  "contains_not",
+] as const;
+
+export type PropertyFilter = {
+  property: string;
+  operator?: (typeof PROPERTY_FILTER_OPERATORS)[number];
+  values: string[];
+};
+
+export const propertyFilterSchema = z.object({
+  property: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe(
+      'Custom property name WITHOUT the "event:props:" prefix (e.g. "plan" targets event:props:plan)'
+    ),
+  operator: z
+    .enum(PROPERTY_FILTER_OPERATORS)
+    .default("is")
+    .describe("Match operator: is, is_not, contains, contains_not (default: is)"),
+  values: z
+    .array(z.string())
+    .min(1)
+    .describe("One or more values to match the property against"),
+});
+
+export const propertyFiltersSchema = z
+  .array(propertyFilterSchema)
+  .describe(
+    'Filter by custom event properties, e.g. [{ "property": "plan", "operator": "is", "values": ["pro"] }]. Combined with other filters using AND.'
+  )
+  .optional();
+
+/**
+ * Build Plausible Stats API v2 filters for custom event properties.
+ * Each entry becomes `[operator, "event:props:<name>", values]`.
+ */
+export function buildPropertyFilters(filters: PropertyFilter[]): unknown[][] {
+  return filters.map((f) => [
+    f.operator ?? "is",
+    `${CUSTOM_PROPERTY_PREFIX}${f.property}`,
+    f.values,
+  ]);
+}
+
+/**
  * Shared `outputSchema` (a ZodRawShape) for the query-style tools. Declaring it makes the
  * tools return machine-readable `structuredContent` (validated by the MCP SDK) alongside the
  * human-readable text block. `metrics`/`dimensions` label the parallel arrays in each row so
