@@ -200,6 +200,7 @@ async function handleInternalMcp(
     // — and Authorization/Cookie/JWT headers are still stripped by beforeSendSpan.
     // BYOK (/mcp) deliberately leaves this off: that traffic is a third party's own data.
     recordToolIO: true,
+    enableFeedbackTool: true,
   });
 
   return createMcpHandler(server, { route: "/internal" })(request, env, ctx);
@@ -238,6 +239,7 @@ async function handleDirectMcp(
       apiKey,
       baseUrl: env.PLAUSIBLE_BASE_URL,
       defaultSiteId: env.PLAUSIBLE_DEFAULT_SITE_ID,
+      enableFeedbackTool: true,
     });
   } catch (error) {
     Sentry.captureException(error);

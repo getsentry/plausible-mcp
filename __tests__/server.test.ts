@@ -200,6 +200,11 @@ describe("MCP Server Integration", () => {
     expect(body.site_id).toBe("example.com");
   });
 
+  it("does not register send_feedback by default", async () => {
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).not.toContain("send_feedback");
+  });
+
   it("returns error when Plausible API fails", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
@@ -215,5 +220,65 @@ describe("MCP Server Integration", () => {
     expect(result.isError).toBe(true);
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content[0].text).toContain("401");
+  });
+});
+
+describe("MCP Server with feedback tool enabled", () => {
+  let client: Client;
+
+  beforeAll(async () => {
+    const server = createServer({
+      apiKey: "test-key-123",
+      defaultSiteId: "example.com",
+      enableFeedbackTool: true,
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+
+    client = new Client({ name: "test-client", version: "0.0.1" });
+    await client.connect(clientTransport);
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("registers send_feedback alongside the query tools", async () => {
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain("send_feedback");
+  });
+
+  it("mentions send_feedback in the server instructions", () => {
+    expect(client.getInstructions()).toContain("send_feedback");
+  });
+
+  it("records feedback and returns structured confirmation", async () => {
+    const result = await client.callTool({
+      name: "send_feedback",
+      arguments: {
+        message: "The combination-rules error message could name the offending metric",
+        category: "confusing_error",
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as {
+      recorded: boolean;
+      feedback_id?: string;
+    };
+    expect(structured.recorded).toBe(true);
+    // Uses the real (unmocked) Sentry withScope/captureFeedback: proves withScope
+    // propagates the callback's return value, so the feedback id is not lost.
+    expect(structured.feedback_id).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it("rejects messages that are too short to act on", async () => {
+    const result = await client.callTool({
+      name: "send_feedback",
+      arguments: { message: "bad" },
+    });
+
+    expect(result.isError).toBe(true);
   });
 });
