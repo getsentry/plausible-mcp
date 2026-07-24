@@ -263,8 +263,14 @@ describe("MCP Server with feedback tool enabled", () => {
     });
 
     expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as { recorded: boolean };
+    const structured = result.structuredContent as {
+      recorded: boolean;
+      feedback_id?: string;
+    };
     expect(structured.recorded).toBe(true);
+    // Uses the real (unmocked) Sentry withScope/captureFeedback: proves withScope
+    // propagates the callback's return value, so the feedback id is not lost.
+    expect(structured.feedback_id).toMatch(/^[0-9a-f]{32}$/);
   });
 
   it("rejects messages that are too short to act on", async () => {
