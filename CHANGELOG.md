@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+### New Features ✨
+
+- (mcp) Add send_feedback tool wired to Sentry User Feedback by @sergical in [#32](https://github.com/getsentry/plausible-mcp/pull/32)
+
+### Internal Changes 🔧
+
+- (deps) Resolve all 7 dependabot alerts and refresh direct deps by @sergical in [#33](https://github.com/getsentry/plausible-mcp/pull/33)
+
 ## 0.5.4
 
 ### Bug Fixes 🐛
