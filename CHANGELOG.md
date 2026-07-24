@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4
+
+### Bug Fixes 🐛
+
+- (sentry) Gate DSN to our deployment and drop expected MCP transport noise by @sergical in [#31](https://github.com/getsentry/plausible-mcp/pull/31)
+
 ## 0.5.3
 
 ### Bug Fixes 🐛
