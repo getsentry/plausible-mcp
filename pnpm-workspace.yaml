@@ -12,3 +12,7 @@ allowBuilds:
 # versions have a high-severity advisory (GHSA-gv7w-rqvm-qjhr).
 overrides:
   esbuild: ">=0.28.1"
+  # No patched 1.x exists for the @hono/node-server serve-static advisory and the
+  # MCP SDK pins ^1.x. None of our transports load the Node server (the Worker uses
+  # the web-standard transport, STDIO uses stdio), so the 2.x jump is inert here.
+  "@hono/node-server": "^2.0.5"
