@@ -49,6 +49,11 @@ export function stripUrlQuery(url: string): string {
  * (e.g. `x-openai-subject`). No header carries signal this server uses, so the whole
  * namespace goes. `user_agent.original` is likewise free-form caller text; `mcp.client.name`
  * already identifies the client software. `url.path` survives as the routing signal.
+ *
+ * `mcp.client.title` is a free-form display string that may name a person or workspace.
+ * `recordMcpClientInfo` never sets it, but a legacy client sends `clientInfo` through the
+ * `initialize` handshake, which the Sentry SDK stores per transport and writes onto spans
+ * itself — so suppressing it at our own call site is not enough.
  */
 export function stripRequestAttributes(data: Record<string, unknown>): void {
   for (const key of Object.keys(data)) {
@@ -57,6 +62,7 @@ export function stripRequestAttributes(data: Record<string, unknown>): void {
       delete data[key];
     }
   }
+  delete data["mcp.client.title"];
   delete data["url.query"];
   delete data["user_agent.original"];
   if (typeof data["url.full"] === "string") {

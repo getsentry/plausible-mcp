@@ -126,6 +126,9 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
     sensitive-key list — which misses client-specific identity headers like `x-openai-subject`.
   - `user_agent.original`, free-form caller text that duplicates no signal `mcp.client.name`
     does not already carry.
+  - `mcp.client.title`. `recordMcpClientInfo` never sets it, but a legacy client sends
+    `clientInfo` through the `initialize` handshake, which the SDK stores per transport and
+    writes onto spans itself — so suppressing it at our own call site is not enough.
   - `url.query`, and the query and fragment on `url.full`. `requestDataIntegration`'s
     `query_string: false` does not reach these, and neither endpoint reads the query string.
     `url.path` survives as the routing signal. `anonymizeEventWithoutEmail` applies the same
@@ -140,8 +143,8 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
 - **`mcp.client.name` and `mcp.client.version` are recorded on both endpoints.** A client
   library name and version identify software, not a person, so they're deliberately exempt
   from anonymization — unlike `mcp.client.title`, a free-form display string a client chooses
-  that may contain a person's or workspace's name, which is never recorded (see
-  `src/mcp-telemetry.ts`).
+  that may contain a person's or workspace's name. `src/mcp-telemetry.ts` never sets it and
+  `stripRequestAttributes` removes it if the SDK does.
 - Only `/internal` attaches `Sentry.setUser({ email })` and records tool I/O, remaining
   attributed to the authenticated user. The `app.client.family` attribute is a bounded bucket,
   not PII.

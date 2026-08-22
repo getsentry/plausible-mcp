@@ -143,6 +143,8 @@ describe("stripRequestAttributes", () => {
       "http.request.header.x_openai_subject": "user-123",
       "http.response.header.set_cookie": "id=1",
       "user_agent.original": "SomeClient/1.0 (user@example.com)",
+      "mcp.client.title": "Ada's Work Laptop",
+      "mcp.client.name": "some-client",
       "url.query": "?subject=user@example.com",
       "url.full": "https://example.com/mcp?subject=user@example.com",
       "url.path": "/mcp",
@@ -154,6 +156,7 @@ describe("stripRequestAttributes", () => {
     expect(data).toEqual({
       "url.full": "https://example.com/mcp",
       "url.path": "/mcp",
+      "mcp.client.name": "some-client",
       "mcp.tool.name": "get_breakdown",
     });
   });

@@ -587,7 +587,7 @@ describe("MCP Worker entry", () => {
       },
     );
     const byokClient = new Client(
-      { name: "sentry-byok-test", version: "0.0.1" },
+      { name: "sentry-byok-test", version: "0.0.1", title: "title-canary-abc" },
       { versionNegotiation: { mode: { pin: "2026-07-28" } } },
     );
     try {
@@ -604,6 +604,34 @@ describe("MCP Worker entry", () => {
       });
     } finally {
       await byokClient.close();
+    }
+    // A legacy client sends clientInfo through the initialize handshake, which the Sentry
+    // SDK stores per transport and turns into mcp.client.* attributes on its own — a
+    // different source than recordMcpClientInfo, which reads the modern _meta envelope.
+    const legacyTransport = new StreamableHTTPClientTransport(
+      new URL("https://test.local/mcp"),
+      {
+        requestInit: { headers: { Authorization: "Bearer private-test-key" } },
+        fetch: (url, init) => {
+          const request = new Request(url, init);
+          request.headers.set("Host", new URL(request.url).host);
+          return instrumentedWorker.fetch!(request, env, ctx);
+        },
+      },
+    );
+    const legacyClient = new Client({
+      name: "sentry-legacy-test",
+      version: "0.0.1",
+      title: "title-canary-abc",
+    });
+    try {
+      await legacyClient.connect(legacyTransport);
+      await legacyClient.callTool({
+        name: "get_timeseries",
+        arguments: { site_id: "private.example", date_range: "7d" },
+      });
+    } finally {
+      await legacyClient.close();
     }
     for (let index = 0; index < pending.length; index++) {
       await pending[index];
@@ -624,5 +652,8 @@ describe("MCP Worker entry", () => {
     expect(anonymous).not.toContain("x_openai_subject");
     expect(anonymous).not.toContain("query-canary-456");
     expect(anonymous).not.toContain("ua-canary-789");
+    // The SDK writes mcp.client.title from the transport's own clientInfo, independently
+    // of recordMcpClientInfo, so suppressing it at the source is not enough.
+    expect(anonymous).not.toContain("title-canary-abc");
   });
 });
