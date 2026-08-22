@@ -568,7 +568,7 @@ describe("MCP Worker entry", () => {
     envelopes.length = 0;
     pending.length = 0;
     const byokTransport = new StreamableHTTPClientTransport(
-      new URL("https://test.local/mcp"),
+      new URL("https://test.local/mcp?subject=query-canary-456"),
       {
         requestInit: {
           headers: {
@@ -576,6 +576,7 @@ describe("MCP Worker entry", () => {
             // Stands in for the client-identity headers real callers send. It matches
             // none of the SDK's sensitive-key snippets, so nothing upstream filters it.
             "X-Openai-Subject": "subject-canary-123",
+            "User-Agent": "ua-canary-789",
           },
         },
         fetch: (url, init) => {
@@ -621,5 +622,7 @@ describe("MCP Worker entry", () => {
     expect(anonymous).toContain("send_feedback");
     expect(anonymous).not.toContain("subject-canary-123");
     expect(anonymous).not.toContain("x_openai_subject");
+    expect(anonymous).not.toContain("query-canary-456");
+    expect(anonymous).not.toContain("ua-canary-789");
   });
 });

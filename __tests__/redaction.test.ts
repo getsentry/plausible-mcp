@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   anonymizeEventWithoutEmail,
-  stripHeaderAttributes,
+  stripRequestAttributes,
   type RedactableEvent,
 } from "../src/redaction.js";
 
@@ -137,17 +137,33 @@ describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
   });
 });
 
-describe("stripHeaderAttributes", () => {
-  it("removes request and response header attributes and leaves other keys alone", () => {
+describe("stripRequestAttributes", () => {
+  it("removes header, user-agent and query attributes and leaves other keys alone", () => {
     const data: Record<string, unknown> = {
       "http.request.header.x_openai_subject": "user-123",
       "http.response.header.set_cookie": "id=1",
+      "user_agent.original": "SomeClient/1.0 (user@example.com)",
+      "url.query": "?subject=user@example.com",
+      "url.full": "https://example.com/mcp?subject=user@example.com",
+      "url.path": "/mcp",
       "mcp.tool.name": "get_breakdown",
     };
 
-    stripHeaderAttributes(data);
+    stripRequestAttributes(data);
 
-    expect(data).toEqual({ "mcp.tool.name": "get_breakdown" });
+    expect(data).toEqual({
+      "url.full": "https://example.com/mcp",
+      "url.path": "/mcp",
+      "mcp.tool.name": "get_breakdown",
+    });
+  });
+
+  it("leaves a url with no query or fragment unchanged", () => {
+    const data: Record<string, unknown> = { "url.full": "https://example.com/mcp" };
+
+    stripRequestAttributes(data);
+
+    expect(data["url.full"]).toBe("https://example.com/mcp");
   });
 });
 

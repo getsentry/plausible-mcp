@@ -26,23 +26,41 @@ export interface RedactableEvent {
   request?: {
     data?: unknown;
     headers?: Record<string, string | null | undefined>;
+    url?: unknown;
   } | null;
 }
 
 const HEADER_ATTRIBUTE_PREFIXES = ["http.request.header.", "http.response.header."];
 
 /**
- * Remove every HTTP header span attribute. The SDK adds these for all headers and filters
- * them only by substring match against its own sensitive-key list, which does not cover
- * client-specific identity headers (e.g. `x-openai-subject`). No header carries signal this
- * server uses, so the whole namespace goes.
+ * Neither endpoint reads the query string or the fragment, so anything there is caller
+ * noise the SDK would otherwise store verbatim in the URL attributes.
  */
-export function stripHeaderAttributes(data: Record<string, unknown>): void {
+export function stripUrlQuery(url: string): string {
+  const separator = url.search(/[?#]/);
+  return separator === -1 ? url : url.slice(0, separator);
+}
+
+/**
+ * Remove the caller-controlled span attributes the SDK records for every request.
+ *
+ * Header attributes are added for all headers and filtered only by substring match against
+ * the SDK's own sensitive-key list, which does not cover client-specific identity headers
+ * (e.g. `x-openai-subject`). No header carries signal this server uses, so the whole
+ * namespace goes. `user_agent.original` is likewise free-form caller text; `mcp.client.name`
+ * already identifies the client software. `url.path` survives as the routing signal.
+ */
+export function stripRequestAttributes(data: Record<string, unknown>): void {
   for (const key of Object.keys(data)) {
     const lower = key.toLowerCase();
     if (HEADER_ATTRIBUTE_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
       delete data[key];
     }
+  }
+  delete data["url.query"];
+  delete data["user_agent.original"];
+  if (typeof data["url.full"] === "string") {
+    data["url.full"] = stripUrlQuery(data["url.full"]);
   }
 }
 
@@ -73,7 +91,11 @@ export function anonymizeEventWithoutEmail(event: RedactableEvent): void {
     event.contexts?.trace?.data,
     ...(event.spans ?? []).map((span) => span.data),
   ]) {
-    if (data) stripHeaderAttributes(data);
+    if (data) stripRequestAttributes(data);
+  }
+
+  if (typeof event.request?.url === "string") {
+    event.request.url = stripUrlQuery(event.request.url);
   }
 
   const email = event.user?.email;

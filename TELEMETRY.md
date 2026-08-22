@@ -117,13 +117,19 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
   request body — on `/mcp` that's the caller's JSON-RPC envelope, whose `params._meta` carries
   whatever their client volunteers (end-user coordinates, filesystem paths, stable subject
   ids seen in the wild) — onto every event regardless.
-- **Header span attributes are stripped.** `@sentry/cloudflare` turns every HTTP header into
-  an `http.request.header.*`/`http.response.header.*` span attribute, filtered only by
-  substring match against its own sensitive-key list — which misses client-specific identity
-  headers like `x-openai-subject`. `stripHeaderAttributes` (`src/redaction.ts`) removes the
-  whole namespace unconditionally, called from both `anonymizeEventWithoutEmail` (for
+- **Caller-controlled request span attributes are stripped.** `stripRequestAttributes`
+  (`src/redaction.ts`) runs unconditionally, called from both `anonymizeEventWithoutEmail` (for
   `contexts.trace.data` and `spans[].data` on `beforeSend`/`beforeSendTransaction` events) and
-  `beforeSendSpan` (for span data — the only thing that hook can reach).
+  `beforeSendSpan` (for span data — the only thing that hook can reach). It removes:
+  - The whole `http.request.header.*`/`http.response.header.*` namespace. `@sentry/cloudflare`
+    turns every HTTP header into one of these, filtered only by substring match against its own
+    sensitive-key list — which misses client-specific identity headers like `x-openai-subject`.
+  - `user_agent.original`, free-form caller text that duplicates no signal `mcp.client.name`
+    does not already carry.
+  - `url.query`, and the query and fragment on `url.full`. `requestDataIntegration`'s
+    `query_string: false` does not reach these, and neither endpoint reads the query string.
+    `url.path` survives as the routing signal. `anonymizeEventWithoutEmail` applies the same
+    trim to `request.url`.
 - **`beforeSend` and `beforeSendTransaction`** both call `anonymizeEventWithoutEmail`
   (`src/redaction.ts`), which always filters `Authorization`/`Cookie`/`Cf-Access-Jwt-Assertion`
   out of request headers, and — on any event without an email — replaces the user with an

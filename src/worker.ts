@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { createServer } from "./server.js";
 import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access.js";
-import { anonymizeEventWithoutEmail, stripHeaderAttributes } from "./redaction.js";
+import { anonymizeEventWithoutEmail, stripRequestAttributes } from "./redaction.js";
 import {
   classifyMcpMethod,
   classifyMcpRequest,
@@ -215,7 +215,7 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       return event;
     },
     beforeSendSpan(span: SpanJSON): SpanJSON {
-      if (span.data) stripHeaderAttributes(span.data);
+      if (span.data) stripRequestAttributes(span.data);
       return span;
     },
   };
