@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { createServer } from "./server.js";
 import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access.js";
-import { anonymizeEventWithoutEmail } from "./redaction.js";
+import { anonymizeEventWithoutEmail, stripHeaderAttributes } from "./redaction.js";
 import {
   classifyMcpMethod,
   classifyMcpRequest,
@@ -131,7 +131,7 @@ function buildAuthInfo(
     clientId,
     scopes: ["plausible:read"],
     extra: {
-      recordMcpClientInfo: serverConfig.recordToolIO,
+      recordMcpClientInfo: true,
       serverConfig,
     },
   };
@@ -178,6 +178,22 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
     ignoreSpans: [
       { attributes: { "sentry.origin": "auto.faas.cloudflare.rate_limit" } },
     ],
+    // The Cloudflare SDK captures the incoming request body and headers onto the isolation
+    // scope before any beforeSend* hook runs; sendDefaultPii: false gates neither. On /mcp
+    // that body is the caller's JSON-RPC envelope, whose params._meta carries whatever their
+    // client volunteers. Method, URL and status carry the debugging signal we actually use.
+    integrations: [
+      Sentry.httpServerIntegration({ maxRequestBodySize: "none" }),
+      Sentry.requestDataIntegration({
+        include: {
+          headers: false,
+          data: false,
+          cookies: false,
+          ip: false,
+          query_string: false,
+        },
+      }),
+    ],
     // BYOK (`/mcp`) privacy guardrail: only `/internal` sets an identity via Sentry.setUser.
     // Strip the ingest-inferred client IP from every other (anonymous) event so BYOK traffic
     // carries tool names and failures, never who made them. See ./redaction.ts.
@@ -199,19 +215,7 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       return event;
     },
     beforeSendSpan(span: SpanJSON): SpanJSON {
-      if (span.data) {
-        for (const key of Object.keys(span.data)) {
-          const lower = key.toLowerCase();
-          if (
-            lower.includes("authorization") ||
-            lower.includes("cookie") ||
-            lower.includes("jwt-assertion") || // Cf-Access-Jwt-Assertion
-            lower.includes("cf-access")
-          ) {
-            span.data[key] = "[Filtered]";
-          }
-        }
-      }
+      if (span.data) stripHeaderAttributes(span.data);
       return span;
     },
   };

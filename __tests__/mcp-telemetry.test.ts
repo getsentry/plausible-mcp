@@ -36,8 +36,8 @@ describe("recordMcpClientInfo", () => {
     } as never);
 
     expect(setAttribute).toHaveBeenCalledWith("mcp.client.name", "modern-client");
-    expect(setAttribute).toHaveBeenCalledWith("mcp.client.title", "Modern Client");
     expect(setAttribute).toHaveBeenCalledWith("mcp.client.version", "1.2.3");
+    expect(setAttribute).not.toHaveBeenCalledWith("mcp.client.title", expect.anything());
   });
 
   it("does nothing for legacy contexts without an envelope", () => {

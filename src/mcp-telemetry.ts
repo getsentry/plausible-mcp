@@ -14,7 +14,8 @@ export function recordMcpClientInfo(ctx?: ServerContext): void {
   const span = Sentry.getActiveSpan();
   if (!span) return;
 
+  // name/version identify the client software; title is a free-form display string
+  // the client chooses and may contain a person's or workspace's name, so it's dropped.
   span.setAttribute("mcp.client.name", clientInfo.name);
   span.setAttribute("mcp.client.version", clientInfo.version);
-  if (clientInfo.title) span.setAttribute("mcp.client.title", clientInfo.title);
 }

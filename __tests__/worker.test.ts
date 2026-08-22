@@ -570,7 +570,14 @@ describe("MCP Worker entry", () => {
     const byokTransport = new StreamableHTTPClientTransport(
       new URL("https://test.local/mcp"),
       {
-        requestInit: { headers: { Authorization: "Bearer private-test-key" } },
+        requestInit: {
+          headers: {
+            Authorization: "Bearer private-test-key",
+            // Stands in for the client-identity headers real callers send. It matches
+            // none of the SDK's sensitive-key snippets, so nothing upstream filters it.
+            "X-Openai-Subject": "subject-canary-123",
+          },
+        },
         fetch: (url, init) => {
           const request = new Request(url, init);
           request.headers.set("Host", new URL(request.url).host);
@@ -588,6 +595,12 @@ describe("MCP Worker entry", () => {
         name: "get_timeseries",
         arguments: { site_id: "private.example", date_range: "7d" },
       });
+      // Feedback events bypass beforeSend/beforeSendTransaction, so they exercise a
+      // different redaction path than the tool call above.
+      await byokClient.callTool({
+        name: "send_feedback",
+        arguments: { message: "The error message was not specific enough." },
+      });
     } finally {
       await byokClient.close();
     }
@@ -600,6 +613,13 @@ describe("MCP Worker entry", () => {
     expect(anonymous).not.toContain('"mcp.tool.result.content":');
     expect(anonymous).not.toContain("private.example");
     expect(anonymous).not.toContain("private-test-key");
-    expect(anonymous).not.toContain("sentry-byok-test");
+    // mcp.client.name/version are recorded on both endpoints — a client library
+    // name and version identify software, not the person using it.
+    expect(anonymous).toContain('"mcp.client.name":"sentry-byok-test"');
+    // Positive control: the feedback submission really did reach the transport, so the
+    // canary assertions below are checking a populated envelope rather than an empty one.
+    expect(anonymous).toContain("send_feedback");
+    expect(anonymous).not.toContain("subject-canary-123");
+    expect(anonymous).not.toContain("x_openai_subject");
   });
 });

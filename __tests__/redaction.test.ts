@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   anonymizeEventWithoutEmail,
+  stripHeaderAttributes,
   type RedactableEvent,
 } from "../src/redaction.js";
 
@@ -87,35 +88,80 @@ describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
     });
   });
 
-  it("removes caller-controlled MCP client identity only from anonymous spans", () => {
+  it("keeps mcp.client.name and mcp.client.version on an anonymous event", () => {
     const anonymous: RedactableEvent = {
       contexts: {
         trace: {
           data: {
-            "mcp.client.name": "user@example.com",
-            "mcp.client.version": "personal-machine",
+            "mcp.client.name": "claude-code",
+            "mcp.client.version": "1.2.3",
             "mcp.method.name": "tools/call",
           },
         },
       },
     };
-    const authenticated: RedactableEvent = {
-      user: { email: "user@sentry.io" },
-      spans: [{ data: { "mcp.client.name": "claude" } }],
-    };
 
     anonymizeEventWithoutEmail(anonymous);
-    anonymizeEventWithoutEmail(authenticated);
 
     expect(anonymous.contexts?.trace?.data).toEqual({
+      "mcp.client.name": "claude-code",
+      "mcp.client.version": "1.2.3",
       "mcp.method.name": "tools/call",
     });
-    expect(authenticated.spans?.[0].data?.["mcp.client.name"]).toBe("claude");
   });
 
   it("treats an empty-string email as anonymous", () => {
     const event: RedactableEvent = { user: { email: "", ip_address: "1.2.3.4" } };
     anonymizeEventWithoutEmail(event);
     expect(event.user).toEqual({ ip_address: null });
+  });
+
+  it("strips header span attributes even on an authenticated event", () => {
+    const authenticated: RedactableEvent = {
+      user: { email: "user@sentry.io" },
+      contexts: {
+        trace: {
+          data: {
+            "http.request.header.x_openai_subject": "user-123",
+            "mcp.client.name": "claude",
+          },
+        },
+      },
+      spans: [{ data: { "http.response.header.set_cookie": "id=1" } }],
+    };
+
+    anonymizeEventWithoutEmail(authenticated);
+
+    expect(authenticated.contexts?.trace?.data).toEqual({ "mcp.client.name": "claude" });
+    expect(authenticated.spans?.[0].data).toEqual({});
+  });
+});
+
+describe("stripHeaderAttributes", () => {
+  it("removes request and response header attributes and leaves other keys alone", () => {
+    const data: Record<string, unknown> = {
+      "http.request.header.x_openai_subject": "user-123",
+      "http.response.header.set_cookie": "id=1",
+      "mcp.tool.name": "get_breakdown",
+    };
+
+    stripHeaderAttributes(data);
+
+    expect(data).toEqual({ "mcp.tool.name": "get_breakdown" });
+  });
+});
+
+describe("anonymizeEventWithoutEmail (feedback events)", () => {
+  it("strips user and request data from a feedback-typed event", () => {
+    const event: RedactableEvent & { type?: string } = {
+      type: "feedback",
+      user: { ip_address: "2a06:98c0::1" },
+      request: { data: { message: "it broke" } },
+    };
+
+    anonymizeEventWithoutEmail(event);
+
+    expect(event.user).toEqual({ ip_address: null });
+    expect(event.request?.data).toBeUndefined();
   });
 });

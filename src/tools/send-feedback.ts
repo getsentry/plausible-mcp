@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as Sentry from "@sentry/cloudflare";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
+import { anonymizeEventWithoutEmail, type RedactableEvent } from "../redaction.js";
 
 export const FEEDBACK_CATEGORIES = [
   "bug",
@@ -19,9 +20,9 @@ export const FEEDBACK_CATEGORIES = [
  * hidden rather than silently dropping submissions.
  *
  * The message is untrusted caller input: it is bounded by the schema and passed
- * to Sentry as data, never interpreted. On `/internal` the feedback inherits the
- * authenticated user from the isolation scope; BYOK `/mcp` feedback stays
- * anonymous, matching the endpoint's privacy posture.
+ * to Sentry as data, never interpreted. `Sentry.captureFeedback` produces `type:
+ * "feedback"` events, which never reach `beforeSend`/`beforeSendTransaction` — so
+ * the privacy guardrail is attached directly to this call's scope instead.
  */
 export function register(server: McpServer) {
   server.registerTool(
@@ -61,6 +62,10 @@ export function register(server: McpServer) {
         if (args.tool_name) {
           scope.setTag("feedback.tool", args.tool_name);
         }
+        scope.addEventProcessor((event) => {
+          anonymizeEventWithoutEmail(event as RedactableEvent);
+          return event;
+        });
         return Sentry.captureFeedback({ message: args.message });
       });
 
