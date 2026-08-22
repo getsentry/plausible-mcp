@@ -18,12 +18,38 @@ export interface PlausibleResponse {
   query: Record<string, unknown>;
 }
 
+const MAX_ERROR_DETAIL_LENGTH = 500;
+
+/**
+ * Plausible reports failures as `{"error": "<message>"}`. Anything else — an HTML error page
+ * from a proxy, a truncated body — carries no reliable signal and may echo back the request,
+ * so only the documented shape is extracted. The cap bounds what reaches an MCP client and,
+ * for 5xx, a Sentry exception message.
+ */
+export function parsePlausibleErrorDetail(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  const detail = (parsed as { error?: unknown } | null)?.error;
+  if (typeof detail !== "string" || detail.length === 0) return undefined;
+  return detail.length > MAX_ERROR_DETAIL_LENGTH
+    ? `${detail.slice(0, MAX_ERROR_DETAIL_LENGTH)}...`
+    : detail;
+}
+
 export class PlausibleApiError extends Error {
+  readonly detail: string | undefined;
+
   constructor(
     public readonly status: number,
-    public readonly body: string
+    body: string
   ) {
-    super(`Plausible API error ${status}: ${body}`);
+    const detail = parsePlausibleErrorDetail(body);
+    super(detail ? `Plausible API error ${status}: ${detail}` : `Plausible API error ${status}`);
+    this.detail = detail;
     this.name = "PlausibleApiError";
   }
 }

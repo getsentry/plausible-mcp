@@ -40,13 +40,15 @@ export function reportToolError(error: unknown, toolName: ToolName): string {
     });
     if (error.status >= 500) Sentry.captureException(error);
 
+    let summary: string;
     if (error.status === 401) {
-      return "Plausible rejected the API key or site_id (401)";
+      summary = "Plausible rejected the API key or site_id (401)";
+    } else if (error.status === 429) {
+      summary = "Plausible rate limit exceeded (429)";
+    } else {
+      summary = `Plausible API returned ${error.status}`;
     }
-    if (error.status === 429) {
-      return "Plausible rate limit exceeded (429)";
-    }
-    return `Plausible API returned ${error.status}`;
+    return error.detail ? `${summary}: ${error.detail}` : summary;
   }
 
   Sentry.metrics.count("mcp.tool.error", 1, {
