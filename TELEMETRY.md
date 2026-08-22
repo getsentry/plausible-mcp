@@ -140,11 +140,26 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
 - **Feedback events bypass `beforeSend`.** `Sentry.captureFeedback` produces `type: "feedback"`
   events, which `beforeSend` never sees, so `send_feedback` (`src/tools/send-feedback.ts`)
   attaches `anonymizeEventWithoutEmail` directly as a scope event processor around the call.
-- **`mcp.client.name` and `mcp.client.version` are recorded on both endpoints.** A client
-  library name and version identify software, not a person, so they're deliberately exempt
-  from anonymization — unlike `mcp.client.title`, a free-form display string a client chooses
-  that may contain a person's or workspace's name. `src/mcp-telemetry.ts` never sets it and
-  `stripRequestAttributes` removes it if the SDK does.
+- **`mcp.client.name` and `mcp.client.version` are recorded on both endpoints, sanitized.** A
+  client library name and version identify software, not a person, so they're deliberately
+  exempt from anonymization — unlike `mcp.client.title`, a free-form display string a client
+  chooses that may contain a person's or workspace's name. `src/mcp-telemetry.ts` never sets
+  it and `stripRequestAttributes` removes it if the SDK does.
+
+  Both surviving fields still pass through `sanitizeClientAttribute` (`src/redaction.ts`),
+  applied where `recordMcpClientInfo` writes them *and* inside `stripRequestAttributes`, which
+  is what catches the SDK's own legacy-handshake write. A value carrying an email, a URL, an
+  absolute or Windows path, a UUID or long hex id, or a trailing hostname is replaced whole
+  with `[redacted]`; anything else is trimmed to 64 characters. Replacing the whole value
+  rather than masking part of it avoids leaking the surrounding context and avoids turning one
+  bad value into many distinct ones. Reverse-DNS names (`io.modelcontextprotocol.inspector`)
+  and scoped names (`@scope/pkg`) survive, because the hostname rule anchors to the end of a
+  token and the path rule keys on a slash no word character precedes.
+
+  This is a failsafe against the shapes that leak by accident, not a guarantee — a caller who
+  writes a person's name in prose still gets it through. Only an allow-list would close that,
+  at the cost of dropping every client we have not seen. The field remains a per-trace
+  debugging attribute; `app.client.family` stays the dashboard dimension.
 - Only `/internal` attaches `Sentry.setUser({ email })` and records tool I/O, remaining
   attributed to the authenticated user. The `app.client.family` attribute is a bounded bucket,
   not PII.

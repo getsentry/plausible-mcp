@@ -620,7 +620,7 @@ describe("MCP Worker entry", () => {
       },
     );
     const legacyClient = new Client({
-      name: "sentry-legacy-test",
+      name: "legacy-canary@example.com",
       version: "0.0.1",
       title: "title-canary-abc",
     });
@@ -655,5 +655,9 @@ describe("MCP Worker entry", () => {
     // The SDK writes mcp.client.title from the transport's own clientInfo, independently
     // of recordMcpClientInfo, so suppressing it at the source is not enough.
     expect(anonymous).not.toContain("title-canary-abc");
+    // mcp.client.name is kept, but sanitizeClientAttribute replaces a value shaped like a
+    // person rather than a piece of software — including on the SDK's own write path.
+    expect(anonymous).not.toContain("legacy-canary@example.com");
+    expect(anonymous).toContain('"mcp.client.name":"[redacted]"');
   });
 });

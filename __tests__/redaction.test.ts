@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   anonymizeEventWithoutEmail,
+  sanitizeClientAttribute,
   stripRequestAttributes,
   type RedactableEvent,
 } from "../src/redaction.js";
@@ -167,6 +168,76 @@ describe("stripRequestAttributes", () => {
     stripRequestAttributes(data);
 
     expect(data["url.full"]).toBe("https://example.com/mcp");
+  });
+});
+
+describe("sanitizeClientAttribute", () => {
+  it.each([
+    ["claude-code", "claude-code"],
+    ["Claude Desktop", "Claude Desktop"],
+    ["mcp-remote", "mcp-remote"],
+    ["io.modelcontextprotocol.inspector", "io.modelcontextprotocol.inspector"],
+    ["com.example.client", "com.example.client"],
+    ["1.2.3-beta.4", "1.2.3-beta.4"],
+    ["  cursor-vscode  ", "cursor-vscode"],
+    ["@scope/pkg", "@scope/pkg"],
+    ["org/client", "org/client"],
+  ])("passes through the software identifier %j", (value, expected) => {
+    expect(sanitizeClientAttribute(value)).toBe(expected);
+  });
+
+  it.each([
+    ["ada@example.com"],
+    ["client (ada.lovelace@corp.example.com)"],
+    ["https://corp.example.com/mcp"],
+    ["file:///Users/ada/src/client"],
+    ["/Users/ada/src/client"],
+    ["~/src/client"],
+    ["client C:\\Users\\Ada\\app"],
+    ["3f2504e0-4f89-11d3-9a0c-0305e82c3301"],
+    ["session-9f86d081884c7d65"],
+    ["0.0.0-dev+/Users/ada/src"],
+    ["ada-laptop.internal"],
+    ["runner.corp.example.com"],
+    ["client on ada-laptop.local now"],
+  ])("redacts the identity shape in %j", (value) => {
+    expect(sanitizeClientAttribute(value)).toBe("[redacted]");
+  });
+
+  it("drops an empty or whitespace-only value", () => {
+    expect(sanitizeClientAttribute("")).toBeUndefined();
+    expect(sanitizeClientAttribute("   ")).toBeUndefined();
+  });
+
+  it("truncates rather than redacts a long but clean name", () => {
+    const value = "a".repeat(100);
+    expect(sanitizeClientAttribute(value)).toBe("a".repeat(64));
+  });
+});
+
+describe("stripRequestAttributes (client identifiers)", () => {
+  it("sanitizes the client attributes the SDK writes from a legacy handshake", () => {
+    const data: Record<string, unknown> = {
+      "mcp.client.name": "ada@example.com",
+      "mcp.client.version": "0.0.0-dev+/Users/ada/src",
+      "mcp.tool.name": "get_breakdown",
+    };
+
+    stripRequestAttributes(data);
+
+    expect(data).toEqual({
+      "mcp.client.name": "[redacted]",
+      "mcp.client.version": "[redacted]",
+      "mcp.tool.name": "get_breakdown",
+    });
+  });
+
+  it("drops a client attribute that is empty after trimming", () => {
+    const data: Record<string, unknown> = { "mcp.client.name": "  " };
+
+    stripRequestAttributes(data);
+
+    expect(data).not.toHaveProperty("mcp.client.name");
   });
 });
 

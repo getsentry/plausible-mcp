@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/cloudflare";
+import { sanitizeClientAttribute } from "./redaction.js";
 import {
   CLIENT_INFO_META_KEY,
   type Implementation,
@@ -16,6 +17,8 @@ export function recordMcpClientInfo(ctx?: ServerContext): void {
 
   // name/version identify the client software; title is a free-form display string
   // the client chooses and may contain a person's or workspace's name, so it's dropped.
-  span.setAttribute("mcp.client.name", clientInfo.name);
-  span.setAttribute("mcp.client.version", clientInfo.version);
+  const name = sanitizeClientAttribute(clientInfo.name);
+  const version = sanitizeClientAttribute(clientInfo.version);
+  if (name !== undefined) span.setAttribute("mcp.client.name", name);
+  if (version !== undefined) span.setAttribute("mcp.client.version", version);
 }
