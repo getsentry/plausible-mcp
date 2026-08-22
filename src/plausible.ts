@@ -40,6 +40,13 @@ export function parsePlausibleErrorDetail(body: string): string | undefined {
     : detail;
 }
 
+/**
+ * `message` stays status-only because `reportToolError` captures this exception for 5xx, and
+ * Sentry redacts neither exception messages nor enumerable error properties. An upstream error
+ * can reflect the request back — a filter value, a site id — so the detail is kept off the
+ * exception surface entirely and handed to the caller separately. `detail` is non-enumerable
+ * so a serializer walking the error cannot pick it up either.
+ */
 export class PlausibleApiError extends Error {
   readonly detail: string | undefined;
 
@@ -47,9 +54,11 @@ export class PlausibleApiError extends Error {
     public readonly status: number,
     body: string
   ) {
-    const detail = parsePlausibleErrorDetail(body);
-    super(detail ? `Plausible API error ${status}: ${detail}` : `Plausible API error ${status}`);
-    this.detail = detail;
+    super(`Plausible API error ${status}`);
+    Object.defineProperty(this, "detail", {
+      value: parsePlausibleErrorDetail(body),
+      enumerable: false,
+    });
     this.name = "PlausibleApiError";
   }
 }

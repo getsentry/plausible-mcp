@@ -287,9 +287,12 @@ describe("PlausibleApiError", () => {
     expect(error.detail).toBeUndefined();
   });
 
-  it("includes the parsed detail in the exception message", () => {
-    expect(new PlausibleApiError(500, '{"error":"upstream timeout"}').message).toBe(
-      "Plausible API error 500: upstream timeout"
-    );
+  it("keeps a parsed detail off the exception surface but available to the caller", () => {
+    const error = new PlausibleApiError(500, '{"error":"failed filter customer@example.com"}');
+
+    expect(error.message).toBe("Plausible API error 500");
+    expect(error.detail).toBe("failed filter customer@example.com");
+    expect(Object.keys(error)).not.toContain("detail");
+    expect(JSON.stringify(error)).not.toContain("customer@example.com");
   });
 });

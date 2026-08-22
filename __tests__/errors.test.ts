@@ -86,6 +86,21 @@ describe("reportToolError", () => {
     expect(reportToolError(error, toolName)).toBe("Plausible API returned 502");
   });
 
+  it("gives the caller a 5xx detail while the captured exception stays status-only", () => {
+    const error = new PlausibleApiError(
+      503,
+      JSON.stringify({ error: "failed filter customer@example.com" })
+    );
+
+    expect(reportToolError(error, toolName)).toBe(
+      "Plausible API returned 503: failed filter customer@example.com",
+    );
+    expect(captureException).toHaveBeenCalledWith(error);
+    const captured = captureException.mock.calls[0][0] as Error;
+    expect(captured.message).toBe("Plausible API error 503");
+    expect(JSON.stringify(captured)).not.toContain("customer@example.com");
+  });
+
   it("captures unexpected failures and returns a safe message", () => {
     const error = new Error("secret implementation detail");
 
