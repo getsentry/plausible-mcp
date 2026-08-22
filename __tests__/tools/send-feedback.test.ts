@@ -5,12 +5,17 @@ const sentry = vi.hoisted(() => ({
   captureFeedback: vi.fn(() => "feedback-event-id"),
   withScope: vi.fn(),
   setTag: vi.fn(),
+  addEventProcessor: vi.fn(),
 }));
 
 vi.mock("@sentry/cloudflare", () => ({
   captureFeedback: sentry.captureFeedback,
-  withScope: (cb: (scope: { setTag: typeof sentry.setTag }) => unknown) =>
-    cb({ setTag: sentry.setTag }),
+  withScope: (
+    cb: (scope: {
+      setTag: typeof sentry.setTag;
+      addEventProcessor: typeof sentry.addEventProcessor;
+    }) => unknown
+  ) => cb({ setTag: sentry.setTag, addEventProcessor: sentry.addEventProcessor }),
 }));
 
 import { register } from "../../src/tools/send-feedback.js";
@@ -28,6 +33,7 @@ describe("send_feedback tool", () => {
   beforeEach(() => {
     sentry.captureFeedback.mockClear();
     sentry.setTag.mockClear();
+    sentry.addEventProcessor.mockClear();
     server = new McpServer({ name: "test", version: "0.0.1" });
     register(server);
   });
@@ -51,6 +57,7 @@ describe("send_feedback tool", () => {
       feedback_id: "feedback-event-id",
     });
     expect(result.isError).toBeUndefined();
+    expect(sentry.addEventProcessor).toHaveBeenCalledWith(expect.any(Function));
   });
 
   it("defaults the category tag when none is given", async () => {

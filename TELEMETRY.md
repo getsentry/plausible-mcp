@@ -104,15 +104,65 @@ Most of this happens in `beforeSendTransaction`; the rate limiter is the excepti
   (scanners and curl probes; the transport already answers 400 itself). Both HTTP responses
   are still counted by `app.server.response`. Other error events are retained.
 
-## Privacy (unchanged)
+## Privacy
 
-`/mcp` (BYOK) stays anonymous, through two separate mechanisms. `beforeSend` and
-`beforeSendTransaction` both call `anonymizeEventWithoutEmail` (`src/redaction.ts`), which
-always filters `Authorization`/`Cookie`/`Cf-Access-Jwt-Assertion` out of request headers,
-and — on any event without an email — replaces the user with an explicitly IP-less object
-and deletes the JSON-RPC request body. `beforeSendSpan` filters the same header names out of
-span data, which is all it can reach. Only `/internal` attaches `Sentry.setUser({ email })`
-and records tool I/O. The `app.client.family` attribute is a bounded bucket, not PII.
+`/mcp` (BYOK) stays anonymous. Several mechanisms cover it, because the SDK captures some
+data before any hook runs and routes feedback events around `beforeSend` entirely:
+
+- **Request bodies and headers are never captured**, at the integration level rather than a
+  hook. `sentryConfig()` overrides the default `httpServerIntegration` with
+  `maxRequestBodySize: "none"` and the default `requestDataIntegration` with everything
+  (`headers`, `data`, `cookies`, `ip`, `query_string`) turned off. This matters because
+  `sendDefaultPii: false` gates neither: without this override, the SDK captures the raw
+  request body — on `/mcp` that's the caller's JSON-RPC envelope, whose `params._meta` carries
+  whatever their client volunteers (end-user coordinates, filesystem paths, stable subject
+  ids seen in the wild) — onto every event regardless.
+- **Caller-controlled request span attributes are stripped.** `stripRequestAttributes`
+  (`src/redaction.ts`) runs unconditionally, called from both `anonymizeEventWithoutEmail` (for
+  `contexts.trace.data` and `spans[].data` on `beforeSend`/`beforeSendTransaction` events) and
+  `beforeSendSpan` (for span data — the only thing that hook can reach). It removes:
+  - The whole `http.request.header.*`/`http.response.header.*` namespace. `@sentry/cloudflare`
+    turns every HTTP header into one of these, filtered only by substring match against its own
+    sensitive-key list — which misses client-specific identity headers like `x-openai-subject`.
+  - `user_agent.original`, free-form caller text that duplicates no signal `mcp.client.name`
+    does not already carry.
+  - `mcp.client.title`. `recordMcpClientInfo` never sets it, but a legacy client sends
+    `clientInfo` through the `initialize` handshake, which the SDK stores per transport and
+    writes onto spans itself — so suppressing it at our own call site is not enough.
+  - `url.query`, and the query and fragment on `url.full`. `requestDataIntegration`'s
+    `query_string: false` does not reach these, and neither endpoint reads the query string.
+    `url.path` survives as the routing signal. `anonymizeEventWithoutEmail` applies the same
+    trim to `request.url`.
+- **`beforeSend` and `beforeSendTransaction`** both call `anonymizeEventWithoutEmail`
+  (`src/redaction.ts`), which always filters `Authorization`/`Cookie`/`Cf-Access-Jwt-Assertion`
+  out of request headers, and — on any event without an email — replaces the user with an
+  explicitly IP-less object and deletes the JSON-RPC request body.
+- **Feedback events bypass `beforeSend`.** `Sentry.captureFeedback` produces `type: "feedback"`
+  events, which `beforeSend` never sees, so `send_feedback` (`src/tools/send-feedback.ts`)
+  attaches `anonymizeEventWithoutEmail` directly as a scope event processor around the call.
+- **`mcp.client.name` and `mcp.client.version` are recorded on both endpoints, sanitized.** A
+  client library name and version identify software, not a person, so they're deliberately
+  exempt from anonymization — unlike `mcp.client.title`, a free-form display string a client
+  chooses that may contain a person's or workspace's name. `src/mcp-telemetry.ts` never sets
+  it and `stripRequestAttributes` removes it if the SDK does.
+
+  Both surviving fields still pass through `sanitizeClientAttribute` (`src/redaction.ts`),
+  applied where `recordMcpClientInfo` writes them *and* inside `stripRequestAttributes`, which
+  is what catches the SDK's own legacy-handshake write. A value carrying an email, a URL, an
+  absolute or Windows path, a UUID or long hex id, or a trailing hostname is replaced whole
+  with `[redacted]`; anything else is trimmed to 64 characters. Replacing the whole value
+  rather than masking part of it avoids leaking the surrounding context and avoids turning one
+  bad value into many distinct ones. Reverse-DNS names (`io.modelcontextprotocol.inspector`)
+  and scoped names (`@scope/pkg`) survive, because the hostname rule anchors to the end of a
+  token and the path rule keys on a slash no word character precedes.
+
+  This is a failsafe against the shapes that leak by accident, not a guarantee — a caller who
+  writes a person's name in prose still gets it through. Only an allow-list would close that,
+  at the cost of dropping every client we have not seen. The field remains a per-trace
+  debugging attribute; `app.client.family` stays the dashboard dimension.
+- Only `/internal` attaches `Sentry.setUser({ email })` and records tool I/O, remaining
+  attributed to the authenticated user. The `app.client.family` attribute is a bounded bucket,
+  not PII.
 
 ## Query recipes
 

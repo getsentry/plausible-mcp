@@ -36,8 +36,8 @@ describe("recordMcpClientInfo", () => {
     } as never);
 
     expect(setAttribute).toHaveBeenCalledWith("mcp.client.name", "modern-client");
-    expect(setAttribute).toHaveBeenCalledWith("mcp.client.title", "Modern Client");
     expect(setAttribute).toHaveBeenCalledWith("mcp.client.version", "1.2.3");
+    expect(setAttribute).not.toHaveBeenCalledWith("mcp.client.title", expect.anything());
   });
 
   it("does nothing for legacy contexts without an envelope", () => {
@@ -45,14 +45,16 @@ describe("recordMcpClientInfo", () => {
     expect(setAttribute).not.toHaveBeenCalled();
   });
 
-  it("does not record caller-controlled identity for anonymous BYOK traffic", () => {
+  // The flag is opt-in rather than opt-out so an entry point that never sets it — STDIO
+  // today, any endpoint added later — records nothing until it says otherwise.
+  it("records nothing when an entry point does not opt in", () => {
     recordMcpClientInfo({
       http: {
         authInfo: {
           token: "plausible-key",
           clientId: "plausible-api-key",
           scopes: ["plausible:read"],
-          extra: { recordMcpClientInfo: false },
+          extra: {},
         },
       },
       mcpReq: {

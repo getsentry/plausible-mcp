@@ -568,6 +568,47 @@ describe("MCP Worker entry", () => {
     envelopes.length = 0;
     pending.length = 0;
     const byokTransport = new StreamableHTTPClientTransport(
+      new URL("https://test.local/mcp?subject=query-canary-456"),
+      {
+        requestInit: {
+          headers: {
+            Authorization: "Bearer private-test-key",
+            // Stands in for the client-identity headers real callers send. It matches
+            // none of the SDK's sensitive-key snippets, so nothing upstream filters it.
+            "X-Openai-Subject": "subject-canary-123",
+            "User-Agent": "ua-canary-789",
+          },
+        },
+        fetch: (url, init) => {
+          const request = new Request(url, init);
+          request.headers.set("Host", new URL(request.url).host);
+          return instrumentedWorker.fetch!(request, env, ctx);
+        },
+      },
+    );
+    const byokClient = new Client(
+      { name: "sentry-byok-test", version: "0.0.1", title: "title-canary-abc" },
+      { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    );
+    try {
+      await byokClient.connect(byokTransport);
+      await byokClient.callTool({
+        name: "get_timeseries",
+        arguments: { site_id: "private.example", date_range: "7d" },
+      });
+      // Feedback events bypass beforeSend/beforeSendTransaction, so they exercise a
+      // different redaction path than the tool call above.
+      await byokClient.callTool({
+        name: "send_feedback",
+        arguments: { message: "The error message was not specific enough." },
+      });
+    } finally {
+      await byokClient.close();
+    }
+    // A legacy client sends clientInfo through the initialize handshake, which the Sentry
+    // SDK stores per transport and turns into mcp.client.* attributes on its own — a
+    // different source than recordMcpClientInfo, which reads the modern _meta envelope.
+    const legacyTransport = new StreamableHTTPClientTransport(
       new URL("https://test.local/mcp"),
       {
         requestInit: { headers: { Authorization: "Bearer private-test-key" } },
@@ -578,18 +619,19 @@ describe("MCP Worker entry", () => {
         },
       },
     );
-    const byokClient = new Client(
-      { name: "sentry-byok-test", version: "0.0.1" },
-      { versionNegotiation: { mode: { pin: "2026-07-28" } } },
-    );
+    const legacyClient = new Client({
+      name: "legacy-canary@example.com",
+      version: "0.0.1",
+      title: "title-canary-abc",
+    });
     try {
-      await byokClient.connect(byokTransport);
-      await byokClient.callTool({
+      await legacyClient.connect(legacyTransport);
+      await legacyClient.callTool({
         name: "get_timeseries",
         arguments: { site_id: "private.example", date_range: "7d" },
       });
     } finally {
-      await byokClient.close();
+      await legacyClient.close();
     }
     for (let index = 0; index < pending.length; index++) {
       await pending[index];
@@ -600,6 +642,22 @@ describe("MCP Worker entry", () => {
     expect(anonymous).not.toContain('"mcp.tool.result.content":');
     expect(anonymous).not.toContain("private.example");
     expect(anonymous).not.toContain("private-test-key");
-    expect(anonymous).not.toContain("sentry-byok-test");
+    // mcp.client.name/version are recorded on both endpoints — a client library
+    // name and version identify software, not the person using it.
+    expect(anonymous).toContain('"mcp.client.name":"sentry-byok-test"');
+    // Positive control: the feedback submission really did reach the transport, so the
+    // canary assertions below are checking a populated envelope rather than an empty one.
+    expect(anonymous).toContain("send_feedback");
+    expect(anonymous).not.toContain("subject-canary-123");
+    expect(anonymous).not.toContain("x_openai_subject");
+    expect(anonymous).not.toContain("query-canary-456");
+    expect(anonymous).not.toContain("ua-canary-789");
+    // The SDK writes mcp.client.title from the transport's own clientInfo, independently
+    // of recordMcpClientInfo, so suppressing it at the source is not enough.
+    expect(anonymous).not.toContain("title-canary-abc");
+    // mcp.client.name is kept, but sanitizeClientAttribute replaces a value shaped like a
+    // person rather than a piece of software — including on the SDK's own write path.
+    expect(anonymous).not.toContain("legacy-canary@example.com");
+    expect(anonymous).toContain('"mcp.client.name":"[redacted]"');
   });
 });
