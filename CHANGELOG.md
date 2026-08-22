@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.2
+
+### Bug Fixes 🐛
+
+- (telemetry) Stop sending caller request data to Sentry by @sergical in [#40](https://github.com/getsentry/plausible-mcp/pull/40)
+- Return Plausible's error message and bound untrusted strings by @sergical in [#41](https://github.com/getsentry/plausible-mcp/pull/41)
+
+### Documentation 📚
+
+- Correct stale claims in CONTRIBUTING, README and TELEMETRY by @sergical in [#39](https://github.com/getsentry/plausible-mcp/pull/39)
+- Trim AGENTS.md to what an agent cannot infer by @sergical in [#38](https://github.com/getsentry/plausible-mcp/pull/38)
+
 ## 0.7.1
 
 ### New Features ✨
