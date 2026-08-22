@@ -18,12 +18,47 @@ export interface PlausibleResponse {
   query: Record<string, unknown>;
 }
 
+const MAX_ERROR_DETAIL_LENGTH = 500;
+
+/**
+ * Plausible reports failures as `{"error": "<message>"}`. Anything else — an HTML error page
+ * from a proxy, a truncated body — carries no reliable signal and may echo back the request,
+ * so only the documented shape is extracted. The cap bounds what reaches an MCP client and,
+ * for 5xx, a Sentry exception message.
+ */
+export function parsePlausibleErrorDetail(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  const detail = (parsed as { error?: unknown } | null)?.error;
+  if (typeof detail !== "string" || detail.length === 0) return undefined;
+  return detail.length > MAX_ERROR_DETAIL_LENGTH
+    ? `${detail.slice(0, MAX_ERROR_DETAIL_LENGTH)}...`
+    : detail;
+}
+
+/**
+ * `message` stays status-only because `reportToolError` captures this exception for 5xx, and
+ * Sentry redacts neither exception messages nor enumerable error properties. An upstream error
+ * can reflect the request back — a filter value, a site id — so the detail is kept off the
+ * exception surface entirely and handed to the caller separately. `detail` is non-enumerable
+ * so a serializer walking the error cannot pick it up either.
+ */
 export class PlausibleApiError extends Error {
+  readonly detail: string | undefined;
+
   constructor(
     public readonly status: number,
-    public readonly body: string
+    body: string
   ) {
-    super(`Plausible API error ${status}: ${body}`);
+    super(`Plausible API error ${status}`);
+    Object.defineProperty(this, "detail", {
+      value: parsePlausibleErrorDetail(body),
+      enumerable: false,
+    });
     this.name = "PlausibleApiError";
   }
 }

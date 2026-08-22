@@ -158,6 +158,9 @@ export const dimensionSchema = z
     'Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan).'
   );
 
+/** Matches the cap on the `page`/`goal` shortcut params, which compile to the same filters. */
+const MAX_FILTER_VALUE_LENGTH = 1024;
+
 export const PROPERTY_FILTER_OPERATORS = [
   "is",
   "is_not",
@@ -213,7 +216,7 @@ export const propertyFilterSchema = z
       .default("is")
       .describe("Match operator: is, is_not, contains, contains_not (default: is)"),
     values: z
-      .array(z.string())
+      .array(z.string().max(MAX_FILTER_VALUE_LENGTH))
       .min(1)
       .describe("One or more values to match the property against"),
   })

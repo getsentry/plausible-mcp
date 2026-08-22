@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PlausibleClient, PlausibleApiError } from "../src/plausible.js";
+import {
+  PlausibleClient,
+  PlausibleApiError,
+  parsePlausibleErrorDetail,
+} from "../src/plausible.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -254,5 +258,41 @@ describe("PlausibleClient", () => {
 
     expect(result.results).toHaveLength(1);
     expect(result.results[0].metrics).toEqual([100, 200]);
+  });
+});
+
+describe("parsePlausibleErrorDetail", () => {
+  it("extracts the error field", () => {
+    expect(parsePlausibleErrorDetail('{"error":"bad metric"}')).toBe("bad metric");
+  });
+
+  it("returns undefined for a body that is not the documented shape", () => {
+    expect(parsePlausibleErrorDetail("<html>502</html>")).toBeUndefined();
+    expect(parsePlausibleErrorDetail('{"errors":["bad"]}')).toBeUndefined();
+    expect(parsePlausibleErrorDetail('{"error":""}')).toBeUndefined();
+    expect(parsePlausibleErrorDetail('{"error":{"detail":"bad"}}')).toBeUndefined();
+  });
+
+  it("truncates a long error message", () => {
+    const detail = parsePlausibleErrorDetail(JSON.stringify({ error: "x".repeat(900) }));
+    expect(detail).toBe(`${"x".repeat(500)}...`);
+  });
+});
+
+describe("PlausibleApiError", () => {
+  it("keeps an unparseable body out of the exception message", () => {
+    const error = new PlausibleApiError(500, "site_id=example.com&token=secret");
+
+    expect(error.message).toBe("Plausible API error 500");
+    expect(error.detail).toBeUndefined();
+  });
+
+  it("keeps a parsed detail off the exception surface but available to the caller", () => {
+    const error = new PlausibleApiError(500, '{"error":"failed filter customer@example.com"}');
+
+    expect(error.message).toBe("Plausible API error 500");
+    expect(error.detail).toBe("failed filter customer@example.com");
+    expect(Object.keys(error)).not.toContain("detail");
+    expect(JSON.stringify(error)).not.toContain("customer@example.com");
   });
 });

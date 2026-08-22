@@ -63,6 +63,17 @@ describe("propertyFilterSchema", () => {
     expect(parsed.operator).toBe("is");
   });
 
+  it("rejects a filter value longer than the cap", () => {
+    expect(
+      propertyFilterSchema.safeParse({ property: "plan", values: ["x".repeat(1025)] })
+        .success
+    ).toBe(false);
+    expect(
+      propertyFilterSchema.safeParse({ property: "plan", values: ["x".repeat(1024)] })
+        .success
+    ).toBe(true);
+  });
+
   it("rejects an empty values array", () => {
     expect(
       propertyFilterSchema.safeParse({ property: "plan", values: [] }).success
