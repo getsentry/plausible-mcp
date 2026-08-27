@@ -1,4 +1,6 @@
 name = "plausible-mcp"
+# Sentry Internal. Pinned so a deploy can't land in another account by accident.
+account_id = "20d94f53c7cab0b469521b703ff1923c"
 main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 # nodejs_compat_v2: Node built-ins for the SDK. global_fetch_strictly_public: hardens
@@ -19,10 +21,10 @@ MCP_ALLOWED_HOSTNAMES = "plausible-mcp.sentry.dev,localhost,127.0.0.1"
 MCP_ALLOWED_ORIGIN_HOSTNAMES = "claude.ai,localhost,127.0.0.1"
 # Cloudflare Access team domain — verifies the Cf-Access-Jwt-Assertion JWKS + issuer.
 # Not a secret (public JWKS URL); must match the team the Access app lives in. No slash.
-CF_ACCESS_TEAM_DOMAIN = "https://getsentry.cloudflareaccess.com"
+CF_ACCESS_TEAM_DOMAIN = "https://sentry-internal.cloudflareaccess.com"
 # The Access application's Application Audience (AUD) tag — checked against the token
 # `aud`. Not a secret (an app identifier, not a credential).
-CF_ACCESS_AUD = "156afdfa9b601e73fce11ab794c6865d6a7f376969c96318ba125e3c2c77517c"
+CF_ACCESS_AUD = "163ce3b13ebe967295ffdf932b5699a2202de3a650684c87f61d5076eb6735c4"
 
 [dev]
 port = 8787
