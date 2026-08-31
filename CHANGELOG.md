@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0
+
+### New Features ✨
+
+- Allow Access service tokens on /internal via explicit allowlist by @sergical in [#50](https://github.com/getsentry/plausible-mcp/pull/50)
+
+### Internal Changes 🔧
+
+- (deploy) Move hosting to the Sentry Internal Cloudflare account by @sergical in [ea62a787](https://github.com/getsentry/plausible-mcp/commit/ea62a7872ec8a45384622b56ea528e7408a61171)
+
 ## 0.7.2
 
 ### Bug Fixes 🐛
