@@ -7,7 +7,11 @@ import {
   type AuthInfo,
 } from "@modelcontextprotocol/server";
 import { createServer } from "./server.js";
-import { parseAllowedEmailDomains, verifyCloudflareAccessJwt } from "./cf-access.js";
+import {
+  parseAllowedEmailDomains,
+  parseAllowedServiceTokenIds,
+  verifyCloudflareAccessJwt,
+} from "./cf-access.js";
 import { anonymizeEventWithoutEmail, stripRequestAttributes } from "./redaction.js";
 import {
   classifyMcpMethod,
@@ -272,7 +276,7 @@ async function rateLimited(request: Request, env: Env): Promise<Response | null>
  * Cloudflare Access sits in front of this endpoint with Managed OAuth enabled: it runs
  * the OAuth 2.1 handshake with the client, then forwards each request to this origin
  * carrying a `Cf-Access-Jwt-Assertion` header. We verify that header (JWKS + RS256 +
- * aud/iss/exp + email-domain gate), then serve MCP against the shared server-side
+ * aud/iss/exp + email-domain or service-token allowlist gate), then serve MCP against the shared server-side
  * Plausible API key. The Worker itself runs no OAuth server.
  */
 async function handleInternalMcp(
@@ -294,6 +298,7 @@ async function handleInternalMcp(
     teamDomain: env.CF_ACCESS_TEAM_DOMAIN,
     aud: env.CF_ACCESS_AUD,
     allowedEmailDomains,
+    allowedServiceTokenIds: parseAllowedServiceTokenIds(env.ALLOWED_SERVICE_TOKEN_IDS),
   });
   if (!identity) {
     return jsonError(
@@ -302,13 +307,16 @@ async function handleInternalMcp(
     );
   }
 
-  Sentry.setUser({ email: identity.email });
+  const subject = identity.kind === "user" ? identity.email : identity.clientId;
+  Sentry.setUser(
+    identity.kind === "user" ? { email: identity.email } : { username: identity.clientId },
+  );
 
   if (!env.PLAUSIBLE_API_KEY) {
     return jsonError("Server misconfigured: missing shared Plausible API key.", 500);
   }
 
-  const authInfo = buildAuthInfo(token, identity.email, {
+  const authInfo = buildAuthInfo(token, subject, {
     apiKey: env.PLAUSIBLE_API_KEY,
     baseUrl: env.PLAUSIBLE_BASE_URL,
     defaultSiteId: env.PLAUSIBLE_DEFAULT_SITE_ID,

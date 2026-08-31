@@ -6,6 +6,7 @@ function base64UrlDecode(input: string): string {
 
 interface AccessJwtPayload {
   email?: string;
+  common_name?: string;
   iss?: string;
   aud?: string | string[];
   exp?: number;
@@ -21,7 +22,22 @@ export interface AccessConfig {
    * Defense in depth on top of the upstream Cloudflare Access policy.
    */
   allowedEmailDomains: string[];
+  /**
+   * Access service-token client IDs (e.g. "abc123.access") allowed in addition to
+   * email identities. Service-token JWTs carry `common_name` instead of `email`, so
+   * the email-domain gate cannot apply; each token must be listed here explicitly.
+   * Unset/empty rejects all service tokens (fail closed).
+   */
+  allowedServiceTokenIds?: string[];
 }
+
+/**
+ * The verified caller behind a Cloudflare Access assertion: a human who signed in
+ * through an identity provider, or a machine using an Access service token.
+ */
+export type AccessIdentity =
+  | { kind: "user"; email: string }
+  | { kind: "service"; clientId: string };
 
 /**
  * Parses the ALLOWED_EMAIL_DOMAIN env value (comma-separated, "@" optional) into a
@@ -34,6 +50,18 @@ export function parseAllowedEmailDomains(raw?: string): string[] {
     .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
     .filter((d) => d.length > 0);
   return domains.length > 0 ? domains : ["sentry.io"];
+}
+
+/**
+ * Parses the ALLOWED_SERVICE_TOKEN_IDS env value (comma-separated Access service-token
+ * client IDs) into a normalized list. Unlike email domains there is no safe default:
+ * unset/empty means no service token is accepted.
+ */
+export function parseAllowedServiceTokenIds(raw?: string): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
 }
 
 let cachedCerts: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
@@ -71,7 +99,7 @@ export function clearCertsCache(): void {
 export async function verifyCloudflareAccessJwt(
   jwt: string,
   config: AccessConfig,
-): Promise<{ email: string } | null> {
+): Promise<AccessIdentity | null> {
   try {
     return await verifyInner(jwt, config);
   } catch {
@@ -85,7 +113,7 @@ export async function verifyCloudflareAccessJwt(
 async function verifyInner(
   jwt: string,
   config: AccessConfig,
-): Promise<{ email: string } | null> {
+): Promise<AccessIdentity | null> {
   const parts = jwt.split(".");
   if (parts.length !== 3) return null;
 
@@ -148,14 +176,24 @@ async function verifyInner(
   if (!payload.iss || payload.iss !== teamDomain) return null;
 
   const email = payload.email;
-  if (!email) return null;
-  // Case-insensitive: identity providers may return mixed-case local parts.
-  const normalizedEmail = email.toLowerCase();
-  if (!config.allowedEmailDomains.some((d) => normalizedEmail.endsWith(`@${d}`))) {
-    return null;
+  if (email) {
+    // Case-insensitive: identity providers may return mixed-case local parts.
+    const normalizedEmail = email.toLowerCase();
+    if (!config.allowedEmailDomains.some((d) => normalizedEmail.endsWith(`@${d}`))) {
+      return null;
+    }
+
+    // Return the normalized (lowercased) email so downstream attribution (Sentry.setUser)
+    // is stable — the same identity in mixed case must not create duplicate users.
+    return { kind: "user", email: normalizedEmail };
   }
 
-  // Return the normalized (lowercased) email so downstream attribution (Sentry.setUser)
-  // is stable — the same identity in mixed case must not create duplicate users.
-  return { email: normalizedEmail };
+  // No email: an Access service token mints a non-identity app JWT carrying the token's
+  // client ID as `common_name`. Only explicitly allowlisted client IDs pass.
+  const clientId = payload.common_name;
+  if (clientId && config.allowedServiceTokenIds?.includes(clientId)) {
+    return { kind: "service", clientId };
+  }
+
+  return null;
 }

@@ -15,6 +15,10 @@ routes = [
 # Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
 # Enforced in code in ADDITION to the upstream Access policy. Self-hosting? Set your own.
 ALLOWED_EMAIL_DOMAIN = "sentry.io"
+# Access service-token client IDs allowed on /internal without a user identity
+# (comma-separated). Not secrets — identifiers; the matching Access policy still
+# requires the token's secret. Currently: the "junior-plausible-mcp" token.
+ALLOWED_SERVICE_TOKEN_IDS = "f2fb6d108dd50696e67d022c4eaa2c5f.access"
 # Hostnames accepted by the MCP endpoints (port-agnostic). Keep localhost for wrangler dev.
 MCP_ALLOWED_HOSTNAMES = "plausible-mcp.sentry.dev,localhost,127.0.0.1"
 # Browser origins allowed to call /internal. Non-browser clients send no Origin header.
