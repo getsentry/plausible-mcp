@@ -4,6 +4,7 @@ import {
   verifyCloudflareAccessJwt,
   clearCertsCache,
   parseAllowedEmailDomains,
+  parseAllowedServiceTokenIds,
   type AccessConfig,
 } from "../src/cf-access.js";
 import instrumentedWorker, { workerHandler } from "../src/worker.js";
@@ -140,7 +141,7 @@ describe("verifyCloudflareAccessJwt", () => {
     mockCertsEndpoint(jwk);
 
     const result = await verifyCloudflareAccessJwt(jwt, config);
-    expect(result).toEqual({ email: "user@sentry.io" });
+    expect(result).toEqual({ kind: "user", email: "user@sentry.io" });
   });
 
   it("returns the lowercased email so attribution is stable", async () => {
@@ -150,6 +151,7 @@ describe("verifyCloudflareAccessJwt", () => {
     mockCertsEndpoint(jwk);
 
     expect(await verifyCloudflareAccessJwt(jwt, config)).toEqual({
+      kind: "user",
       email: "user.name@sentry.io",
     });
   });
@@ -178,7 +180,10 @@ describe("verifyCloudflareAccessJwt", () => {
     });
     mockCertsEndpoint(jwk);
 
-    expect(await verifyCloudflareAccessJwt(jwt, config)).toEqual({ email: "user@sentry.io" });
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toEqual({
+      kind: "user",
+      email: "user@sentry.io",
+    });
   });
 
   it("returns null for non-sentry.io email", async () => {
@@ -212,6 +217,7 @@ describe("verifyCloudflareAccessJwt", () => {
       allowedEmailDomains: ["acme.com", "contractors.acme.com"],
     };
     expect(await verifyCloudflareAccessJwt(jwt, customConfig)).toEqual({
+      kind: "user",
       email: "user@acme.com",
     });
     // The default sentry.io gate must NOT admit the custom-domain user.
@@ -238,6 +244,7 @@ describe("verifyCloudflareAccessJwt", () => {
       teamDomain: `${TEAM_DOMAIN}/`,
     };
     expect(await verifyCloudflareAccessJwt(jwt, trailingSlashConfig)).toEqual({
+      kind: "user",
       email: "user@sentry.io",
     });
   });
@@ -269,7 +276,7 @@ describe("verifyCloudflareAccessJwt", () => {
     });
 
     const result = await verifyCloudflareAccessJwt(jwt, config);
-    expect(result).toEqual({ email: "user@sentry.io" });
+    expect(result).toEqual({ kind: "user", email: "user@sentry.io" });
   });
 
   it("returns null when signature is invalid", async () => {
@@ -329,6 +336,63 @@ describe("verifyCloudflareAccessJwt", () => {
     ]);
   });
 
+  it("parseAllowedServiceTokenIds normalizes and fails closed by default", () => {
+    expect(parseAllowedServiceTokenIds(undefined)).toEqual([]);
+    expect(parseAllowedServiceTokenIds("")).toEqual([]);
+    expect(parseAllowedServiceTokenIds(" , ")).toEqual([]);
+    expect(parseAllowedServiceTokenIds("a.access, b.access")).toEqual([
+      "a.access",
+      "b.access",
+    ]);
+  });
+
+  it("accepts an allowlisted service token (common_name, no email)", async () => {
+    const { jwt, jwk } = await makeValidJwt({
+      payload: { email: undefined, common_name: "svc123.access" },
+    });
+    mockCertsEndpoint(jwk);
+
+    const serviceConfig: AccessConfig = {
+      ...config,
+      allowedServiceTokenIds: ["svc123.access"],
+    };
+    expect(await verifyCloudflareAccessJwt(jwt, serviceConfig)).toEqual({
+      kind: "service",
+      clientId: "svc123.access",
+    });
+  });
+
+  it("rejects a service token that is not allowlisted (fail closed)", async () => {
+    const { jwt, jwk } = await makeValidJwt({
+      payload: { email: undefined, common_name: "svc123.access" },
+    });
+    mockCertsEndpoint(jwk);
+
+    // No allowlist configured at all, and an allowlist naming a different token.
+    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
+    expect(
+      await verifyCloudflareAccessJwt(jwt, {
+        ...config,
+        allowedServiceTokenIds: ["other.access"],
+      }),
+    ).toBeNull();
+  });
+
+  it("still applies the email-domain gate when a service-token allowlist is configured", async () => {
+    // An email identity must never slip through via the service-token path.
+    const { jwt, jwk } = await makeValidJwt({
+      payload: { email: "hacker@evil.com", common_name: "svc123.access" },
+    });
+    mockCertsEndpoint(jwk);
+
+    expect(
+      await verifyCloudflareAccessJwt(jwt, {
+        ...config,
+        allowedServiceTokenIds: ["svc123.access"],
+      }),
+    ).toBeNull();
+  });
+
   it("fails closed when the cache is stale and the JWKS refresh fails (no stale-key fallback)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
@@ -339,7 +403,10 @@ describe("verifyCloudflareAccessJwt", () => {
       );
 
       // Prime the cache with a successful fetch.
-      expect(await verifyCloudflareAccessJwt(jwt, config)).toEqual({ email: "user@sentry.io" });
+      expect(await verifyCloudflareAccessJwt(jwt, config)).toEqual({
+        kind: "user",
+        email: "user@sentry.io",
+      });
 
       // Move past the 5-minute cache TTL, then make the JWKS endpoint unreachable.
       vi.advanceTimersByTime(6 * 60 * 1000);

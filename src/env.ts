@@ -35,6 +35,14 @@ export interface Env {
    */
   ALLOWED_EMAIL_DOMAIN?: string;
 
+  /**
+   * Optional: comma-separated Cloudflare Access service-token client IDs (e.g.
+   * "abc123.access") allowed to call /internal without a user identity. Service-token
+   * JWTs carry no email, so the ALLOWED_EMAIL_DOMAIN gate cannot apply; unset means
+   * every service token is rejected.
+   */
+  ALLOWED_SERVICE_TOKEN_IDS?: string;
+
   /** Comma-separated hostname allowlist for MCP Host-header validation. */
   MCP_ALLOWED_HOSTNAMES: string;
   /** Browser Origin hostnames allowed to call the Access-authenticated /internal endpoint. */

@@ -117,6 +117,25 @@ describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
     expect(event.user).toEqual({ ip_address: null });
   });
 
+  it("keeps a service-token identity (username, no email) and its tool input", () => {
+    const data = { method: "tools/call", params: { arguments: { site_id: "example.com" } } };
+    const event: RedactableEvent = {
+      user: { username: "svc123.access" },
+      request: { data },
+    };
+
+    anonymizeEventWithoutEmail(event);
+
+    expect(event.user).toEqual({ username: "svc123.access" });
+    expect(event.request?.data).toBe(data);
+  });
+
+  it("treats an empty-string username as anonymous", () => {
+    const event: RedactableEvent = { user: { username: "", ip_address: "1.2.3.4" } };
+    anonymizeEventWithoutEmail(event);
+    expect(event.user).toEqual({ ip_address: null });
+  });
+
   it("strips header span attributes even on an authenticated event", () => {
     const authenticated: RedactableEvent = {
       user: { email: "user@sentry.io" },

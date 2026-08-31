@@ -16,6 +16,7 @@
 
 export interface RedactableUser {
   email?: unknown;
+  username?: unknown;
   ip_address?: string | null;
   [key: string]: unknown;
 }
@@ -130,10 +131,11 @@ export function stripRequestAttributes(data: Record<string, unknown>): void {
 
 /**
  * Always redact authentication headers and header span attributes, on both authenticated and
- * anonymous events. If an event has no authenticated email, also treat it as BYOK/anonymous,
- * remove its request body, and replace its `user` with an explicitly IP-less object. Setting
- * `ip_address: null` tells Sentry not to infer one at ingest. Mutates in place; callers return
- * the same event.
+ * anonymous events. If an event has no authenticated identity — an email for humans, a
+ * username for Access service tokens (their client ID, set on /internal) — also treat it as
+ * BYOK/anonymous, remove its request body, and replace its `user` with an explicitly IP-less
+ * object. Setting `ip_address: null` tells Sentry not to infer one at ingest. Mutates in
+ * place; callers return the same event.
  */
 export function anonymizeEventWithoutEmail(event: RedactableEvent): void {
   const headers = event.request?.headers;
@@ -163,7 +165,11 @@ export function anonymizeEventWithoutEmail(event: RedactableEvent): void {
   }
 
   const email = event.user?.email;
-  if (typeof email !== "string" || email.length === 0) {
+  const username = event.user?.username;
+  const identified =
+    (typeof email === "string" && email.length > 0) ||
+    (typeof username === "string" && username.length > 0);
+  if (!identified) {
     event.user = { ip_address: null };
     if (event.request) delete event.request.data;
   }
