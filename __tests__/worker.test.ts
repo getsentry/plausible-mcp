@@ -639,9 +639,15 @@ describe("MCP Worker entry", () => {
       await pending[index];
     }
     const recorded = envelopes.join("\n");
-    expect(recorded).toContain('"mcp.method.name":"tools/call"');
-    expect(recorded).toContain('"mcp.client.name":"sentry-modern-test"');
-    expect(recorded).toContain('"mcp.request.argument.site_id":"\\"example.com\\""');
+    expect(recorded).toContain('"sentry.op":{"value":"mcp.server"');
+    expect(recorded).toContain('"sentry.op":{"value":"http.server"');
+    expect(recorded).toContain('"is_segment":true');
+    expect(recorded).not.toContain('"type":"transaction"');
+    expect(recorded).toContain('"mcp.method.name":{"value":"tools/call"');
+    expect(recorded).toContain('"mcp.client.name":{"value":"sentry-modern-test"');
+    expect(recorded).toContain(
+      '"mcp.request.argument.site_id":{"value":"\\"example.com\\""',
+    );
     expect(recorded).toContain('"mcp.tool.result.content":');
     expect(recorded).not.toContain(jwt);
     expect(recorded).not.toContain("shared-test-key");
@@ -677,8 +683,8 @@ describe("MCP Worker entry", () => {
         name: "get_timeseries",
         arguments: { site_id: "private.example", date_range: "7d" },
       });
-      // Feedback events bypass beforeSend/beforeSendTransaction, so they exercise a
-      // different redaction path than the tool call above.
+      // Feedback events bypass beforeSend entirely, so they exercise a different
+      // redaction path than the tool call above.
       await byokClient.callTool({
         name: "send_feedback",
         arguments: { message: "The error message was not specific enough." },
@@ -718,14 +724,14 @@ describe("MCP Worker entry", () => {
       await pending[index];
     }
     const anonymous = envelopes.join("\n");
-    expect(anonymous).toContain('"mcp.method.name":"tools/call"');
+    expect(anonymous).toContain('"mcp.method.name":{"value":"tools/call"');
     expect(anonymous).not.toContain("mcp.request.argument.site_id");
     expect(anonymous).not.toContain('"mcp.tool.result.content":');
     expect(anonymous).not.toContain("private.example");
     expect(anonymous).not.toContain("private-test-key");
     // mcp.client.name/version are recorded on both endpoints — a client library
     // name and version identify software, not the person using it.
-    expect(anonymous).toContain('"mcp.client.name":"sentry-byok-test"');
+    expect(anonymous).toContain('"mcp.client.name":{"value":"sentry-byok-test"');
     // Positive control: the feedback submission really did reach the transport, so the
     // canary assertions below are checking a populated envelope rather than an empty one.
     expect(anonymous).toContain("send_feedback");
@@ -739,6 +745,103 @@ describe("MCP Worker entry", () => {
     // mcp.client.name is kept, but sanitizeClientAttribute replaces a value shaped like a
     // person rather than a piece of software — including on the SDK's own write path.
     expect(anonymous).not.toContain("legacy-canary@example.com");
-    expect(anonymous).toContain('"mcp.client.name":"[redacted]"');
+    expect(anonymous).toContain('"mcp.client.name":{"value":"[redacted]"');
+    expect(anonymous).not.toContain('"user.');
+  });
+
+  it("samples heartbeat/keepalive spans down to the heartbeat keep-rate", async () => {
+    clearCertsCache();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const envelopes: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (url.hostname === "plausible.io") {
+        return new Response(JSON.stringify({
+          results: [{ dimensions: ["2026-07-30"], metrics: [10, 20, 30, 40] }],
+          meta: {},
+          query: {},
+        }), { status: 200 });
+      }
+      if (url.hostname === "sentry.example") {
+        envelopes.push(await request.text());
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`Unexpected fetch in test: ${request.url}`);
+    });
+
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil(promise: Promise<unknown>) {
+        pending.push(promise);
+      },
+      passThroughOnException() {},
+      props: {},
+    } as ExecutionContext;
+    const env = {
+      ...WORKER_ENV,
+      PLAUSIBLE_API_KEY: "shared-test-key",
+      SENTRY_DSN: "https://public@sentry.example/1",
+    } satisfies Env;
+
+    // Every POST below needs Accept (or the MCP transport 406s before dispatch) and an
+    // explicit Content-Length (the test runtime does not compute one for us), since
+    // withMcpMethodHeader and inspectMcpRequest both key off that header.
+    const mcpPost = (body: unknown, extraHeaders: Record<string, string> = {}): Request => {
+      const bodyText = JSON.stringify(body);
+      return new Request("https://test.local/mcp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: "Bearer private-test-key",
+          Host: "test.local",
+          "Content-Length": String(new TextEncoder().encode(bodyText).length),
+          ...extraHeaders,
+        },
+        body: bodyText,
+      });
+    };
+
+    // Sends one request, drains ctx.waitUntil, and returns the envelopes it flushed —
+    // resetting both so the next request in this test starts from a clean slate.
+    const sendAndFlush = async (request: Request): Promise<string> => {
+      await (await instrumentedWorker.fetch!(request, env, ctx)).text();
+      for (const promise of pending) await promise;
+      const flushed = envelopes.join("\n");
+      envelopes.length = 0;
+      pending.length = 0;
+      return flushed;
+    };
+
+    try {
+      const pingEnvelope = await sendAndFlush(
+        mcpPost({ jsonrpc: "2.0", id: 1, method: "ping" }, { "Mcp-Method": "ping" }),
+      );
+      expect(pingEnvelope).not.toContain('"type":"span"');
+
+      // Legacy client: no Mcp-Method header at all — proves withMcpMethodHeader.
+      const legacyPingEnvelope = await sendAndFlush(
+        mcpPost({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      );
+      expect(legacyPingEnvelope).not.toContain('"type":"span"');
+
+      // Legacy client calling a real tool: still classified and sampled at 100%.
+      const legacyToolEnvelope = await sendAndFlush(
+        mcpPost({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "get_timeseries",
+            arguments: { site_id: "example.com", date_range: "7d" },
+          },
+        }),
+      );
+      expect(legacyToolEnvelope).toContain('"mcp.method.name":{"value":"tools/call"');
+      expect(legacyToolEnvelope).toContain('"is_segment":true');
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 });

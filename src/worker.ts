@@ -18,17 +18,14 @@ import {
   classifyMcpRequest,
   classifyRoute,
   errorDropReason,
+  isKnownMcpMethod,
   resolveClientFamily,
+  rootSampleRate,
   statusClass,
-  traceSampleValue,
-  transactionDropReason,
   type McpRequestTelemetry,
   type TrackedRoute,
 } from "./telemetry.js";
 import type { Env } from "./env.js";
-
-// The static-lifecycle span shape; @sentry/cloudflare exports it only through withStaticSpan.
-type SpanJSON = Parameters<Parameters<typeof Sentry.withStaticSpan>[0]>[0];
 
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
@@ -157,6 +154,16 @@ const workerMcpHandler = createMcpHandler(
   { legacy: "stateless" },
 );
 
+/** Best-effort pathname for a request URL, or null if it doesn't parse. */
+function pathnameOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return null;
+  }
+}
+
 function sentryConfig(env: Env): Sentry.CloudflareOptions {
   return {
     // Set out-of-band (`wrangler secret put SENTRY_DSN`), never hardcoded: this repo is
@@ -164,12 +171,14 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
     // deployment report into the DSN owner's Sentry project. Unset disables the SDK.
     dsn: env.SENTRY_DSN,
     release: env.SENTRY_RELEASE,
-    tracesSampleRate: 1.0,
-    // Every noise filter and anonymizer below operates on a finished transaction event.
-    // SDK v11 defaults to streaming spans individually, which never invokes
-    // beforeSendTransaction and hands beforeSendSpan a different shape. Pin the
-    // transaction lifecycle until the filters are rewritten per-span; v12 removes it.
-    traceLifecycle: "static",
+    // Streamed spans cannot be dropped after they start, so every noise rule is a
+    // sampling decision made from the request line and headers (see rootSampleRate).
+    tracesSampler: ({ parentSampled, normalizedRequest }) =>
+      rootSampleRate({
+        pathname: pathnameOf(normalizedRequest?.url),
+        mcpMethod: normalizedRequest?.headers?.["mcp-method"] ?? null,
+        parentSampled,
+      }),
     // v11 collects every category by default. Nothing here is needed for debugging: the
     // route, method, and status carry the signal, and /mcp callers are anonymous by design.
     dataCollection: {
@@ -214,30 +223,35 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       if (errorDropReason(event)) return null;
       return event;
     },
-    beforeSendTransaction(event) {
-      anonymizeEventWithoutEmail(event);
-      // Drop transaction spans that are pure noise: internet scanners hitting
-      // untracked routes, handshake-only notifications, and all but a thin sample
-      // of MCP handshake/keepalive (`server/discover`, `ping`, `tools/list`,
-      // healthcheck `initialize`).
-      // Volume/health still counts 100% via metrics; errors are separate events and
-      // are never dropped here.
-      const sampleValue = traceSampleValue(event) ?? Math.random();
-      if (transactionDropReason(event, sampleValue)) return null;
-      return event;
-    },
-    beforeSendSpan: Sentry.withStaticSpan((span: SpanJSON): SpanJSON => {
-      if (span.data) stripRequestAttributes(span.data);
+    // Only `/internal` attaches an identified user; any other `user.*` attribute on a
+    // segment (root or MCP child) is SDK-derived and must not ride an anonymous /mcp span.
+    beforeSendSpan(span) {
+      stripRequestAttributes(span.attributes);
+      if (span.is_segment && typeof span.attributes["user.email"] !== "string") {
+        for (const key of Object.keys(span.attributes)) {
+          if (key.startsWith("user.")) delete span.attributes[key];
+        }
+      }
       return span;
-    }),
+    },
   };
 }
 
 const MAX_INSPECTED_MCP_BODY_BYTES = 64 * 1024;
 
+/** True when Content-Length declares a body small enough to safely clone and parse. */
+function hasInspectableContentLength(request: Request): boolean {
+  const contentLength = Number(request.headers.get("Content-Length"));
+  return (
+    Number.isSafeInteger(contentLength) &&
+    contentLength > 0 &&
+    contentLength <= MAX_INSPECTED_MCP_BODY_BYTES
+  );
+}
+
 /**
  * Read a clone of a small JSON-RPC request so the HTTP root can carry the same
- * bounded method classification as its separately-exported MCP child transaction.
+ * bounded method classification as its MCP child segment.
  * Never retain request ids, params, tool arguments, or unknown method names.
  */
 async function inspectMcpRequest(
@@ -251,20 +265,43 @@ async function inspectMcpRequest(
   const headerMethod = request.headers.get("Mcp-Method");
   if (headerMethod) return classifyMcpMethod(headerMethod);
 
-  const contentLength = Number(request.headers.get("Content-Length"));
-  if (
-    !Number.isSafeInteger(contentLength) ||
-    contentLength <= 0 ||
-    contentLength > MAX_INSPECTED_MCP_BODY_BYTES
-  ) {
-    return null;
-  }
+  if (!hasInspectableContentLength(request)) return null;
 
   try {
     return classifyMcpRequest(await request.clone().json());
   } catch {
     return null;
   }
+}
+
+/**
+ * Give a legacy JSON-RPC POST the `Mcp-Method` header modern clients send, read from a
+ * bounded clone of the body, so the sampler and every downstream classifier see one
+ * shape. Only known method names are copied; the header is never set from unknown input.
+ */
+async function withMcpMethodHeader(request: Request): Promise<Request> {
+  if (request.method !== "POST") return request;
+  const { pathname } = new URL(request.url);
+  if (classifyRoute(pathname) === null) return request;
+  if (!isJsonContentType(request.headers.get("Content-Type"))) return request;
+  if (request.headers.get("Mcp-Method")) return request;
+  if (!hasInspectableContentLength(request)) return request;
+
+  try {
+    const body: unknown = await request.clone().json();
+    const method =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? (body as Record<string, unknown>).method
+        : undefined;
+    if (typeof method === "string" && isKnownMcpMethod(method)) {
+      const headers = new Headers(request.headers);
+      headers.set("Mcp-Method", method);
+      return new Request(request, { headers });
+    }
+  } catch {
+    // fall through to the unmodified request
+  }
+  return request;
 }
 
 async function rateLimited(request: Request, env: Env): Promise<Response | null> {
@@ -425,8 +462,8 @@ const handler = {
 
     // Stamp the root request span with a bounded client family + route group so real
     // tool-call traces are groupable without relying on caller-controlled
-    // mcp.client.name. Only for tracked routes — scanner-route transactions are dropped
-    // in beforeSendTransaction regardless.
+    // mcp.client.name. Only for tracked routes — scanner-route requests are never sampled
+    // (rootSampleRate) regardless.
     if (tracked) {
       const span = Sentry.getActiveSpan();
       if (span) {
@@ -471,4 +508,11 @@ const handler = {
 } satisfies ExportedHandler<Env>;
 
 export const workerHandler = { fetch: handler.fetch };
-export default Sentry.withSentry(sentryConfig, handler);
+
+const sentryHandler = Sentry.withSentry(sentryConfig, handler);
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return sentryHandler.fetch(await withMcpMethodHeader(request), env, ctx);
+  },
+} satisfies ExportedHandler<Env>;

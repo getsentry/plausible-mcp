@@ -1,5 +1,5 @@
 /**
- * Sentry privacy guardrail shared by the Worker's `beforeSend` / `beforeSendTransaction` and
+ * Sentry privacy guardrail shared by the Worker's `beforeSend` and
  * the `send_feedback` tool's scope event processor (feedback events bypass `beforeSend`).
  *
  * Only the Access-gated `/internal` endpoint attaches an identity (`Sentry.setUser({ email })`)

@@ -244,121 +244,51 @@ export function errorDropReason(event: ErrorEventLike): string | null {
   return null;
 }
 
-// --- Transaction noise filtering (beforeSendTransaction) ---------------------
+// --- Root span sampling (tracesSampler) ---------------------------------------
 
-interface SpanLike {
-  op?: string;
-  description?: string;
-  data?: Record<string, unknown>;
+export interface RootSpanSampleInput {
+  /** Request pathname, or null when the URL could not be parsed. */
+  pathname: string | null;
+  /** Raw `Mcp-Method` request header, or null when absent. */
+  mcpMethod: string | null;
+  /** Sampling decision of the enclosing root span, when this span has one. */
+  parentSampled?: boolean;
 }
 
-export interface TransactionLike {
-  transaction?: string;
-  request?: { url?: string };
-  contexts?: {
-    trace?: {
-      op?: string;
-      trace_id?: string;
-      data?: Record<string, unknown>;
-    };
-  };
-  spans?: SpanLike[];
-}
+/**
+ * Sample rate for a root span, decided when it starts. Streamed spans cannot be
+ * dropped once started, so every noise rule is a rate here: 0 for scanner routes,
+ * sub-paths with no MCP method (`/mcp/actuator/heapdump`), and the two handshake
+ * notifications; HEARTBEAT_SPAN_KEEP_RATE for `ping`, `server/discover`,
+ * `tools/list`, and `initialize`; 1 for everything else. An MCP child segment
+ * passes its parent's decision through so root and child are kept or dropped together.
+ * `app.server.response` still counts 100% of requests.
+ */
+export function rootSampleRate(input: RootSpanSampleInput): number {
+  if (typeof input.parentSampled === "boolean") return Number(input.parentSampled);
+  if (input.pathname === null) return 1;
+  if (classifyRoute(input.pathname) === null) return 0;
+  if (isTrackedSubpath(input.pathname) && input.mcpMethod === null) return 0;
+  if (input.mcpMethod === null) return 1;
 
-/** Best-effort pathname for a finished transaction, or null if undeterminable. */
-function transactionPathname(event: TransactionLike): string | null {
-  const url = event.request?.url;
-  if (url) {
-    try {
-      return new URL(url).pathname;
-    } catch {
-      // fall through to the transaction-name parse
-    }
-  }
-  // Transaction names look like "POST /mcp" or "GET /.env".
-  const name = event.transaction;
-  if (name) {
-    const match = /\s(\/\S*)/.exec(name);
-    if (match) return match[1];
-  }
-  return null;
-}
-
-/** The span carrying MCP method metadata (HTTP root, MCP request, or notification), if any. */
-function mcpSpanData(event: TransactionLike): Record<string, unknown> | null {
-  const trace = event.contexts?.trace;
+  const classified = classifyMcpMethod(input.mcpMethod);
   if (
-    trace?.data &&
-    (trace.op === "mcp.server" || "mcp.method.name" in trace.data)
+    classified.method === "notifications/initialized" ||
+    classified.method === "notifications/roots/list_changed"
   ) {
-    return trace.data;
+    return 0;
   }
-  for (const span of event.spans ?? []) {
-    if (span.data && "mcp.method.name" in span.data) return span.data;
+  if (
+    classified.kind === "heartbeat" ||
+    classified.method === "tools/list" ||
+    classified.method === "initialize"
+  ) {
+    return HEARTBEAT_SPAN_KEEP_RATE;
   }
-  return null;
+  return 1;
 }
 
-/**
- * Stable 0..1 sample value shared by every transaction in a trace. Sampling the
- * HTTP root and MCP child independently creates the misleading empty/orphan traces
- * this filter is intended to prevent.
- */
-export function traceSampleValue(event: TransactionLike): number | null {
-  const traceId = event.contexts?.trace?.trace_id;
-  if (!traceId || !/^[0-9a-f]{32}$/i.test(traceId)) return null;
-  return Number.parseInt(traceId.slice(0, 8), 16) / 0x1_0000_0000;
-}
-
-/**
- * Decide whether a finished transaction is noise we should not send to Sentry.
- * Returns a short reason string to drop it, or null to keep it. `rand` (0..1) is
- * injected so the sampling branches are deterministically testable.
- *
- * Kept: every real tool call, and every error (errors are separate events that
- * never reach beforeSendTransaction). Dropped: untracked scanner routes entirely,
- * all handshake-only notifications, and all but HEARTBEAT_SPAN_KEEP_RATE of
- * `server/discover`, `ping`, `tools/list`, and healthcheck-`initialize` noise.
- */
-export function transactionDropReason(
-  event: TransactionLike,
-  rand: number,
-): string | null {
-  const pathname = transactionPathname(event);
-  if (pathname !== null && classifyRoute(pathname) === null) {
-    return "untracked-route";
-  }
-
-  const data = mcpSpanData(event);
-  // Protocol traffic lives on the endpoint itself. A deeper path with no MCP method
-  // metadata is a scanner probing for files under a directory that looks real
-  // (`/mcp/actuator/heapdump`, `/mcp/backup.tar.gz`), not a client.
-  if (pathname !== null && isTrackedSubpath(pathname) && !data) {
-    return "untracked-subpath";
-  }
-  if (data) {
-    const method = data["mcp.method.name"];
-    const client = data["mcp.client.name"];
-    const requestKind = data["app.mcp.request.kind"];
-
-    if (method === "notifications/initialized") {
-      return "notifications/initialized";
-    }
-    if (method === "notifications/roots/list_changed") {
-      return "notifications/roots/list_changed";
-    }
-
-    if (rand >= HEARTBEAT_SPAN_KEEP_RATE) {
-      if (method === "server/discover") return "server/discover";
-      if (method === "ping") return "ping";
-      if (method === "tools/list") return "tools/list";
-      if (
-        method === "initialize" &&
-        (client === "healthcheck" || requestKind === "heartbeat")
-      ) {
-        return "healthcheck-initialize";
-      }
-    }
-  }
-  return null;
+/** True for every method name `classifyMcpMethod` normalizes rather than folding to "other". */
+export function isKnownMcpMethod(rawMethod: string): boolean {
+  return KNOWN_MCP_METHODS.has(rawMethod);
 }

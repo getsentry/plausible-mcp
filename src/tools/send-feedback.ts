@@ -21,8 +21,8 @@ export const FEEDBACK_CATEGORIES = [
  *
  * The message is untrusted caller input: it is bounded by the schema and passed
  * to Sentry as data, never interpreted. `Sentry.captureFeedback` produces `type:
- * "feedback"` events, which never reach `beforeSend`/`beforeSendTransaction` — so
- * the privacy guardrail is attached directly to this call's scope instead.
+ * "feedback"` events, which never reach `beforeSend` — so the privacy guardrail
+ * is attached directly to this call's scope instead.
  */
 export function register(server: McpServer) {
   server.registerTool(
