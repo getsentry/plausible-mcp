@@ -63,7 +63,7 @@ failures and Plausible 4xx responses remain visible through this metric only.
 `http.route`, `app.route.group`, `app.client.family`, `mcp.method.name`, and
 `app.mcp.request.kind` — so real tool-call traces are groupable by a bounded client family
 instead of the caller-controlled `mcp.client.name`, while HTTP roots can be sampled together
-with their separately-exported MCP child transactions. Modern requests are classified from
+with their MCP child segments. Modern requests are classified from
 the `Mcp-Method` header; legacy requests fall back to small JSON request clones. Neither path
 retains request ids, params, tool arguments, or unknown method names.
 
@@ -77,33 +77,46 @@ request envelope onto attributed `/internal` tool spans for per-trace deep dives
 BYOK events strip it along with other caller-controlled identity. It remains a secondary
 debugging attribute, never a dashboard dimension.
 
-## Span noise dropped before send
+## Span sampling at request start
 
-Most of this happens in `beforeSendTransaction`; the rate limiter is the exception. The SDK
-runs with `traceLifecycle: "static"` because every rule here inspects a finished transaction
-event; the v11 default streams spans individually and never calls that hook. Static mode is
-removed in v12, so these rules need rewriting per-span before that upgrade.
+SDK v11 streams spans individually: once a span starts, nothing can drop it —
+`beforeSendSpan` may only edit, and returning `null` there only logs a warning and keeps the
+span. So every noise rule that used to inspect a finished transaction is now a sampling rate
+decided when the root span starts, in `tracesSampler` (`rootSampleRate` in `src/telemetry.ts`).
+`tracesSampler` runs with `normalizedRequest` (url, method, lower-cased header keys) and, for
+a span with a parent, `parentSampled`; the MCP child segment inherits its parent's decision
+through `parentSampled`, so root and child are kept or dropped together rather than producing
+empty roots or orphan children. Legacy requests (no `Mcp-Method` header) would otherwise be
+unclassifiable at sampler time — before the handler even runs — so `withMcpMethodHeader` in
+`src/worker.ts` synthesizes the header from a bounded clone of the body ahead of
+`Sentry.withSentry`, copying only known method names.
 
-- **The rate limiter binding span** is dropped by the `ignoreSpans` option, matched on the
-  `sentry.origin` attribute rather than the span name, which embeds the binding name.
-  `@sentry/cloudflare` wraps any binding exposing `limit()` and times the call but records no
-  outcome, so an allowed request and a throttled one produce identical spans. `beforeSendSpan`
-  cannot drop it — returning `null` there only logs a warning and keeps the span. 429s stay
-  visible through `app.server.response`.
-- **Untracked routes** (`/.env`, `/wp-admin/*`, `/`, `favicon.ico`, …): dropped entirely.
+**The rate limiter binding span** is dropped by the `ignoreSpans` option, matched on the
+`sentry.origin` attribute rather than the span name, which embeds the binding name.
+`@sentry/cloudflare` wraps any binding exposing `limit()` and times the call but records no
+outcome, so an allowed request and a throttled one produce identical spans. `beforeSendSpan`
+cannot drop it — returning `null` there only logs a warning and keeps the span. 429s stay
+visible through `app.server.response`.
+
+Rates:
+
+- **Untracked routes** (`/.env`, `/wp-admin/*`, `/`, `favicon.ico`, …): 0%.
 - **Sub-paths of a tracked route with no MCP metadata** (`/mcp/actuator/heapdump`,
-  `/internal/backup.tar.gz`): dropped entirely. Protocol traffic lives on the endpoint itself,
+  `/internal/backup.tar.gz`): 0%. Protocol traffic lives on the endpoint itself,
   so a deeper path without a method attribute is a scanner probing a directory that looks real.
   The `app.server.response` metric still counts them under the tracked route.
-- **`server/discover`, `ping`, `tools/list`, and healthcheck `initialize`**: sampled to
+- **`ping`, `server/discover`, `tools/list`, and `initialize`**: sampled to
   `HEARTBEAT_SPAN_KEEP_RATE` (1%) — a thin heartbeat in Trace Explorer without the flood.
-  Sampling is deterministic from the trace id, so the outer HTTP root and MCP child are
-  kept or dropped together rather than producing empty roots or orphan children.
-- **`notifications/initialized` and `notifications/roots/list_changed`**: dropped entirely.
+  Every `initialize` counts, not only the uptime monitor's: the client name that used to
+  single it out lives in the body, which the sampler cannot read, and a real session's
+  signal is in its tool calls, which stay at 100%.
+- **`notifications/initialized` and `notifications/roots/list_changed`**: 0%.
   These are handshake bookkeeping and a roots capability notification the server does not
   implement, so neither has per-request debugging value. `notifications/cancelled` is kept:
   it marks a client abandoning an in-flight request, which is a signal when tool latency is
   under investigation.
+- **Everything else** (real tool calls, reads, unknown methods, the endpoint with no method
+  header yet): 100%.
 - **Metrics remain complete**: the `app.server.response` metric counts 100% of sampled and
   dropped protocol requests, including `mcp.method.name` and `app.mcp.request.kind`, so
   uptime, volume, and method dashboards are unaffected.
@@ -130,8 +143,14 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
   ids seen in the wild) — onto every event regardless.
 - **Caller-controlled request span attributes are stripped.** `stripRequestAttributes`
   (`src/redaction.ts`) runs unconditionally, called from both `anonymizeEventWithoutEmail` (for
-  `contexts.trace.data` and `spans[].data` on `beforeSend`/`beforeSendTransaction` events) and
-  `beforeSendSpan` (for span data — the only thing that hook can reach). It removes:
+  `contexts.trace.data` and `spans[].data` on `beforeSend` error events) and `beforeSendSpan`
+  (for `attributes` on every streamed span). `anonymizeSpanWithoutIdentity` (the
+  `beforeSendSpan` twin of the event rule) also removes every `user.*` attribute from a
+  segment span (root or MCP child) that has neither `user.email` nor `user.username` — the
+  same `isIdentifiedUser` test the error path uses, so a `/internal` service token (username
+  only) stays attributed on spans as it does on errors. The SDK derives `user.*` itself and
+  only `/internal` attaches an identity, so it must never ride an anonymous `/mcp` span.
+  `stripRequestAttributes` removes:
   - The whole `http.request.header.*`/`http.response.header.*` namespace. `@sentry/cloudflare`
     turns every HTTP header into one of these, filtered only by substring match against its own
     sensitive-key list — which misses client-specific identity headers like `x-openai-subject`.
@@ -144,7 +163,7 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
     `query_string: false` does not reach these, and neither endpoint reads the query string.
     `url.path` survives as the routing signal. `anonymizeEventWithoutEmail` applies the same
     trim to `request.url`.
-- **`beforeSend` and `beforeSendTransaction`** both call `anonymizeEventWithoutEmail`
+- **`beforeSend`** calls `anonymizeEventWithoutEmail`
   (`src/redaction.ts`), which always filters `Authorization`/`Cookie`/`Cf-Access-Jwt-Assertion`
   out of request headers, and — on any event without an email — replaces the user with an
   explicitly IP-less object and deletes the JSON-RPC request body.

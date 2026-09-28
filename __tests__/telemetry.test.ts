@@ -4,13 +4,11 @@ import {
   classifyMcpRequest,
   classifyRoute,
   resolveClientFamily,
+  rootSampleRate,
   statusClass,
-  traceSampleValue,
-  transactionDropReason,
   errorDropReason,
   HEARTBEAT_SPAN_KEEP_RATE,
   type ErrorEventLike,
-  type TransactionLike,
 } from "../src/telemetry.js";
 
 describe("classifyRoute", () => {
@@ -220,189 +218,61 @@ describe("errorDropReason", () => {
   });
 });
 
-describe("transactionDropReason", () => {
-  const mcpTx = (
-    method: string,
-    client?: string,
-    url = "https://plausible-mcp.sentry.dev/mcp",
-  ): TransactionLike => ({
-    transaction: "POST /mcp",
-    request: { url },
-    contexts: { trace: { op: "http.server" } },
-    spans: [
-      {
-        op: "mcp.server",
-        description: method,
-        data: {
-          "mcp.method.name": method,
-          ...(client ? { "mcp.client.name": client } : {}),
-        },
-      },
-    ],
-  });
-
+describe("rootSampleRate", () => {
   it("drops untracked scanner routes outright", () => {
-    const event: TransactionLike = {
-      transaction: "GET /.env",
-      request: { url: "https://plausible-mcp.sentry.dev/.env" },
-    };
-    expect(transactionDropReason(event, 0.5)).toBe("untracked-route");
-    // Even with a keep-roll, an untracked route is never kept.
-    expect(transactionDropReason(event, 0)).toBe("untracked-route");
-  });
-
-  it("drops scanner probes under a tracked prefix that carry no MCP metadata", () => {
-    for (const path of ["/mcp/actuator/heapdump", "/mcp/backup.tar.gz", "/internal/.env"]) {
-      const event: TransactionLike = {
-        transaction: `GET ${path}`,
-        request: { url: `https://plausible-mcp.sentry.dev${path}` },
-        contexts: { trace: { op: "http.server" } },
-      };
-      expect(transactionDropReason(event, 0)).toBe("untracked-subpath");
+    for (const pathname of ["/.env", "/wp-admin/setup.php", "/"]) {
+      expect(rootSampleRate({ pathname, mcpMethod: null })).toBe(0);
     }
-    // A trailing slash on the endpoint is still the endpoint.
-    const trailing = mcpTx("tools/call", undefined, "https://plausible-mcp.sentry.dev/mcp/");
-    expect(transactionDropReason(trailing, 0)).toBeNull();
   });
 
-  it("keeps real tool calls regardless of the sampling roll", () => {
-    const event = mcpTx("tools/call");
-    expect(transactionDropReason(event, 0)).toBeNull();
-    expect(transactionDropReason(event, 0.999)).toBeNull();
+  it("drops tracked sub-paths that carry no MCP method", () => {
+    for (const pathname of [
+      "/mcp/actuator/heapdump",
+      "/mcp/backup.tar.gz",
+      "/internal/.env",
+    ]) {
+      expect(rootSampleRate({ pathname, mcpMethod: null })).toBe(0);
+    }
   });
 
-  it("samples ping down to the heartbeat keep-rate", () => {
-    const event = mcpTx("ping");
-    // Above the keep threshold -> dropped (the common case).
-    expect(transactionDropReason(event, HEARTBEAT_SPAN_KEEP_RATE)).toBe("ping");
-    expect(transactionDropReason(event, 0.9)).toBe("ping");
-    // Inside the kept fraction -> retained as a heartbeat sample.
-    expect(transactionDropReason(event, 0)).toBeNull();
+  it("keeps a tool call at the tracked endpoint", () => {
+    expect(rootSampleRate({ pathname: "/mcp/", mcpMethod: "tools/call" })).toBe(1);
   });
 
-  it("samples modern server discovery down to the heartbeat keep-rate", () => {
-    const event = mcpTx("server/discover");
-    expect(transactionDropReason(event, HEARTBEAT_SPAN_KEEP_RATE))
-      .toBe("server/discover");
-    expect(transactionDropReason(event, 0.9)).toBe("server/discover");
-    expect(transactionDropReason(event, 0)).toBeNull();
+  it("keeps the endpoint itself with no method header", () => {
+    expect(rootSampleRate({ pathname: "/mcp", mcpMethod: null })).toBe(1);
   });
 
-  it("samples tools/list down to the heartbeat keep-rate", () => {
-    const event = mcpTx("tools/list");
-    expect(transactionDropReason(event, HEARTBEAT_SPAN_KEEP_RATE))
-      .toBe("tools/list");
-    expect(transactionDropReason(event, 0.9)).toBe("tools/list");
-    expect(transactionDropReason(event, 0)).toBeNull();
-  });
-
-  it("drops handshake-only notifications regardless of the sampling roll", () => {
+  it("drops handshake-only notifications", () => {
     for (const method of [
       "notifications/initialized",
       "notifications/roots/list_changed",
     ]) {
-      const event = mcpTx(method);
-      expect(transactionDropReason(event, 0)).toBe(method);
-      expect(transactionDropReason(event, 0.999)).toBe(method);
+      expect(rootSampleRate({ pathname: "/mcp", mcpMethod: method })).toBe(0);
     }
   });
 
-  it("samples the healthcheck monitor's initialize, but keeps real initialize", () => {
-    const health = mcpTx("initialize", "healthcheck");
-    expect(transactionDropReason(health, 0.5)).toBe("healthcheck-initialize");
-    expect(transactionDropReason(health, 0)).toBeNull(); // heartbeat sample
-
-    const real = mcpTx("initialize", "claude-code");
-    expect(transactionDropReason(real, 0.5)).toBeNull();
-    const anon = mcpTx("initialize"); // no client name at all
-    expect(transactionDropReason(anon, 0.5)).toBeNull();
+  it("samples handshake/keepalive noise down to the heartbeat keep-rate", () => {
+    for (const method of ["ping", "server/discover", "tools/list", "initialize"]) {
+      expect(rootSampleRate({ pathname: "/mcp", mcpMethod: method }))
+        .toBe(HEARTBEAT_SPAN_KEEP_RATE);
+    }
   });
 
-  it("falls back to the transaction name when request.url is absent", () => {
-    const event: TransactionLike = { transaction: "GET /robots.txt" };
-    expect(transactionDropReason(event, 0.5)).toBe("untracked-route");
+  it("keeps real tool calls, reads, and unknown methods", () => {
+    for (const method of ["tools/call", "resources/read", "foo/bar"]) {
+      expect(rootSampleRate({ pathname: "/mcp", mcpMethod: method })).toBe(1);
+    }
   });
 
-  it("keeps a transaction whose path can't be determined", () => {
-    expect(transactionDropReason({}, 0.5)).toBeNull();
+  it("inherits the parent's decision when this span has one, even for an untracked path", () => {
+    expect(rootSampleRate({ pathname: "/.env", mcpMethod: null, parentSampled: true }))
+      .toBe(1);
+    expect(rootSampleRate({ pathname: "/.env", mcpMethod: null, parentSampled: false }))
+      .toBe(0);
   });
 
-  it("reads mcp attributes off the root span when mcp.server is the root", () => {
-    const event: TransactionLike = {
-      transaction: "POST /mcp",
-      request: { url: "https://plausible-mcp.sentry.dev/mcp" },
-      contexts: {
-        trace: { op: "mcp.server", data: { "mcp.method.name": "ping" } },
-      },
-    };
-    expect(transactionDropReason(event, 0.9)).toBe("ping");
-  });
-
-  it("reads mcp attributes off a notification child span", () => {
-    const event: TransactionLike = {
-      transaction: "POST /mcp",
-      request: { url: "https://plausible-mcp.sentry.dev/mcp" },
-      contexts: { trace: { op: "http.server" } },
-      spans: [{
-        op: "mcp.notification.client_to_server",
-        description: "notifications/initialized",
-        data: { "mcp.method.name": "notifications/initialized" },
-      }],
-    };
-
-    expect(transactionDropReason(event, 0)).toBe("notifications/initialized");
-  });
-
-  it("samples an HTTP root from its stamped MCP classification", () => {
-    const pingRoot: TransactionLike = {
-      transaction: "POST /mcp",
-      request: { url: "https://plausible-mcp.sentry.dev/mcp" },
-      contexts: {
-        trace: {
-          op: "http.server",
-          data: {
-            "mcp.method.name": "ping",
-            "app.mcp.request.kind": "heartbeat",
-          },
-        },
-      },
-    };
-    expect(transactionDropReason(pingRoot, 0.9)).toBe("ping");
-
-    const healthcheckRoot: TransactionLike = {
-      ...pingRoot,
-      contexts: {
-        trace: {
-          op: "http.server",
-          data: {
-            "mcp.method.name": "initialize",
-            "app.mcp.request.kind": "heartbeat",
-          },
-        },
-      },
-    };
-    expect(transactionDropReason(healthcheckRoot, 0.9))
-      .toBe("healthcheck-initialize");
-  });
-});
-
-describe("traceSampleValue", () => {
-  it("returns the same sampling value for a root and child in one trace", () => {
-    const traceId = "80000000000000000000000000000000";
-    const root: TransactionLike = {
-      contexts: { trace: { op: "http.server", trace_id: traceId } },
-    };
-    const child: TransactionLike = {
-      contexts: { trace: { op: "mcp.server", trace_id: traceId } },
-    };
-
-    expect(traceSampleValue(root)).toBe(0.5);
-    expect(traceSampleValue(child)).toBe(traceSampleValue(root));
-  });
-
-  it("returns null when no valid trace id is available", () => {
-    expect(traceSampleValue({})).toBeNull();
-    expect(traceSampleValue({ contexts: { trace: { trace_id: "not-hex" } } }))
-      .toBeNull();
+  it("keeps a span whose path can't be determined", () => {
+    expect(rootSampleRate({ pathname: null, mcpMethod: null })).toBe(1);
   });
 });

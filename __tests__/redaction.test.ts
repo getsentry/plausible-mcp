@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   anonymizeEventWithoutEmail,
+  anonymizeSpanWithoutIdentity,
   sanitizeClientAttribute,
   stripRequestAttributes,
   type RedactableEvent,
@@ -272,5 +273,56 @@ describe("anonymizeEventWithoutEmail (feedback events)", () => {
 
     expect(event.user).toEqual({ ip_address: null });
     expect(event.request?.data).toBeUndefined();
+  });
+});
+
+describe("anonymizeSpanWithoutIdentity (streamed segment spans)", () => {
+  it("removes SDK-derived user attributes from an anonymous /mcp segment", () => {
+    const span = {
+      is_segment: true,
+      attributes: {
+        "sentry.op": "http.server",
+        "user.ip_address": "2a06:98c0::1",
+        "user.geo.country_code": "DE",
+      },
+    };
+    anonymizeSpanWithoutIdentity(span);
+    expect(Object.keys(span.attributes)).toEqual(["sentry.op"]);
+  });
+
+  it("keeps an /internal person identified by email", () => {
+    const span = {
+      is_segment: true,
+      attributes: { "user.email": "user.name@sentry.io", "user.ip_address": "1.2.3.4" },
+    };
+    anonymizeSpanWithoutIdentity(span);
+    expect(span.attributes).toEqual({
+      "user.email": "user.name@sentry.io",
+      "user.ip_address": "1.2.3.4",
+    });
+  });
+
+  it("keeps an /internal service token identified by username only, like the error path", () => {
+    const span = {
+      is_segment: true,
+      attributes: { "user.username": "svc123.access" },
+    };
+    anonymizeSpanWithoutIdentity(span);
+    expect(span.attributes).toEqual({ "user.username": "svc123.access" });
+  });
+
+  it("treats an empty identity string as anonymous", () => {
+    const span = { is_segment: true, attributes: { "user.email": "", "user.username": "" } };
+    anonymizeSpanWithoutIdentity(span);
+    expect(span.attributes).toEqual({});
+  });
+
+  it("still strips caller-controlled request attributes on a non-segment span", () => {
+    const span = {
+      is_segment: false,
+      attributes: { "http.request.header.authorization": "Bearer x", "user.ip_address": "1.2.3.4" },
+    };
+    anonymizeSpanWithoutIdentity(span);
+    expect(span.attributes).toEqual({ "user.ip_address": "1.2.3.4" });
   });
 });
