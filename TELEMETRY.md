@@ -109,8 +109,10 @@ removed in v12, so these rules need rewriting per-span before that upgrade.
   uptime, volume, and method dashboards are unaffected.
 - **Errors are separate events** routed through `beforeSend`. Two expected MCP transport
   rejections are dropped as issue noise: the 406 raised when a GET client does not accept
-  `text/event-stream`, and the `Parse error` raised when a POST body is not valid JSON-RPC
-  (scanners and curl probes; the transport already answers 400 itself). Both HTTP responses
+  `text/event-stream`, and the parse failure raised when a POST body is not valid JSON-RPC
+  (scanners and curl probes; the transport already answers 400 itself). The transport reports
+  that failure either as a wrapped `Parse error` message or, since MCP SDK 2.1, as the raw
+  `SyntaxError` from `JSON.parse`, and both forms are dropped. Both HTTP responses
   are still counted by `app.server.response`. Other error events are retained.
 
 ## Privacy
