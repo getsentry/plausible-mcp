@@ -205,6 +205,7 @@ interface ErrorMechanismLike {
 export interface ErrorEventLike {
   exception?: {
     values?: Array<{
+      type?: string;
       value?: string;
       mechanism?: ErrorMechanismLike;
     }>;
@@ -217,19 +218,25 @@ export interface ErrorEventLike {
  * with a JSON-RPC -32700 for an unparseable POST body — scanners and curl probes),
  * and both responses are still counted by `app.server.response`; neither is an
  * application exception that needs an issue in Sentry.
+ *
+ * The transport reports the unparseable body two ways: MCP SDK 2.0 wrapped it in a
+ * "Parse error" message, while 2.1 hands the hook the raw `SyntaxError` from
+ * `JSON.parse`, whose text varies with the input, before answering the same 400.
  */
 export function errorDropReason(event: ErrorEventLike): string | null {
   for (const exception of event.exception?.values ?? []) {
     if (exception.mechanism?.type !== "auto.ai.mcp_server") continue;
+    const fromTransport = exception.mechanism.data?.["error_type"] === "transport";
     if (
       exception.value === "Not Acceptable: Client must accept text/event-stream" &&
-      exception.mechanism.data?.["error_type"] === "transport"
+      fromTransport
     ) {
       return "mcp-get-without-sse-accept";
     }
     if (
       exception.value === "Parse error: Invalid JSON" ||
-      exception.value === "Parse error: Invalid JSON-RPC message"
+      exception.value === "Parse error: Invalid JSON-RPC message" ||
+      (exception.type === "SyntaxError" && fromTransport)
     ) {
       return "mcp-body-parse-error";
     }

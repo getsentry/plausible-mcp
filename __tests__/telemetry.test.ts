@@ -167,6 +167,28 @@ describe("errorDropReason", () => {
     }
   });
 
+  it("drops the raw SyntaxError the 2.1 transport reports before answering 400", () => {
+    expect(errorDropReason({
+      exception: {
+        values: [{
+          type: "SyntaxError",
+          value: "Unexpected end of JSON input",
+          mechanism: { type: "auto.ai.mcp_server", data: { error_type: "transport" } },
+        }],
+      },
+    })).toBe("mcp-body-parse-error");
+    // A SyntaxError from application code, not the transport, is a real bug.
+    expect(errorDropReason({
+      exception: {
+        values: [{
+          type: "SyntaxError",
+          value: "Unexpected end of JSON input",
+          mechanism: { type: "auto.ai.mcp_server", data: { error_type: "tool" } },
+        }],
+      },
+    })).toBeNull();
+  });
+
   it("keeps parse-error lookalikes not reported by the MCP server hook", () => {
     expect(errorDropReason({
       exception: {
