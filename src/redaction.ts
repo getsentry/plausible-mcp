@@ -164,13 +164,40 @@ export function anonymizeEventWithoutEmail(event: RedactableEvent): void {
     event.request.url = stripUrlQuery(event.request.url);
   }
 
-  const email = event.user?.email;
-  const username = event.user?.username;
-  const identified =
-    (typeof email === "string" && email.length > 0) ||
-    (typeof username === "string" && username.length > 0);
-  if (!identified) {
+  if (!isIdentifiedUser(event.user?.email, event.user?.username)) {
     event.user = { ip_address: null };
     if (event.request) delete event.request.data;
+  }
+}
+
+/**
+ * `/internal` identifies a caller by email for a person and by username (the service
+ * token's client id) for a machine; either one counts. Everything else, including the
+ * IP the SDK infers, is anonymous.
+ */
+export function isIdentifiedUser(email: unknown, username: unknown): boolean {
+  return (
+    (typeof email === "string" && email.length > 0) ||
+    (typeof username === "string" && username.length > 0)
+  );
+}
+
+export interface RedactableSpan {
+  is_segment?: boolean;
+  attributes: Record<string, unknown>;
+}
+
+/**
+ * Streamed-span twin of `anonymizeEventWithoutEmail`. The SDK derives `user.*` attributes
+ * on segment spans (root and MCP child) itself, so an anonymous `/mcp` segment would carry
+ * an inferred identity unless it is removed here. Mutates in place.
+ */
+export function anonymizeSpanWithoutIdentity(span: RedactableSpan): void {
+  stripRequestAttributes(span.attributes);
+  if (!span.is_segment) return;
+  const { attributes } = span;
+  if (isIdentifiedUser(attributes["user.email"], attributes["user.username"])) return;
+  for (const key of Object.keys(attributes)) {
+    if (key.startsWith("user.")) delete attributes[key];
   }
 }

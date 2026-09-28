@@ -144,10 +144,13 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
 - **Caller-controlled request span attributes are stripped.** `stripRequestAttributes`
   (`src/redaction.ts`) runs unconditionally, called from both `anonymizeEventWithoutEmail` (for
   `contexts.trace.data` and `spans[].data` on `beforeSend` error events) and `beforeSendSpan`
-  (for `attributes` on every streamed span). `beforeSendSpan` also removes every `user.*`
-  attribute from a segment span (root or MCP child) that has no `user.email` — the SDK derives
-  `user.*` itself, and only `/internal` attaches an identified user, so it must never ride an
-  anonymous `/mcp` span. It removes:
+  (for `attributes` on every streamed span). `anonymizeSpanWithoutIdentity` (the
+  `beforeSendSpan` twin of the event rule) also removes every `user.*` attribute from a
+  segment span (root or MCP child) that has neither `user.email` nor `user.username` — the
+  same `isIdentifiedUser` test the error path uses, so a `/internal` service token (username
+  only) stays attributed on spans as it does on errors. The SDK derives `user.*` itself and
+  only `/internal` attaches an identity, so it must never ride an anonymous `/mcp` span.
+  `stripRequestAttributes` removes:
   - The whole `http.request.header.*`/`http.response.header.*` namespace. `@sentry/cloudflare`
     turns every HTTP header into one of these, filtered only by substring match against its own
     sensitive-key list — which misses client-specific identity headers like `x-openai-subject`.

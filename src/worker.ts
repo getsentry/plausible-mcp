@@ -12,7 +12,7 @@ import {
   parseAllowedServiceTokenIds,
   verifyCloudflareAccessJwt,
 } from "./cf-access.js";
-import { anonymizeEventWithoutEmail, stripRequestAttributes } from "./redaction.js";
+import { anonymizeEventWithoutEmail, anonymizeSpanWithoutIdentity } from "./redaction.js";
 import {
   classifyMcpMethod,
   classifyMcpRequest,
@@ -223,15 +223,8 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       if (errorDropReason(event)) return null;
       return event;
     },
-    // Only `/internal` attaches an identified user; any other `user.*` attribute on a
-    // segment (root or MCP child) is SDK-derived and must not ride an anonymous /mcp span.
     beforeSendSpan(span) {
-      stripRequestAttributes(span.attributes);
-      if (span.is_segment && typeof span.attributes["user.email"] !== "string") {
-        for (const key of Object.keys(span.attributes)) {
-          if (key.startsWith("user.")) delete span.attributes[key];
-        }
-      }
+      anonymizeSpanWithoutIdentity(span);
       return span;
     },
   };
