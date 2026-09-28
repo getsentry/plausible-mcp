@@ -79,7 +79,10 @@ debugging attribute, never a dashboard dimension.
 
 ## Span noise dropped before send
 
-Most of this happens in `beforeSendTransaction`; the rate limiter is the exception.
+Most of this happens in `beforeSendTransaction`; the rate limiter is the exception. The SDK
+runs with `traceLifecycle: "static"` because every rule here inspects a finished transaction
+event; the v11 default streams spans individually and never calls that hook. Static mode is
+removed in v12, so these rules need rewriting per-span before that upgrade.
 
 - **The rate limiter binding span** is dropped by the `ignoreSpans` option, matched on the
   `sentry.origin` attribute rather than the span name, which embeds the binding name.
@@ -88,13 +91,19 @@ Most of this happens in `beforeSendTransaction`; the rate limiter is the excepti
   cannot drop it — returning `null` there only logs a warning and keeps the span. 429s stay
   visible through `app.server.response`.
 - **Untracked routes** (`/.env`, `/wp-admin/*`, `/`, `favicon.ico`, …): dropped entirely.
+- **Sub-paths of a tracked route with no MCP metadata** (`/mcp/actuator/heapdump`,
+  `/internal/backup.tar.gz`): dropped entirely. Protocol traffic lives on the endpoint itself,
+  so a deeper path without a method attribute is a scanner probing a directory that looks real.
+  The `app.server.response` metric still counts them under the tracked route.
 - **`server/discover`, `ping`, `tools/list`, and healthcheck `initialize`**: sampled to
   `HEARTBEAT_SPAN_KEEP_RATE` (1%) — a thin heartbeat in Trace Explorer without the flood.
   Sampling is deterministic from the trace id, so the outer HTTP root and MCP child are
   kept or dropped together rather than producing empty roots or orphan children.
 - **`notifications/initialized` and `notifications/roots/list_changed`**: dropped entirely.
   These are handshake bookkeeping and a roots capability notification the server does not
-  implement, so neither has per-request debugging value.
+  implement, so neither has per-request debugging value. `notifications/cancelled` is kept:
+  it marks a client abandoning an in-flight request, which is a signal when tool latency is
+  under investigation.
 - **Metrics remain complete**: the `app.server.response` metric counts 100% of sampled and
   dropped protocol requests, including `mcp.method.name` and `app.mcp.request.kind`, so
   uptime, volume, and method dashboards are unaffected.
@@ -113,7 +122,7 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
   hook. `sentryConfig()` overrides the default `httpServerIntegration` with
   `maxRequestBodySize: "none"` and the default `requestDataIntegration` with everything
   (`headers`, `data`, `cookies`, `ip`, `query_string`) turned off. This matters because
-  `sendDefaultPii: false` gates neither: without this override, the SDK captures the raw
+  `dataCollection` (every category off) is not trusted to gate either: without this override, the SDK captures the raw
   request body — on `/mcp` that's the caller's JSON-RPC envelope, whose `params._meta` carries
   whatever their client volunteers (end-user coordinates, filesystem paths, stable subject
   ids seen in the wild) — onto every event regardless.

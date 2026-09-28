@@ -229,6 +229,20 @@ describe("transactionDropReason", () => {
     expect(transactionDropReason(event, 0)).toBe("untracked-route");
   });
 
+  it("drops scanner probes under a tracked prefix that carry no MCP metadata", () => {
+    for (const path of ["/mcp/actuator/heapdump", "/mcp/backup.tar.gz", "/internal/.env"]) {
+      const event: TransactionLike = {
+        transaction: `GET ${path}`,
+        request: { url: `https://plausible-mcp.sentry.dev${path}` },
+        contexts: { trace: { op: "http.server" } },
+      };
+      expect(transactionDropReason(event, 0)).toBe("untracked-subpath");
+    }
+    // A trailing slash on the endpoint is still the endpoint.
+    const trailing = mcpTx("tools/call", undefined, "https://plausible-mcp.sentry.dev/mcp/");
+    expect(transactionDropReason(trailing, 0)).toBeNull();
+  });
+
   it("keeps real tool calls regardless of the sampling roll", () => {
     const event = mcpTx("tools/call");
     expect(transactionDropReason(event, 0)).toBeNull();

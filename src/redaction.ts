@@ -66,7 +66,7 @@ const IDENTITY_SHAPES = [
  * `mcp.client.name` and `mcp.client.version` stay because a client library name and version
  * identify software, not a person — but nothing stops a caller putting an operator's email,
  * a workstation hostname, a home directory, or a session id in either field, and the Sentry
- * SDK stores both verbatim (its own `sendDefaultPii` filter covers neither). This is a
+ * SDK stores both verbatim (its own `dataCollection` gating covers neither). This is a
  * failsafe against the shapes that leak by accident, not a guarantee: a caller who writes a
  * person's name in prose still gets it through, which only an allow-list would stop.
  *

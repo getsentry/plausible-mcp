@@ -27,10 +27,8 @@ import {
 } from "./telemetry.js";
 import type { Env } from "./env.js";
 
-// @sentry/cloudflare doesn't re-export SpanJSON; derive it from the option type.
-type SpanJSON = Parameters<
-  NonNullable<Sentry.CloudflareOptions["beforeSendSpan"]>
->[0];
+// The static-lifecycle span shape; @sentry/cloudflare exports it only through withStaticSpan.
+type SpanJSON = Parameters<Parameters<typeof Sentry.withStaticSpan>[0]>[0];
 
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
@@ -167,11 +165,20 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
     dsn: env.SENTRY_DSN,
     release: env.SENTRY_RELEASE,
     tracesSampleRate: 1.0,
-    sendDefaultPii: false,
-    // Count traffic in cheap, bounded metrics (see recordResponseMetric) instead of
-    // reading volume off 100%-sampled spans. This is what lets beforeSendTransaction
-    // drop scanner/keepalive spans below without losing uptime/volume dashboards.
-    enableMetrics: true,
+    // Every noise filter and anonymizer below operates on a finished transaction event.
+    // SDK v11 defaults to streaming spans individually, which never invokes
+    // beforeSendTransaction and hands beforeSendSpan a different shape. Pin the
+    // transaction lifecycle until the filters are rewritten per-span; v12 removes it.
+    traceLifecycle: "static",
+    // v11 collects every category by default. Nothing here is needed for debugging: the
+    // route, method, and status carry the signal, and /mcp callers are anonymous by design.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+    },
     // Drop the auto-instrumented rate limiter span. @sentry/cloudflare wraps any binding
     // exposing `limit()` and times the call, but records no outcome — the span for an
     // allowed request is identical to one that was throttled, so it carries no signal
@@ -183,7 +190,8 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       { attributes: { "sentry.origin": "auto.faas.cloudflare.rate_limit" } },
     ],
     // The Cloudflare SDK captures the incoming request body and headers onto the isolation
-    // scope before any beforeSend* hook runs; sendDefaultPii: false gates neither. On /mcp
+    // scope before any beforeSend* hook runs; dataCollection alone is not trusted to gate
+    // either, so the integrations are overridden explicitly as well. On /mcp
     // that body is the caller's JSON-RPC envelope, whose params._meta carries whatever their
     // client volunteers. Method, URL and status carry the debugging signal we actually use.
     integrations: [
@@ -218,10 +226,10 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       if (transactionDropReason(event, sampleValue)) return null;
       return event;
     },
-    beforeSendSpan(span: SpanJSON): SpanJSON {
+    beforeSendSpan: Sentry.withStaticSpan((span: SpanJSON): SpanJSON => {
       if (span.data) stripRequestAttributes(span.data);
       return span;
-    },
+    }),
   };
 }
 

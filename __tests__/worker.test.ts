@@ -472,6 +472,20 @@ describe("MCP Worker entry", () => {
       .toBe('Bearer realm="plausible-mcp", error="invalid_token"');
   });
 
+  it("answers a malformed JSON body with a JSON-RPC parse error, not a 500", async () => {
+    const response = await workerFetch(new Request("https://test.local/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: "Bearer test-key-123",
+        "Content-Type": "application/json",
+      },
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"broken":',
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: -32700 } });
+  });
+
   it("rejects invalid hosts, opaque origins, and non-JSON media types", async () => {
     const invalidHost = await workerFetch(new Request("https://test.local/mcp", {
       method: "POST",
