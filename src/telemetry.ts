@@ -133,6 +133,11 @@ export function classifyRoute(pathname: string): TrackedRoute | null {
   return null;
 }
 
+/** True for `/mcp/<more>` and `/internal/<more>`; false for the endpoints themselves. */
+export function isTrackedSubpath(pathname: string): boolean {
+  return /^\/(?:mcp|internal)\/.+/.test(pathname);
+}
+
 /** `200` -> `"2xx"`. Low-cardinality status bucket for metrics. */
 export function statusClass(status: number): string {
   return `${Math.floor(status / 100)}xx`;
@@ -318,6 +323,12 @@ export function transactionDropReason(
   }
 
   const data = mcpSpanData(event);
+  // Protocol traffic lives on the endpoint itself. A deeper path with no MCP method
+  // metadata is a scanner probing for files under a directory that looks real
+  // (`/mcp/actuator/heapdump`, `/mcp/backup.tar.gz`), not a client.
+  if (pathname !== null && isTrackedSubpath(pathname) && !data) {
+    return "untracked-subpath";
+  }
   if (data) {
     const method = data["mcp.method.name"];
     const client = data["mcp.client.name"];

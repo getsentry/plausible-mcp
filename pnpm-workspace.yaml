@@ -18,3 +18,12 @@ overrides:
   # MCP SDK pins ^1.x. None of our transports load the Node server (the Worker uses
   # the web-standard transport, STDIO uses stdio), so the 2.x jump is inert here.
   "@hono/node-server": "^2.0.5"
+
+# @sentry/cloudflare 11.1.0 was published the same day it was adopted here; pnpm 11's
+# default minimumReleaseAge blocks a release that young. Delete once the lockfile pins
+# a release older than a day.
+minimumReleaseAgeExclude:
+  - '@sentry/cloudflare@11.1.0'
+  - '@sentry/core@11.1.0'
+  - '@sentry/opentelemetry@11.1.0'
+  - '@sentry/server-utils@11.1.0'
