@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+### Documentation 📚
+
+- Explain empty-string entry and exit page rows in server instructions by @sergical in [#51](https://github.com/getsentry/plausible-mcp/pull/51)
+
 ## 0.8.0
 
 ### New Features ✨
