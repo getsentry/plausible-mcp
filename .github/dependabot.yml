@@ -6,13 +6,15 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # Dependabot puts a dependency in the first group that matches it, so the
+    # scoped groups come before the catch-all.
     groups:
-      minor-and-patch:
-        update-types: [minor, patch]
       sentry:
         patterns: ["@sentry/*"]
       mcp-sdk:
         patterns: ["@modelcontextprotocol/*"]
+      minor-and-patch:
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
