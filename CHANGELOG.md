@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0
+
+### New Features ✨
+
+- Migrate to Sentry span streaming and sample noise at request start by @sergical in [#60](https://github.com/getsentry/plausible-mcp/pull/60)
+
+### Bug Fixes 🐛
+
+- Drop the raw SyntaxError the MCP 2.1 transport reports for malformed bodies by @sergical in [#58](https://github.com/getsentry/plausible-mcp/pull/58)
+
+### Internal Changes 🔧
+
+#### Deps
+
+- Bump actions/create-github-app-token from 1.11.0 to 3.2.0 by @dependabot in [#57](https://github.com/getsentry/plausible-mcp/pull/57)
+- Bump pnpm/action-setup from 4 to 6 by @dependabot in [#54](https://github.com/getsentry/plausible-mcp/pull/54)
+
 ## 0.8.2
 
 ### Internal Changes 🔧
