@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2
+
+### Internal Changes 🔧
+
+- Upgrade to Sentry SDK v11, vitest 5, and drop scanner sub-path spans by @sergical in [#53](https://github.com/getsentry/plausible-mcp/pull/53)
+
 ## 0.8.1
 
 ### Documentation 📚
