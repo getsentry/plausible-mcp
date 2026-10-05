@@ -32,20 +32,20 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/server": "2.1.0",
-    "@sentry/cloudflare": "11.1.0",
+    "@modelcontextprotocol/server": "2.2.0",
+    "@sentry/cloudflare": "11.3.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260927.1",
-    "@modelcontextprotocol/client": "2.1.0",
+    "@cloudflare/workers-types": "^5.20261002.1",
+    "@modelcontextprotocol/client": "2.2.0",
     "@sentry/cli": "^3.8.0",
-    "@types/node": "^26.6.3",
-    "@vitest/coverage-v8": "^5.0.2",
-    "openai": "^7.23.0",
+    "@types/node": "^26.6.4",
+    "@vitest/coverage-v8": "^5.0.3",
+    "openai": "^7.27.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.2",
-    "wrangler": "^4.142.0"
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
   }
 }
