@@ -30,7 +30,7 @@ CF_ACCESS_TEAM_DOMAIN = "https://onderwijsin.cloudflareaccess.com"
 
 # The Access application's Application Audience (AUD) tag — checked against the token
 # `aud`. Not a secret (an app identifier, not a credential).
-CF_ACCESS_AUD = "163ce3b13ebe967295ffdf932b5699a2202de3a650684c87f61d5076eb6735c4"
+CF_ACCESS_AUD = "9646d8a37b241dbe7377502bc6494ded92136ac9691d99ede54085e1b8fc2e04"
 
 [dev]
 port = 8787
