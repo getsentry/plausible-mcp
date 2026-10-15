@@ -1,3 +1,4 @@
+import { importCoverageSchema, buildImportCoverage } from "./imports.js";
 import { z } from "zod";
 import type { PlausibleResponse } from "./plausible.js";
 import { UserFacingError } from "./errors.js";
@@ -283,6 +284,7 @@ export function buildPropertyFilters(filters: PropertyFilter[]): unknown[][] {
  * can't trip the SDK's output validation and turn a successful query into a tool error.
  */
 export const queryResultOutputSchema = z.object({
+  imports: importCoverageSchema.optional(),
   metrics: z
     .array(z.string())
     .describe("Metric keys, in the order they appear in each row's `metrics` array"),
@@ -306,9 +308,11 @@ export const queryResultOutputSchema = z.object({
 export function buildQueryStructuredContent(
   response: PlausibleResponse,
   metrics: string[],
-  dimensions: string[]
+  dimensions: string[],
+  includeImports?: boolean
 ) {
   return {
+    ...buildImportCoverage(response, includeImports),
     metrics,
     dimensions,
     results: response.results.map((row) => ({

@@ -1,3 +1,4 @@
+import { includeImportsSchema, buildImportCoverage } from "../imports.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient } from "../plausible.js";
@@ -42,6 +43,7 @@ export function register(
         goal: goalSchema,
         page: pageSchema,
         property_filters: propertyFiltersSchema,
+        include_imports: includeImportsSchema,
         offset: offsetSchema,
         limit: z.number().int().min(1).max(10000).default(10000).optional()
           .describe("Maximum rows per page (default 10000)"),
@@ -82,14 +84,14 @@ export function register(
           dimensions,
           filters,
           pagination: { limit, offset },
-          include: { total_rows: true },
+          include: { total_rows: true, ...(args.include_imports !== undefined ? { imports: args.include_imports } : {}) },
           order_by: paginationOrder(metrics, dimensions),
         });
 
         const pagination = buildPagination(result, limit, offset);
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ ...result, pagination }, null, 2) }],
-          structuredContent: { ...buildQueryStructuredContent(result, metrics, dimensions), pagination },
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, ...buildImportCoverage(result, args.include_imports), pagination }, null, 2) }],
+          structuredContent: { ...buildQueryStructuredContent(result, metrics, dimensions, args.include_imports), pagination },
         };
       } catch (error) {
         const message = reportToolError(error, "get_conversions");

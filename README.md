@@ -313,3 +313,38 @@ Ordering is the first requested metric descending, followed by all grouping
 dimensions ascending to break ties. Counts and conversion rates retain their
 original query scope. Pagination is not a snapshot: use fixed absolute dates,
 and be aware that newly arriving data can move rows between requests.
+
+### Imported historical statistics
+
+`get_timeseries`, `get_breakdown`, `get_conversions` and `compare_periods` accept
+`include_imports: true` to request imported history. Omit it or pass false for the
+existing native-only default. For example:
+
+```json
+{
+  "site_id": "example.com",
+  "date_range": "all",
+  "dimension": "visit:source",
+  "include_imports": true
+}
+```
+
+The tools forward this as `include.imports` to the
+[Plausible Stats API](https://plausible.io/docs/stats-api), alongside pagination's
+`include.total_rows` where applicable. Keep the setting the same across pages.
+Plausible decides whether the requested metrics, dimensions and filters support
+imports; an opt-in does not guarantee inclusion.
+
+Text and structured results expose an `imports` coverage object when the setting
+is explicit or upstream returns import metadata. It includes `requested`,
+`imports_included` (true/false, or null when unconfirmed), the upstream
+`imports_skip_reason` and `imports_warning` when returned, and `warnings`.
+Skipped imports leave native results intact and add a visible warning. Missing
+confirmation is reported as unknown coverage. Neither represents zero imported
+traffic; an empty result does not establish that there was no historical traffic.
+
+Comparisons return coverage independently under `period_a.imports` and
+`period_b.imports`. Aggregates and deltas still describe returned data: check both
+periods' coverage before interpreting changes, since they may cover different
+sources. Calls with no inclusion setting and no upstream import metadata retain
+the previous output shape.

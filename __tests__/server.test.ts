@@ -107,6 +107,30 @@ describe("MCP Server Integration", () => {
     expect(invalid.isError).toBe(true);
   });
 
+  it.each(["get_timeseries", "get_breakdown", "get_conversions", "compare_periods"])("preserves import coverage through MCP for %s", async (name) => {
+    const metadata = {
+      imports_included: false,
+      imports_skip_reason: "unsupported_query",
+      imports_warning: "Imported statistics are unavailable for this query.",
+    };
+    mockPlausibleOk({ results: [{ dimensions: [], metrics: [100, 200, 3, 4] }], meta: metadata, query: {} });
+    const result = await client.callTool({ name, arguments: {
+      include_imports: true,
+      ...(name === "compare_periods"
+        ? { period_a: "2020-01-01,2020-12-31", period_b: "2021-01-01,2021-12-31" }
+        : { date_range: "all" }),
+      ...(name === "get_breakdown" ? { dimension: "visit:source" } : {}),
+    } });
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as any;
+    const coverage = name === "compare_periods" ? structured.period_a.imports : structured.imports;
+    expect(coverage).toMatchObject({ requested: true, ...metadata });
+    expect(coverage.warnings.join(" ")).toContain("native-only");
+    const text = JSON.parse((result.content[0] as { text: string }).text);
+    expect(name === "compare_periods" ? text.period_a.imports : text.imports).toEqual(coverage);
+    if (name === "compare_periods") expect(structured.period_b.imports).toEqual(coverage);
+  });
+
   it("returns structuredContent alongside the text block", async () => {
     mockPlausibleOk();
 

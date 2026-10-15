@@ -1,3 +1,4 @@
+import { includeImportsSchema, buildImportCoverage } from "../imports.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient } from "../plausible.js";
@@ -43,6 +44,7 @@ export function register(
         dimension: dimensionSchema,
         page: pageSchema,
         property_filters: propertyFiltersSchema,
+        include_imports: includeImportsSchema,
         offset: offsetSchema,
         metrics: metricsSchema,
         limit: z
@@ -81,14 +83,14 @@ export function register(
           dimensions: [args.dimension],
           filters,
           pagination: { limit, offset },
-          include: { total_rows: true },
+          include: { total_rows: true, ...(args.include_imports !== undefined ? { imports: args.include_imports } : {}) },
           order_by: paginationOrder(metrics, [args.dimension]),
         });
 
         const pagination = buildPagination(result, limit, offset);
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ ...result, pagination }, null, 2) }],
-          structuredContent: { ...buildQueryStructuredContent(result, metrics, [args.dimension]), pagination },
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, ...buildImportCoverage(result, args.include_imports), pagination }, null, 2) }],
+          structuredContent: { ...buildQueryStructuredContent(result, metrics, [args.dimension], args.include_imports), pagination },
         };
       } catch (error) {
         const message = reportToolError(error, "get_breakdown");

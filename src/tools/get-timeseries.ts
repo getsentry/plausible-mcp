@@ -1,3 +1,4 @@
+import { includeImportsSchema, buildImportCoverage } from "../imports.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient } from "../plausible.js";
@@ -56,6 +57,7 @@ export function register(
         metrics: metricsSchema,
         goal: goalSchema,
         property_filters: propertyFiltersSchema,
+        include_imports: includeImportsSchema,
       }),
     },
     async (args, ctx) => {
@@ -77,6 +79,7 @@ export function register(
         }
 
         const result = await client.query({
+          ...(args.include_imports !== undefined ? { include: { imports: args.include_imports } } : {}),
           site_id: siteId,
           metrics,
           date_range: args.date_range,
@@ -85,8 +88,8 @@ export function register(
         });
 
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: buildQueryStructuredContent(result, metrics, [timeKey]),
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, ...buildImportCoverage(result, args.include_imports) }, null, 2) }],
+          structuredContent: buildQueryStructuredContent(result, metrics, [timeKey], args.include_imports),
         };
       } catch (error) {
         const message = reportToolError(error, "get_timeseries");

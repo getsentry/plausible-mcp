@@ -48,3 +48,24 @@ Issue: [onderwijsin/plausible-mcp#4](https://github.com/onderwijsin/plausible-mc
   contracts remain unchanged. New behavior uses the shared server for both entries.
 - Validation: `pnpm build`, `pnpm typecheck`, `pnpm test`; mocked upstream responses,
   no live deployment or LLM eval run.
+
+## 2026-10-15 — Explicit imported historical statistics
+
+Issue: [onderwijsin/plausible-mcp#6](https://github.com/onderwijsin/plausible-mcp/issues/6).
+
+- Added optional boolean `include_imports` to timeseries, breakdowns, conversions
+  and comparisons. Forwards explicit true/false to `include.imports`, merging with
+  `include.total_rows` for paginated tools. Omission preserves native-only defaults.
+- Text and structured responses include import coverage when requested explicitly
+  or reported upstream, preserving `imports_included`, `imports_skip_reason`, and
+  `imports_warning`. Skipped/unconfirmed imports produce explicit warnings; native
+  metrics remain intact and missing imported history is never synthesized as zero.
+- Comparisons keep coverage separate for each period; existing aggregate/delta
+  calculations remain unchanged. Agent guidance warns to check coverage before
+  interpreting deltas. Without a setting or upstream metadata, old output shapes
+  remain unchanged. Shared registration covers both STDIO and Worker entry points.
+- Added documentation, tool-selection evals, regression tests for every query
+  tool, default/false behavior, unsupported combinations, absent metadata and empty
+  results, independent comparison coverage and merged request serialization.
+- Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked upstream
+  responses. No live API, deployment or LLM eval run.

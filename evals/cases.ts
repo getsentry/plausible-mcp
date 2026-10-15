@@ -7,6 +7,18 @@ export interface EvalCase {
 
 export const cases: EvalCase[] = [
   {
+    name: "request imported history in a breakdown",
+    prompt: "Show traffic sources for example.com across all time, explicitly including imported historical statistics.",
+    expectedTool: "get_breakdown",
+    assertions: (args) => args.include_imports === true ? [] : ["Expected include_imports true"],
+  },
+  {
+    name: "compare periods with imported history",
+    prompt: "Compare visitors on example.com in 2020 and 2021, explicitly including imported historical statistics in both periods.",
+    expectedTool: "compare_periods",
+    assertions: (args) => args.include_imports === true ? [] : ["Expected include_imports true"],
+  },
+  {
     name: "retrieve subsequent breakdown rows",
     prompt: "For example.com in September 2026, fetch the next 100 pages ranked by visitors after the first 100 rows. Use row offset 100.",
     expectedTool: "get_breakdown",

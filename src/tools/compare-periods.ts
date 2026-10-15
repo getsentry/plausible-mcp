@@ -1,3 +1,4 @@
+import { includeImportsSchema, buildImportCoverage, importCoverageSchema } from "../imports.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
@@ -19,13 +20,14 @@ import {
 import { resolveSiteId } from "./get-timeseries.js";
 
 type PeriodComparison = {
-  period_a: { range: string; metrics: Record<string, number | null> };
-  period_b: { range: string; metrics: Record<string, number | null> };
+  period_a: { range: string; metrics: Record<string, number | null> } & ReturnType<typeof buildImportCoverage>;
+  period_b: { range: string; metrics: Record<string, number | null> } & ReturnType<typeof buildImportCoverage>;
   deltas: Record<string, { absolute: number | null; percent: number | null }>;
 };
 
 const nullableNumber = z.union([z.number(), z.null()]);
 const periodSchema = z.object({
+  imports: importCoverageSchema.optional(),
   range: z.string().describe("The date range this period covers"),
   metrics: z
     .record(z.string(), nullableNumber)
@@ -105,6 +107,7 @@ export function register(
         metrics: metricsSchema,
         goal: goalSchema,
         property_filters: propertyFiltersSchema,
+        include_imports: includeImportsSchema,
       }),
     },
     async (args, ctx) => {
@@ -125,6 +128,7 @@ export function register(
         }
 
         const queryBase = {
+          ...(args.include_imports !== undefined ? { include: { imports: args.include_imports } } : {}),
           site_id: siteId,
           metrics,
           filters,
@@ -139,8 +143,8 @@ export function register(
         const metricsB = extractAggregateMetrics(responseB, metrics);
 
         const comparison: PeriodComparison = {
-          period_a: { range: args.period_a, metrics: metricsA },
-          period_b: { range: args.period_b, metrics: metricsB },
+          period_a: { range: args.period_a, metrics: metricsA, ...buildImportCoverage(responseA, args.include_imports) },
+          period_b: { range: args.period_b, metrics: metricsB, ...buildImportCoverage(responseB, args.include_imports) },
           deltas: computeDeltas(metricsA, metricsB),
         };
 

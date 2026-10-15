@@ -5,7 +5,7 @@ export interface PlausibleQueryParams {
   dimensions?: string[];
   filters?: unknown[];
   pagination?: { limit: number; offset?: number };
-  include?: { total_rows: boolean };
+  include?: { total_rows?: boolean; imports?: boolean };
   order_by?: [string, "asc" | "desc"][];
 }
 
