@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { PlausibleApiError } from "./plausible.js";
 
 export type ToolName =
+  | "get_aggregate"
   | "get_timeseries"
   | "get_breakdown"
   | "get_conversions"

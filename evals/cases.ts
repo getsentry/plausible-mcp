@@ -7,6 +7,67 @@ export interface EvalCase {
 
 export const cases: EvalCase[] = [
   {
+    name: "single-period five-KPI overview",
+    prompt: "Give me visitors, visits, pageviews, bounce rate and visit duration totals/rates for example.com for September 2026 as one interval-wide overview, without daily rows or a comparison.",
+    expectedTool: "get_aggregate",
+    assertions: (args) => {
+      const errors: string[] = [];
+      if (args.date_range !== "2026-09-01,2026-09-30") errors.push("Expected September 2026 interval");
+      if (args.metrics && !["visitors", "visits", "pageviews", "bounce_rate", "visit_duration"].every((metric) => (args.metrics as string[]).includes(metric))) errors.push("Expected all five overview metrics");
+      return errors;
+    },
+  },
+  {
+    name: "discover configured webinar registration goal",
+    prompt: "Which configured goal on example.com represents webinar registrations? Check configuration, even if it has never had conversions; do not guess the name.",
+    expectedTool: "get_goals",
+    assertions: (args) => args.site_id === "example.com" ? [] : ["Expected example.com site"],
+  },
+  {
+    name: "literal page prefix scope",
+    prompt: "Show daily visitors to example.com over the last 30 days for all paths starting with /traineeship, including /traineeship/apply but excluding /archive/traineeship.",
+    expectedTool: "get_timeseries",
+    assertions: (args) => args.page === "/traineeship*" ? [] : ["Expected page /traineeship* for literal prefix scope"],
+  },
+  {
+    name: "request imported history in a breakdown",
+    prompt: "Show traffic sources for example.com across all time, explicitly including imported historical statistics.",
+    expectedTool: "get_breakdown",
+    assertions: (args) => args.include_imports === true ? [] : ["Expected include_imports true"],
+  },
+  {
+    name: "compare periods with imported history",
+    prompt: "Compare visitors on example.com in 2020 and 2021, explicitly including imported historical statistics in both periods.",
+    expectedTool: "compare_periods",
+    assertions: (args) => args.include_imports === true ? [] : ["Expected include_imports true"],
+  },
+  {
+    name: "retrieve subsequent breakdown rows",
+    prompt: "For example.com in September 2026, fetch the next 100 pages ranked by visitors after the first 100 rows. Use row offset 100.",
+    expectedTool: "get_breakdown",
+    assertions: (args) => [
+      ...(args.limit === 100 ? [] : ["Expected limit 100"]),
+      ...(args.offset === 100 ? [] : ["Expected offset 100"]),
+      ...(args.dimension === "event:page" ? [] : ["Expected event:page"]),
+    ],
+  },
+  {
+    name: "paginate page conversions",
+    prompt: "For example.com in September 2026, fetch 50 goal conversion rows broken down by page, skipping the first 50 rows.",
+    expectedTool: "get_conversions",
+    assertions: (args) => [
+      ...(args.limit === 50 ? [] : ["Expected limit 50"]),
+      ...(args.offset === 50 ? [] : ["Expected offset 50"]),
+      ...(args.breakdown_by_page === true ? [] : ["Expected page breakdown"]),
+    ],
+  },
+  {
+    name: "discover sites and reporting zones",
+    prompt: "Which websites can I access, and what reporting time zone does each use?",
+    expectedTool: "get_sites",
+    assertions: () => [],
+  },
+  {
     name: "before/after deploy comparison",
     prompt:
       "Did traffic to /pricing drop after March 15, 2024? Compare the week before and after.",

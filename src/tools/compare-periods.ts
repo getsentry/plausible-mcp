@@ -1,9 +1,12 @@
+import { includeImportsSchema, buildImportCoverage, importCoverageSchema } from "../imports.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
 import { reportToolError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
+  upstreamResultFields,
+  preserveUpstreamContext,
   siteIdSchemaFor,
   dateRangeSchema,
   pageSchema,
@@ -18,14 +21,10 @@ import {
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
-type PeriodComparison = {
-  period_a: { range: string; metrics: Record<string, number | null> };
-  period_b: { range: string; metrics: Record<string, number | null> };
-  deltas: Record<string, { absolute: number | null; percent: number | null }>;
-};
-
 const nullableNumber = z.union([z.number(), z.null()]);
 const periodSchema = z.object({
+  ...upstreamResultFields,
+  imports: importCoverageSchema.optional(),
   range: z.string().describe("The date range this period covers"),
   metrics: z
     .record(z.string(), nullableNumber)
@@ -105,6 +104,7 @@ export function register(
         metrics: metricsSchema,
         goal: goalSchema,
         property_filters: propertyFiltersSchema,
+        include_imports: includeImportsSchema,
       }),
     },
     async (args, ctx) => {
@@ -125,6 +125,7 @@ export function register(
         }
 
         const queryBase = {
+          ...(args.include_imports !== undefined ? { include: { imports: args.include_imports } } : {}),
           site_id: siteId,
           metrics,
           filters,
@@ -138,9 +139,9 @@ export function register(
         const metricsA = extractAggregateMetrics(responseA, metrics);
         const metricsB = extractAggregateMetrics(responseB, metrics);
 
-        const comparison: PeriodComparison = {
-          period_a: { range: args.period_a, metrics: metricsA },
-          period_b: { range: args.period_b, metrics: metricsB },
+        const comparison: z.infer<typeof comparePeriodsOutputSchema> = {
+          period_a: { range: args.period_a, metrics: metricsA, ...preserveUpstreamContext(responseA), ...buildImportCoverage(responseA, args.include_imports) },
+          period_b: { range: args.period_b, metrics: metricsB, ...preserveUpstreamContext(responseB), ...buildImportCoverage(responseB, args.include_imports) },
           deltas: computeDeltas(metricsA, metricsB),
         };
 

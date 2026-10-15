@@ -1,8 +1,15 @@
+import { includeImportsSchema, buildImportCoverage } from "../imports.js";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient } from "../plausible.js";
 import { reportToolError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
+import {
+  offsetSchema,
+  paginatedResultOutputSchema,
+  paginationOrder,
+  buildPagination,
+} from "../pagination.js";
 import {
   siteIdSchemaFor,
   dateRangeSchema,
@@ -14,7 +21,6 @@ import {
   buildPageFilter,
   buildPropertyFilters,
   assertNoShortcutOverlap,
-  queryResultOutputSchema,
   buildQueryStructuredContent,
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
@@ -29,15 +35,17 @@ export function register(
     {
       title: "Get Breakdown",
       description:
-        "Break down metrics by a dimension: page, traffic source, country, device, etc. Use to find top pages, sources, or segment traffic.",
+        "Break down metrics by a dimension: page, traffic source, country, device, etc. Use to find top pages, sources, or segment traffic. Use limit/offset to paginate; inspect pagination.completeness before treating results as exhaustive.",
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-      outputSchema: queryResultOutputSchema,
+      outputSchema: paginatedResultOutputSchema,
       inputSchema: z.object({
         site_id: siteIdSchemaFor(defaultSiteId),
         date_range: dateRangeSchema,
         dimension: dimensionSchema,
         page: pageSchema,
         property_filters: propertyFiltersSchema,
+        include_imports: includeImportsSchema,
+        offset: offsetSchema,
         metrics: metricsSchema,
         limit: z
           .number()
@@ -59,6 +67,7 @@ export function register(
             ? ["visitors", "pageviews", "events"]
             : ["visitors", "pageviews", "bounce_rate"]);
         const limit = args.limit ?? 20;
+        const offset = args.offset ?? 0;
 
         assertNoShortcutOverlap(args.property_filters, { page: args.page });
         const filters: unknown[][] = [];
@@ -73,12 +82,15 @@ export function register(
           date_range: args.date_range,
           dimensions: [args.dimension],
           filters,
-          pagination: { limit },
+          pagination: { limit, offset },
+          include: { total_rows: true, ...(args.include_imports !== undefined ? { imports: args.include_imports } : {}) },
+          order_by: paginationOrder(metrics, [args.dimension]),
         });
 
+        const pagination = buildPagination(result, limit, offset);
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: buildQueryStructuredContent(result, metrics, [args.dimension]),
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, ...buildImportCoverage(result, args.include_imports), pagination }, null, 2) }],
+          structuredContent: { ...buildQueryStructuredContent(result, metrics, [args.dimension], args.include_imports), pagination },
         };
       } catch (error) {
         const message = reportToolError(error, "get_breakdown");

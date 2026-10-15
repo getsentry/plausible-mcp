@@ -47,13 +47,16 @@ describe("MCP Server Integration", () => {
     await client.close();
   });
 
-  it("lists all 4 tools", async () => {
+  it("lists all 7 tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "compare_periods",
+      "get_aggregate",
       "get_breakdown",
       "get_conversions",
+      "get_goals",
+      "get_sites",
       "get_timeseries",
     ]);
   });
@@ -83,6 +86,79 @@ describe("MCP Server Integration", () => {
     expect(instructions).toContain("date_range");
     expect(instructions).toContain("Session metrics");
     expect(instructions).toContain("event:props:<name>");
+  });
+
+  it.each(["get_breakdown", "get_conversions"])("returns pagination through MCP for %s", async (name) => {
+    mockPlausibleOk({
+      results: [{ dimensions: ["row"], metrics: [10, 20, 30] }],
+      meta: { total_rows: 3 }, query: {},
+    });
+    const result = await client.callTool({ name, arguments: {
+      date_range: "2026-09-01,2026-09-30", limit: 1, offset: 1,
+      ...(name === "get_breakdown" ? { dimension: "event:page" } : {}),
+    } });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ pagination: {
+      limit: 1, offset: 1, returned_rows: 1, total_rows: 3,
+      has_more: true, next_offset: 2, completeness: "partial",
+    } });
+    const invalid = await client.callTool({ name, arguments: {
+      date_range: "7d", offset: -1,
+      ...(name === "get_breakdown" ? { dimension: "event:page" } : {}),
+    } });
+    expect(invalid.isError).toBe(true);
+  });
+
+  it.each(["get_timeseries", "get_breakdown", "get_conversions", "compare_periods"])("preserves import coverage through MCP for %s", async (name) => {
+    const metadata = {
+      imports_included: false,
+      imports_skip_reason: "unsupported_query",
+      imports_warning: "Imported statistics are unavailable for this query.",
+    };
+    const resolvedQuery = { site_id: "example.com", date_range: ["2020-01-01T00:00:00Z", "2020-12-31T23:59:59Z"], include: { imports: true } };
+    mockPlausibleOk({ results: [{ dimensions: [], metrics: [100, 200, 3, 4] }], meta: metadata, query: resolvedQuery });
+    const result = await client.callTool({ name, arguments: {
+      include_imports: true,
+      ...(name === "compare_periods"
+        ? { period_a: "2020-01-01,2020-12-31", period_b: "2021-01-01,2021-12-31" }
+        : { date_range: "all" }),
+      ...(name === "get_breakdown" ? { dimension: "visit:source" } : {}),
+    } });
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as any;
+    const period = name === "compare_periods" ? structured.period_a : structured;
+    expect(period.meta).toEqual(metadata);
+    expect(period.query).toEqual(resolvedQuery);
+    if (name === "compare_periods") {
+      expect(structured.period_b.meta).toEqual(metadata);
+      expect(structured.period_b.query).toEqual(resolvedQuery);
+    }
+    const coverage = name === "compare_periods" ? structured.period_a.imports : structured.imports;
+    expect(coverage).toMatchObject({ requested: true, ...metadata });
+    expect(coverage.warnings.join(" ")).toContain("native-only");
+    const text = JSON.parse((result.content[0] as { text: string }).text);
+    expect(name === "compare_periods" ? text.period_a.imports : text.imports).toEqual(coverage);
+    if (name === "compare_periods") expect(structured.period_b.imports).toEqual(coverage);
+  });
+
+  it("discovers configured goals through MCP independently of conversion activity", async () => {
+    const goal = { id: "1", goal_type: "event", display_name: "Webinar registrations", event_name: "Register", page_path: null, custom_props: { type: "webinar" } };
+    mockPlausibleOk({ goals: [goal], meta: { after: null } });
+    const result = await client.callTool({ name: "get_goals", arguments: {} });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ status: "available", goals: [goal], completeness: "complete", site_id: "example.com" });
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(result.structuredContent);
+  });
+
+  it("returns the single-period five-KPI aggregate through MCP", async () => {
+    const metricNames = ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration"];
+    const query = { site_id: "example.com", metrics: metricNames, dimensions: [], date_range: ["2026-09-01", "2026-09-30"] };
+    mockPlausibleOk({ results: [{ dimensions: [], metrics: [100, 150, 200, 42, 75] }], meta: {}, query });
+    mockFetch.mockClear();
+    const result = await client.callTool({ name: "get_aggregate", arguments: { date_range: "2026-09-01,2026-09-30" } });
+    expect(result.isError).toBeFalsy();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.structuredContent).toMatchObject({ metrics: metricNames, dimensions: [], query, results: [{ dimensions: [], metrics: [100, 150, 200, 42, 75] }] });
   });
 
   it("returns structuredContent alongside the text block", async () => {
@@ -335,6 +411,9 @@ describe("MCP HTTP protocol eras", () => {
         .toBe("public");
       expect(toolList.tools.map((tool) => tool.name)).toEqual([
         "get_timeseries",
+        "get_sites",
+        "get_goals",
+        "get_aggregate",
         "get_breakdown",
         "get_conversions",
         "compare_periods",
@@ -355,7 +434,7 @@ describe("MCP HTTP protocol eras", () => {
       await legacyClient.connect(transport);
       expect(legacyClient.getProtocolEra()).toBe("legacy");
       const { tools } = await legacyClient.listTools();
-      expect(tools).toHaveLength(4);
+      expect(tools).toHaveLength(7);
     } finally {
       await legacyClient.close();
     }

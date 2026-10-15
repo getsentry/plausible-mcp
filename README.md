@@ -14,6 +14,9 @@ Built for teams that want to ask questions like:
 | `get_timeseries` | Traffic and conversion metrics over time (daily/weekly/monthly) |
 | `get_breakdown` | Break down by page, source, country, device, browser, OS, UTM params |
 | `get_conversions` | Goal conversion rates, optionally per-page |
+| `get_aggregate` | Single-period totals and rates from one dimensionless query; defaults to five overview KPIs |
+| `get_goals` | Discover configured goals and definitions, including goals with no conversion activity |
+| `get_sites` | Discover authorized sites, reporting time zones and site-local today; verify the server default |
 | `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas |
 
 All query tools are **read-only** and annotated with `readOnlyHint: true`.
@@ -113,6 +116,23 @@ The worker exposes two endpoints:
 Because the Managed OAuth application must cover the **bare hostname with no path** (Cloudflare rejects a path when OAuth is enabled — `domain can not have a path if oauth is configured`), it also gates `/mcp`. To keep the bring-your-own-key `/mcp` endpoint public you add a **second, more-specific Access application scoped to the `/mcp` path with a `Bypass` policy**. Cloudflare matches the most specific hostname+path first, so `/mcp` requests bypass Access entirely while everything else goes through OAuth. Both apps live on one hostname; no separate subdomain is required.
 
 > **Beta / client requirement.** Cloudflare Access [Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/) is in Beta and **requires an MCP client that supports [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)** (resource indicators). Confirm your connector supports it before relying on this path.
+
+#### Automatic deployments from GitHub
+
+The `Deploy Worker` workflow runs on pushes to `main` (including merged pull
+requests). It installs locked dependencies, runs build/typecheck/tests, then
+runs `pnpm exec wrangler deploy` using the committed `wrangler.toml`.
+
+Add these repository Actions secrets, or make existing organization secrets
+available to this repository:
+
+- `CLOUDFLARE_ACCOUNT_ID` — the account configured in `wrangler.toml`.
+- `CLOUDFLARE_API_TOKEN` — a token authorized to deploy this Worker and its configured custom domain.
+
+No additional GitHub secrets are needed. Runtime Worker secrets such as
+`PLAUSIBLE_API_KEY` and optional `SENTRY_DSN` remain configured in Cloudflare as
+shown below. The workflow deploys directly with Wrangler; it does not run the
+Sentry release/sourcemap steps in `pnpm deploy`.
 
 #### Setting up the `/internal` endpoint (Cloudflare Access Managed OAuth)
 
@@ -258,3 +278,190 @@ The Worker reports to Sentry with an endpoint-dependent privacy posture:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Site discovery and reporting dates
+
+Call `get_sites` without arguments to list sites authorized by the current caller's
+Plausible key. Pass the returned `next_after` as `after` to retrieve subsequent pages;
+a null cursor ends the list. Use `{ "site_id": "example.com" }` for a specific site,
+or `{ "use_default": true }` to look up the configured server default. A default is
+exposed only after an authorized API response, and list results mark it with `is_default`.
+
+Each site includes `timezone`, `timezone_status`, and `today` (YYYY-MM-DD in that
+reporting zone). Use these to resolve calendar dates; pass supported relative ranges
+such as `7d` unchanged to the Stats API. Never assume the user's or server's zone.
+Missing or invalid metadata returns null zone/date fields and an explicit unavailable
+status. An empty available list means no sites were returned, not an API failure.
+
+Discovery uses the read-only [Plausible Sites API](https://plausible.io/docs/sites-api)
+on `PLAUSIBLE_BASE_URL`, with the same caller key as statistics queries. API permissions
+and deployed versions vary: top-level `permission_denied`, `unsupported`, or
+`unavailable` results include no site details. HTTP 404 is treated as unsupported
+metadata (it can also mean the requested site is unavailable); it never proves that a
+site exists. Discovery failures do not prevent existing statistics tools from working.
+
+Fork-specific additions and their rationale are tracked in [FORK_CHANGES.md](FORK_CHANGES.md).
+
+### Breakdown and conversion pagination
+
+`get_breakdown` accepts `limit` (1–1000, default 20) and `offset` (default 0).
+`get_conversions` accepts `limit` (1–10000, default 10000) and `offset` (default 0),
+including when `breakdown_by_page` is enabled. Offsets are nonnegative integers.
+Both request `include.total_rows` from the [Stats API](https://plausible.io/docs/stats-api).
+
+Both text and structured results include `pagination`:
+
+- `returned_rows`, `limit`, `offset`: describe this page.
+- `total_rows`: upstream count, or null if absent/invalid.
+- `has_more`: true/false when totals support a conclusion, otherwise null.
+- `next_offset`: use with the same limit, filters, metrics, dimensions and dates;
+  null means there is no useful next request suggested by this response.
+- `completeness`: `complete` means this response contains all rows (offset zero
+  and count equals the reported total); `partial` means it is only a slice;
+  `unknown` means completeness cannot be verified.
+- `warnings`: missing/inconsistent totals and suspected upstream caps are explicit.
+
+For example, call `get_breakdown` with `dimension: "event:page"`, `limit: 100`,
+then repeat with the returned `next_offset`. Start from offset zero and accumulate
+pages to retrieve the full set. A terminal page at a nonzero offset is still partial
+by itself. Missing totals remain unknown even for short or empty pages; never
+present such results as exhaustive. If a cap or inconsistent response prevents
+progress, report that limitation rather than claiming all rows were retrieved.
+
+Ordering is the first requested metric descending, followed by all grouping
+dimensions ascending to break ties. Counts and conversion rates retain their
+original query scope. Pagination is not a snapshot: use fixed absolute dates,
+and be aware that newly arriving data can move rows between requests.
+
+### Imported historical statistics
+
+`get_aggregate`, `get_timeseries`, `get_breakdown`, `get_conversions` and `compare_periods` accept
+`include_imports: true` to request imported history. Omit it or pass false for the
+existing native-only default. For example:
+
+```json
+{
+  "site_id": "example.com",
+  "date_range": "all",
+  "dimension": "visit:source",
+  "include_imports": true
+}
+```
+
+The tools forward this as `include.imports` to the
+[Plausible Stats API](https://plausible.io/docs/stats-api), alongside pagination's
+`include.total_rows` where applicable. Keep the setting the same across pages.
+Plausible decides whether the requested metrics, dimensions and filters support
+imports; an opt-in does not guarantee inclusion.
+
+Text and structured results expose an `imports` coverage object when the setting
+is explicit or upstream returns import metadata. It includes `requested`,
+`imports_included` (true/false, or null when unconfirmed), the upstream
+`imports_skip_reason` and `imports_warning` when returned, and `warnings`.
+Skipped imports leave native results intact and add a visible warning. Missing
+confirmation is reported as unknown coverage. Neither represents zero imported
+traffic; an empty result does not establish that there was no historical traffic.
+
+Comparisons return coverage independently under `period_a.imports` and
+`period_b.imports`. Aggregates and deltas still describe returned data: check both
+periods' coverage before interpreting changes, since they may cover different
+sources. Calls with no inclusion setting and no upstream import metadata retain
+the previous output shape.
+
+### Upstream warnings and resolved query scope
+
+All statistics query tools preserve Plausible's `meta` and `query` objects in
+structured output as well as text output. `meta` carries upstream import coverage,
+metric warnings, pagination totals and any additional metadata. `query` is the
+scope actually executed by Plausible, including resolved date ranges, metrics,
+dimensions and filters; it is not reconstructed from the tool arguments.
+
+`compare_periods` preserves these objects independently under `period_a.meta`,
+`period_a.query`, `period_b.meta` and `period_b.query`. Existing range labels,
+aggregate metrics and deltas retain their meaning. Check each period's warnings
+and resolved scope before interpreting differences. Null metrics stay null and
+produce null deltas where applicable. Missing upstream objects remain absent;
+explicitly returned empty objects are preserved. Unknown metadata keys and nested
+warning details are retained.
+
+### Exact, prefix and substring page matching
+
+The `page` shortcut has the same meaning in all five statistics tools:
+
+| Request | Effective filter | Scope |
+| --- | --- | --- |
+| `page: "/traineeship"` | `is`, `/traineeship` | Exactly that path |
+| `page: "/traineeship*"` | `matches`, `^/traineeship` | That path and any path starting with it, including `/traineeship/apply`; excludes `/archive/traineeship` |
+| `property_filters: [{ "property": "event:page", "operator": "contains", "values": ["/traineeship"] }]` | `contains`, `/traineeship` | Substring anywhere, including `/archive/traineeship` |
+
+A trailing `*` is the prefix marker. Everything before it is escaped as a literal
+RE2 prefix, including regex punctuation and any earlier asterisks. `/blog/*`
+requires the `/blog/` prefix; `/blog*` also matches `/blogroll`. `/*` matches paths
+starting with `/`, while `*` matches any path. Exact paths keep their existing
+`is` filter. Do not combine the `page` shortcut and an `event:page` property filter.
+
+Compatibility correction: trailing wildcards previously used substring matching,
+which could silently include unrelated archived paths. They now use the
+[Stats API's `matches` operator](https://plausible.io/docs/stats-api). To retain
+substring behavior, use the explicit `contains` property filter above. If an older
+Plausible deployment rejects `matches`, the tool returns the upstream error;
+it never retries with a broader substring filter. Returned `query.filters`, when
+provided by Plausible, expose the executed filter.
+
+### Configured goal discovery
+
+Call `get_goals` with `site_id`, or omit the site when a server default is configured.
+It reads the documented
+[GET /api/v1/sites/goals endpoint](https://plausible.io/docs/sites-api) on the configured
+Plausible host using the existing caller key. Plausible documents that Stats API
+keys can access read-only Sites API endpoints; actual support depends on the
+key's permissions and deployed version. No separate or elevated key is used.
+
+An `available` response contains configured definitions, independent of whether
+any conversions occurred. Returned fields include `display_name`, `goal_type`,
+`event_name`, `page_path`, `custom_props`, and additional definition fields when
+provided upstream. For webinar registrations, inspect these definitions and use
+the appropriate returned `display_name` as `goal` in `get_conversions`; do not
+invent an event or goal name. Discovery does not return or synthesize counts.
+
+Each page contains at most 100 definitions. Repeat with `after: next_after` and
+the same site until `next_after` is null. `completeness: complete` means a single
+response covers the whole configuration; subsequent or nonterminal pages are
+`partial`. Only a complete available inventory (one response or all accumulated
+pages) can establish that a goal is unconfigured. An available empty inventory
+means no goals are configured. A configured goal absent from conversion rows is
+still configured; the conversion response describes activity for its query scope.
+
+`unsupported`, `permission_denied` or `unavailable` statuses mean configuration is
+unknown. Their empty goal arrays must not be interpreted as an empty configuration.
+A 404 can mean the endpoint or requested site is unavailable and does not establish
+that the site or goal exists. Missing pagination metadata and malformed responses
+are also unavailable. There is no fallback to historical event rows, scraping or
+broader credentials; if discovery fails, configuration must be verified separately.
+
+### Single-period KPI overview
+
+Use `get_aggregate` for interval-wide totals and rates. It makes one
+[Stats API v2 query](https://plausible.io/docs/stats-api) without grouping dimensions.
+For example:
+
+```json
+{
+  "site_id": "example.com",
+  "date_range": "2026-09-01,2026-09-30",
+  "metrics": ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration"]
+}
+```
+
+Those five metrics are the default if `metrics` is omitted. The site defaults to
+`PLAUSIBLE_DEFAULT_SITE_ID` when configured. `page`, `goal`, `property_filters`
+and `include_imports` use the same semantics as the other statistics tools.
+For goal-filtered requests, choose compatible metrics explicitly, for example
+`visitors`, `events` and `conversion_rate`; the tool preserves upstream errors
+rather than silently dropping incompatible filters or changing metrics.
+
+Structured output includes ordered metric labels, `dimensions: []`, upstream
+aggregate rows, metadata, resolved scope and import coverage when available.
+An empty `results` array stays empty and null metrics stay null. There is no
+zero-filling, summing of daily visitors or averaging of daily rates. Use
+`get_timeseries` for trends and `compare_periods` for two-period comparisons.

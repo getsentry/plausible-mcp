@@ -1,3 +1,4 @@
+import { importCoverageSchema, buildImportCoverage } from "./imports.js";
 import { z } from "zod";
 import type { PlausibleResponse } from "./plausible.js";
 import { UserFacingError } from "./errors.js";
@@ -89,10 +90,10 @@ export const dateRangeSchema = z
 export const pageSchema = z
   .string()
   .max(1024)
+  .optional()
   .describe(
-    "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*)"
-  )
-  .optional();
+    "Filter by page path: exact match by default. A final * means literal prefix (e.g. /blog* matches /blog and /blog/post, not /archive/blog). For substring matching use property_filters with event:page and contains. Prefix requires upstream matches support; API errors are returned without substring fallback."
+  );
 
 export const goalSchema = z
   .string()
@@ -107,12 +108,13 @@ export const metricsSchema = z
 
 /**
  * Build a Plausible filter for a page path.
- * Trailing * → contains match, otherwise exact match.
+ * Trailing * → anchored literal prefix via RE2 matches, otherwise exact match.
  */
 export function buildPageFilter(page: string): unknown[] {
   if (page.endsWith("*")) {
     const prefix = page.slice(0, -1);
-    return ["contains", "event:page", [prefix]];
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return ["matches", "event:page", [`^${escaped}`]];
   }
   return ["is", "event:page", [page]];
 }
@@ -282,7 +284,24 @@ export function buildPropertyFilters(filters: PropertyFilter[]): unknown[][] {
  * Value types are kept permissive (`number | string | null`) so an unexpected Plausible value
  * can't trip the SDK's output validation and turn a successful query into a tool error.
  */
+/** Upstream fields are open records so new warnings and resolved scope survive validation. */
+export const upstreamResultFields = {
+  meta: z.record(z.string(), z.unknown()).optional()
+    .describe("Unmodified upstream metadata, including warnings and coverage; absent if not returned"),
+  query: z.record(z.string(), z.unknown()).optional()
+    .describe("Upstream resolved query scope; absent if not returned"),
+};
+
+export function preserveUpstreamContext(response: PlausibleResponse) {
+  return {
+    ...(response.meta !== undefined ? { meta: response.meta } : {}),
+    ...(response.query !== undefined ? { query: response.query } : {}),
+  };
+}
+
 export const queryResultOutputSchema = z.object({
+  ...upstreamResultFields,
+  imports: importCoverageSchema.optional(),
   metrics: z
     .array(z.string())
     .describe("Metric keys, in the order they appear in each row's `metrics` array"),
@@ -306,9 +325,12 @@ export const queryResultOutputSchema = z.object({
 export function buildQueryStructuredContent(
   response: PlausibleResponse,
   metrics: string[],
-  dimensions: string[]
+  dimensions: string[],
+  includeImports?: boolean
 ) {
   return {
+    ...preserveUpstreamContext(response),
+    ...buildImportCoverage(response, includeImports),
     metrics,
     dimensions,
     results: response.results.map((row) => ({

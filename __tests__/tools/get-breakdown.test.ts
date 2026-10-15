@@ -26,7 +26,7 @@ describe("get_breakdown tool", () => {
         site_id: "example.com",
         dimensions: ["event:page"],
         metrics: ["visitors", "pageviews", "bounce_rate"],
-        pagination: { limit: 20 },
+        pagination: { limit: 20, offset: 0 },
       })
     );
   });
@@ -41,7 +41,7 @@ describe("get_breakdown tool", () => {
     });
 
     expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ pagination: { limit: 50 } })
+      expect.objectContaining({ pagination: { limit: 50, offset: 0 } })
     );
   });
 

@@ -96,7 +96,7 @@ describe("get_timeseries tool", () => {
 
     expect(client.query).toHaveBeenCalledWith(
       expect.objectContaining({
-        filters: [["contains", "event:page", ["/blog"]]],
+        filters: [["matches", "event:page", ["^/blog"]]],
       })
     );
   });

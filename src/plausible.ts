@@ -5,6 +5,8 @@ export interface PlausibleQueryParams {
   dimensions?: string[];
   filters?: unknown[];
   pagination?: { limit: number; offset?: number };
+  include?: { total_rows?: boolean; imports?: boolean };
+  order_by?: [string, "asc" | "desc"][];
 }
 
 export interface PlausibleResult {
@@ -14,8 +16,8 @@ export interface PlausibleResult {
 
 export interface PlausibleResponse {
   results: PlausibleResult[];
-  meta: Record<string, unknown>;
-  query: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+  query?: Record<string, unknown>;
 }
 
 const MAX_ERROR_DETAIL_LENGTH = 500;
@@ -90,6 +92,37 @@ export class PlausibleClient {
     this.baseUrl = raw;
   }
 
+  /** Read-only Sites API requests always use this caller's key and configured host. */
+  async getSitesMetadata(siteId?: string, after?: string): Promise<unknown> {
+    const url = new URL(`${this.baseUrl}/api/v1/sites${siteId ? `/${encodeURIComponent(siteId)}` : ""}`);
+    if (!siteId) {
+      url.searchParams.set("limit", "100");
+      if (after) url.searchParams.set("after", after);
+    }
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    // Do not propagate upstream bodies: they may contain inaccessible site identifiers.
+    if (!response.ok) throw new PlausibleApiError(response.status, "");
+    return response.json();
+  }
+
+  /** Goal configuration is independent of Stats API activity and uses the caller's key. */
+  async getGoals(siteId: string, after?: string): Promise<unknown> {
+    const url = new URL(`${this.baseUrl}/api/v1/sites/goals`);
+    url.searchParams.set("site_id", siteId);
+    url.searchParams.set("limit", "100");
+    if (after) url.searchParams.set("after", after);
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    // Configuration errors may echo private identifiers; expose status only.
+    if (!response.ok) throw new PlausibleApiError(response.status, "");
+    return response.json();
+  }
+
   async query(params: PlausibleQueryParams): Promise<PlausibleResponse> {
     const url = `${this.baseUrl}/api/v2/query`;
 
@@ -110,6 +143,9 @@ export class PlausibleClient {
     if (params.pagination) {
       body.pagination = params.pagination;
     }
+
+    if (params.include) body.include = params.include;
+    if (params.order_by) body.order_by = params.order_by;
 
     const response = await fetch(url, {
       method: "POST",
