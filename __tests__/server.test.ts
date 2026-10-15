@@ -47,11 +47,12 @@ describe("MCP Server Integration", () => {
     await client.close();
   });
 
-  it("lists all 6 tools", async () => {
+  it("lists all 7 tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "compare_periods",
+      "get_aggregate",
       "get_breakdown",
       "get_conversions",
       "get_goals",
@@ -147,6 +148,17 @@ describe("MCP Server Integration", () => {
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({ status: "available", goals: [goal], completeness: "complete", site_id: "example.com" });
     expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(result.structuredContent);
+  });
+
+  it("returns the single-period five-KPI aggregate through MCP", async () => {
+    const metricNames = ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration"];
+    const query = { site_id: "example.com", metrics: metricNames, dimensions: [], date_range: ["2026-09-01", "2026-09-30"] };
+    mockPlausibleOk({ results: [{ dimensions: [], metrics: [100, 150, 200, 42, 75] }], meta: {}, query });
+    mockFetch.mockClear();
+    const result = await client.callTool({ name: "get_aggregate", arguments: { date_range: "2026-09-01,2026-09-30" } });
+    expect(result.isError).toBeFalsy();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.structuredContent).toMatchObject({ metrics: metricNames, dimensions: [], query, results: [{ dimensions: [], metrics: [100, 150, 200, 42, 75] }] });
   });
 
   it("returns structuredContent alongside the text block", async () => {
@@ -400,7 +412,9 @@ describe("MCP HTTP protocol eras", () => {
       expect(toolList.tools.map((tool) => tool.name)).toEqual([
         "get_timeseries",
         "get_sites",
-        "get_goals",        "get_breakdown",
+        "get_goals",
+        "get_aggregate",
+        "get_breakdown",
         "get_conversions",
         "compare_periods",
       ]);
@@ -420,7 +434,7 @@ describe("MCP HTTP protocol eras", () => {
       await legacyClient.connect(transport);
       expect(legacyClient.getProtocolEra()).toBe("legacy");
       const { tools } = await legacyClient.listTools();
-      expect(tools).toHaveLength(6);
+      expect(tools).toHaveLength(7);
     } finally {
       await legacyClient.close();
     }

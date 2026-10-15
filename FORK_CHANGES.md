@@ -131,3 +131,25 @@ Issue: [onderwijsin/plausible-mcp#2](https://github.com/onderwijsin/plausible-mc
   failure outputs and MCP transport. Updated tool counts for modern/legacy clients.
 - Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked responses;
   no live API, deployment or LLM eval run.
+
+## 2026-10-15 — Single-period aggregate query
+
+Issue: [onderwijsin/plausible-mcp#3](https://github.com/onderwijsin/plausible-mcp/issues/3).
+
+- Added read-only `get_aggregate` to shared STDIO/Worker registration. One
+  dimensionless Stats API v2 query returns interval-wide totals and rates, with
+  default visitors, visits, pageviews, bounce_rate and visit_duration metrics.
+- Accepts explicit/default sites, date ranges, metric selection and the existing
+  page/goal/property filters plus optional imports. Reuses overlap checks, literal
+  prefix scope, output schemas, upstream metadata/query preservation, import
+  coverage and status-safe error reporting. Added a fixed tool-name error metric
+  label without altering telemetry identity or input/output policies.
+- Null metrics and empty result sets remain untouched; no time-bucket summation,
+  rate averaging, duplicate comparison query, filter removal or silent metric
+  substitution. Existing tools retain their contracts.
+- Added documentation, agent guidance, tool-selection eval and tests for the
+  five-KPI interval, single request serialization, filters, scope, imports,
+  metadata, nulls/empty results, input errors and upstream incompatibilities.
+  MCP transport and modern/legacy Worker tool discovery include the new tool.
+- Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked API responses;
+  no live API, deployment or LLM eval run.

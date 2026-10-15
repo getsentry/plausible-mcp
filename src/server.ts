@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/server";
 import { PlausibleClient } from "./plausible.js";
+import { register as registerAggregate } from "./tools/get-aggregate.js";
 import { register as registerGoals } from "./tools/get-goals.js";
 import { register as registerSites } from "./tools/get-sites.js";
 import { register as registerTimeseries } from "./tools/get-timeseries.js";
@@ -35,6 +36,8 @@ export interface ServerConfig {
  * at the source.
  */
 const SERVER_INSTRUCTIONS = `This server queries Plausible Analytics (Stats API v2) for a site's traffic and conversions. All tools are read-only.
+
+AGGREGATES: Use get_aggregate for interval totals and a single-period KPI overview (default visitors, visits, pageviews, bounce_rate, visit_duration). It makes one dimensionless query. Do not sum daily visitors or average daily rates, or duplicate a comparison range to get totals. For goal-filtered aggregates choose compatible metrics explicitly (e.g. visitors, events, conversion_rate).
 
 DATE RANGES (date_range, period_a, period_b):
 - Relative: "7d", "30d", "12mo" (N days/months back), or "day", "month", "year", "all".
@@ -103,6 +106,7 @@ export function createServer(config: ServerConfig): McpServer {
   registerTimeseries(server, client, config.defaultSiteId);
   registerSites(server, client, config.defaultSiteId);
   registerGoals(server, client, config.defaultSiteId);
+  registerAggregate(server, client, config.defaultSiteId);
   registerBreakdown(server, client, config.defaultSiteId);
   registerConversions(server, client, config.defaultSiteId);
   registerComparePeriods(server, client, config.defaultSiteId);

@@ -7,6 +7,17 @@ export interface EvalCase {
 
 export const cases: EvalCase[] = [
   {
+    name: "single-period five-KPI overview",
+    prompt: "Give me visitors, visits, pageviews, bounce rate and visit duration totals/rates for example.com for September 2026 as one interval-wide overview, without daily rows or a comparison.",
+    expectedTool: "get_aggregate",
+    assertions: (args) => {
+      const errors: string[] = [];
+      if (args.date_range !== "2026-09-01,2026-09-30") errors.push("Expected September 2026 interval");
+      if (args.metrics && !["visitors", "visits", "pageviews", "bounce_rate", "visit_duration"].every((metric) => (args.metrics as string[]).includes(metric))) errors.push("Expected all five overview metrics");
+      return errors;
+    },
+  },
+  {
     name: "discover configured webinar registration goal",
     prompt: "Which configured goal on example.com represents webinar registrations? Check configuration, even if it has never had conversions; do not guess the name.",
     expectedTool: "get_goals",

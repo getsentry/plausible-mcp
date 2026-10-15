@@ -14,6 +14,7 @@ Built for teams that want to ask questions like:
 | `get_timeseries` | Traffic and conversion metrics over time (daily/weekly/monthly) |
 | `get_breakdown` | Break down by page, source, country, device, browser, OS, UTM params |
 | `get_conversions` | Goal conversion rates, optionally per-page |
+| `get_aggregate` | Single-period totals and rates from one dimensionless query; defaults to five overview KPIs |
 | `get_goals` | Discover configured goals and definitions, including goals with no conversion activity |
 | `get_sites` | Discover authorized sites, reporting time zones and site-local today; verify the server default |
 | `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas |
@@ -317,7 +318,7 @@ and be aware that newly arriving data can move rows between requests.
 
 ### Imported historical statistics
 
-`get_timeseries`, `get_breakdown`, `get_conversions` and `compare_periods` accept
+`get_aggregate`, `get_timeseries`, `get_breakdown`, `get_conversions` and `compare_periods` accept
 `include_imports: true` to request imported history. Omit it or pass false for the
 existing native-only default. For example:
 
@@ -368,7 +369,7 @@ warning details are retained.
 
 ### Exact, prefix and substring page matching
 
-The `page` shortcut has the same meaning in all four statistics tools:
+The `page` shortcut has the same meaning in all five statistics tools:
 
 | Request | Effective filter | Scope |
 | --- | --- | --- |
@@ -420,3 +421,30 @@ A 404 can mean the endpoint or requested site is unavailable and does not establ
 that the site or goal exists. Missing pagination metadata and malformed responses
 are also unavailable. There is no fallback to historical event rows, scraping or
 broader credentials; if discovery fails, configuration must be verified separately.
+
+### Single-period KPI overview
+
+Use `get_aggregate` for interval-wide totals and rates. It makes one
+[Stats API v2 query](https://plausible.io/docs/stats-api) without grouping dimensions.
+For example:
+
+```json
+{
+  "site_id": "example.com",
+  "date_range": "2026-09-01,2026-09-30",
+  "metrics": ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration"]
+}
+```
+
+Those five metrics are the default if `metrics` is omitted. The site defaults to
+`PLAUSIBLE_DEFAULT_SITE_ID` when configured. `page`, `goal`, `property_filters`
+and `include_imports` use the same semantics as the other statistics tools.
+For goal-filtered requests, choose compatible metrics explicitly, for example
+`visitors`, `events` and `conversion_rate`; the tool preserves upstream errors
+rather than silently dropping incompatible filters or changing metrics.
+
+Structured output includes ordered metric labels, `dimensions: []`, upstream
+aggregate rows, metadata, resolved scope and import coverage when available.
+An empty `results` array stays empty and null metrics stay null. There is no
+zero-filling, summing of daily visitors or averaging of daily rates. Use
+`get_timeseries` for trends and `compare_periods` for two-period comparisons.
