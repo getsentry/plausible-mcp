@@ -1,6 +1,6 @@
 name = "plausible-mcp"
-# Sentry Internal. Pinned so a deploy can't land in another account by accident.
-account_id = "20d94f53c7cab0b469521b703ff1923c"
+# Onderwijs in account. Pinned so a deploy can't land in another account by accident.
+account_id = "2740d4071cd07647ddf328e1fbea5ceb"
 main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 # nodejs_compat_v2: Node built-ins for the SDK. global_fetch_strictly_public: hardens
@@ -8,24 +8,26 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat_v2", "global_fetch_strictly_public"]
 
 routes = [
-  { pattern = "plausible-mcp.sentry.dev", custom_domain = true }
+  { pattern = "plausible-mcp.onderwijsin.nl", custom_domain = true }
 ]
 
 [vars]
 # Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
-# Enforced in code in ADDITION to the upstream Access policy. Self-hosting? Set your own.
-ALLOWED_EMAIL_DOMAIN = "sentry.io"
-# Access service-token client IDs allowed on /internal without a user identity
-# (comma-separated). Not secrets — identifiers; the matching Access policy still
-# requires the token's secret. Currently: the "junior-plausible-mcp" token.
-ALLOWED_SERVICE_TOKEN_IDS = "f2fb6d108dd50696e67d022c4eaa2c5f.access"
+# Enforced in code in ADDITION to the upstream Access policy.
+ALLOWED_EMAIL_DOMAIN = "onderwijsin.nl,onderwijsloket.com,traineesinonderwijs.nl"
+
+# We deliberately removed ALLOWED_SERVICE_TOKEN_IDS because we only want to allow authenticated team members, not service tokens.
+
 # Hostnames accepted by the MCP endpoints (port-agnostic). Keep localhost for wrangler dev.
-MCP_ALLOWED_HOSTNAMES = "plausible-mcp.sentry.dev,localhost,127.0.0.1"
+MCP_ALLOWED_HOSTNAMES = "plausible-mcp.onderwijsin.nl,localhost,127.0.0.1"
+
 # Browser origins allowed to call /internal. Non-browser clients send no Origin header.
-MCP_ALLOWED_ORIGIN_HOSTNAMES = "claude.ai,localhost,127.0.0.1"
+MCP_ALLOWED_ORIGIN_HOSTNAMES = "chatgpt.com,chat.openai.com,claude.ai,localhost,127.0.0.1"
+
 # Cloudflare Access team domain — verifies the Cf-Access-Jwt-Assertion JWKS + issuer.
 # Not a secret (public JWKS URL); must match the team the Access app lives in. No slash.
-CF_ACCESS_TEAM_DOMAIN = "https://sentry-internal.cloudflareaccess.com"
+CF_ACCESS_TEAM_DOMAIN = "https://onderwijsin.cloudflareaccess.com"
+
 # The Access application's Application Audience (AUD) tag — checked against the token
 # `aud`. Not a secret (an app identifier, not a credential).
 CF_ACCESS_AUD = "163ce3b13ebe967295ffdf932b5699a2202de3a650684c87f61d5076eb6735c4"
