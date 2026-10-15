@@ -11,6 +11,13 @@ routes = [
   { pattern = "plausible-mcp.onderwijsin.nl", custom_domain = true }
 ]
 
+[observability]
+enabled = true
+redact_query_string = true
+
+[observability.issues]
+enabled = true
+
 [vars]
 # Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
 # Enforced in code in ADDITION to the upstream Access policy.

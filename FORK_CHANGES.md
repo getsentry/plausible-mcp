@@ -1,5 +1,14 @@
 # Fork changes
 
+## 2026-10-15 — Cloudflare observability and Issues
+
+- Enabled Worker observability and real-time Issues in `wrangler.toml` so deployments
+  retain Cloudflare diagnostic logs and surface runtime issues.
+- Redacted request query strings from Cloudflare logs and traces to protect caller
+  data. Existing Sentry configuration and both entry points remain unchanged.
+- Compatible with the installed Wrangler schema; validation: `pnpm build`,
+  `pnpm typecheck`, and `pnpm test`. No deployment performed.
+
 Fork source: [getsentry/plausible-mcp](https://github.com/getsentry/plausible-mcp).
 Tracking baseline: `3a68586d8a26ef91028d0039b1f20a425318ecdf`, the fork checkout
 before this work. This log records changes from that baseline onward; earlier
