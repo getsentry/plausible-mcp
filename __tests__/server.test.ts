@@ -86,6 +86,27 @@ describe("MCP Server Integration", () => {
     expect(instructions).toContain("event:props:<name>");
   });
 
+  it.each(["get_breakdown", "get_conversions"])("returns pagination through MCP for %s", async (name) => {
+    mockPlausibleOk({
+      results: [{ dimensions: ["row"], metrics: [10, 20, 30] }],
+      meta: { total_rows: 3 }, query: {},
+    });
+    const result = await client.callTool({ name, arguments: {
+      date_range: "2026-09-01,2026-09-30", limit: 1, offset: 1,
+      ...(name === "get_breakdown" ? { dimension: "event:page" } : {}),
+    } });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ pagination: {
+      limit: 1, offset: 1, returned_rows: 1, total_rows: 3,
+      has_more: true, next_offset: 2, completeness: "partial",
+    } });
+    const invalid = await client.callTool({ name, arguments: {
+      date_range: "7d", offset: -1,
+      ...(name === "get_breakdown" ? { dimension: "event:page" } : {}),
+    } });
+    expect(invalid.isError).toBe(true);
+  });
+
   it("returns structuredContent alongside the text block", async () => {
     mockPlausibleOk();
 

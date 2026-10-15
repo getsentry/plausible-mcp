@@ -40,6 +40,8 @@ DATE RANGES (date_range, period_a, period_b):
 - Absolute: "YYYY-MM-DD,YYYY-MM-DD" (start,end), both inclusive.
 - Dates must not be in the future. Today is the latest valid date; a range that ends after today returns a 400.
 
+PAGINATION: get_breakdown and get_conversions accept limit/offset and return pagination with total_rows, has_more, next_offset, completeness and warnings. Only completeness=complete means the current response contains all rows. Partial pages must be accumulated from offset 0; a terminal page at a later offset is not exhaustive by itself. Unknown totals never prove completeness, even on short/empty pages. Follow next_offset with identical scope and limit. Use fixed absolute dates for multi-page reports and avoid treating live changing data as a snapshot.
+
 METRICS: visitors, visits, pageviews, views_per_visit, bounce_rate, visit_duration, events, scroll_depth, percentage, conversion_rate, group_conversion_rate, average_revenue, total_revenue, time_on_page.
 
 DIMENSIONS (get_breakdown): event:page, event:goal, event:hostname, visit:entry_page, visit:exit_page, visit:source, visit:referrer, visit:channel, visit:utm_medium/source/campaign/content/term, visit:device, visit:browser(_version), visit:os(_version). Geography comes in two forms: visit:country/region/city return ISO/Geoname codes, while visit:country_name/region_name/city_name return human-readable names — prefer the *_name variants when presenting geography to users.

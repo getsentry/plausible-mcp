@@ -4,6 +4,12 @@ import type { PlausibleClient } from "../plausible.js";
 import { reportToolError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
+  offsetSchema,
+  paginatedResultOutputSchema,
+  paginationOrder,
+  buildPagination,
+} from "../pagination.js";
+import {
   siteIdSchemaFor,
   dateRangeSchema,
   pageSchema,
@@ -13,7 +19,6 @@ import {
   buildGoalFilter,
   buildPropertyFilters,
   assertNoShortcutOverlap,
-  queryResultOutputSchema,
   buildQueryStructuredContent,
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
@@ -28,15 +33,18 @@ export function register(
     {
       title: "Get Conversions",
       description:
-        "Get goal conversion rates and counts. Can break down by page to see which pages drive conversions.",
+        "Get goal conversion rates and counts. Can break down by page to see which pages drive conversions. Use limit/offset to paginate; inspect pagination.completeness before treating results as exhaustive.",
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
-      outputSchema: queryResultOutputSchema,
+      outputSchema: paginatedResultOutputSchema,
       inputSchema: z.object({
         site_id: siteIdSchemaFor(defaultSiteId),
         date_range: dateRangeSchema,
         goal: goalSchema,
         page: pageSchema,
         property_filters: propertyFiltersSchema,
+        offset: offsetSchema,
+        limit: z.number().int().min(1).max(10000).default(10000).optional()
+          .describe("Maximum rows per page (default 10000)"),
         breakdown_by_page: z
           .boolean()
           .default(false)
@@ -49,6 +57,8 @@ export function register(
       try {
         const siteId = resolveSiteId(args.site_id, defaultSiteId);
         const metrics = ["visitors", "events", "conversion_rate"];
+        const limit = args.limit ?? 10000;
+        const offset = args.offset ?? 0;
 
         assertNoShortcutOverlap(args.property_filters, {
           page: args.page,
@@ -71,11 +81,15 @@ export function register(
           date_range: args.date_range,
           dimensions,
           filters,
+          pagination: { limit, offset },
+          include: { total_rows: true },
+          order_by: paginationOrder(metrics, dimensions),
         });
 
+        const pagination = buildPagination(result, limit, offset);
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: buildQueryStructuredContent(result, metrics, dimensions),
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, pagination }, null, 2) }],
+          structuredContent: { ...buildQueryStructuredContent(result, metrics, dimensions), pagination },
         };
       } catch (error) {
         const message = reportToolError(error, "get_conversions");

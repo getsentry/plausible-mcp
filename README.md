@@ -282,3 +282,34 @@ metadata (it can also mean the requested site is unavailable); it never proves t
 site exists. Discovery failures do not prevent existing statistics tools from working.
 
 Fork-specific additions and their rationale are tracked in [FORK_CHANGES.md](FORK_CHANGES.md).
+
+### Breakdown and conversion pagination
+
+`get_breakdown` accepts `limit` (1–1000, default 20) and `offset` (default 0).
+`get_conversions` accepts `limit` (1–10000, default 10000) and `offset` (default 0),
+including when `breakdown_by_page` is enabled. Offsets are nonnegative integers.
+Both request `include.total_rows` from the [Stats API](https://plausible.io/docs/stats-api).
+
+Both text and structured results include `pagination`:
+
+- `returned_rows`, `limit`, `offset`: describe this page.
+- `total_rows`: upstream count, or null if absent/invalid.
+- `has_more`: true/false when totals support a conclusion, otherwise null.
+- `next_offset`: use with the same limit, filters, metrics, dimensions and dates;
+  null means there is no useful next request suggested by this response.
+- `completeness`: `complete` means this response contains all rows (offset zero
+  and count equals the reported total); `partial` means it is only a slice;
+  `unknown` means completeness cannot be verified.
+- `warnings`: missing/inconsistent totals and suspected upstream caps are explicit.
+
+For example, call `get_breakdown` with `dimension: "event:page"`, `limit: 100`,
+then repeat with the returned `next_offset`. Start from offset zero and accumulate
+pages to retrieve the full set. A terminal page at a nonzero offset is still partial
+by itself. Missing totals remain unknown even for short or empty pages; never
+present such results as exhaustive. If a cap or inconsistent response prevents
+progress, report that limitation rather than claiming all rows were retrieved.
+
+Ordering is the first requested metric descending, followed by all grouping
+dimensions ascending to break ties. Counts and conversion rates retain their
+original query scope. Pagination is not a snapshot: use fixed absolute dates,
+and be aware that newly arriving data can move rows between requests.

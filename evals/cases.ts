@@ -7,6 +7,26 @@ export interface EvalCase {
 
 export const cases: EvalCase[] = [
   {
+    name: "retrieve subsequent breakdown rows",
+    prompt: "For example.com in September 2026, fetch the next 100 pages ranked by visitors after the first 100 rows. Use row offset 100.",
+    expectedTool: "get_breakdown",
+    assertions: (args) => [
+      ...(args.limit === 100 ? [] : ["Expected limit 100"]),
+      ...(args.offset === 100 ? [] : ["Expected offset 100"]),
+      ...(args.dimension === "event:page" ? [] : ["Expected event:page"]),
+    ],
+  },
+  {
+    name: "paginate page conversions",
+    prompt: "For example.com in September 2026, fetch 50 goal conversion rows broken down by page, skipping the first 50 rows.",
+    expectedTool: "get_conversions",
+    assertions: (args) => [
+      ...(args.limit === 50 ? [] : ["Expected limit 50"]),
+      ...(args.offset === 50 ? [] : ["Expected offset 50"]),
+      ...(args.breakdown_by_page === true ? [] : ["Expected page breakdown"]),
+    ],
+  },
+  {
     name: "discover sites and reporting zones",
     prompt: "Which websites can I access, and what reporting time zone does each use?",
     expectedTool: "get_sites",

@@ -26,3 +26,25 @@ Issue: [onderwijsin/plausible-mcp#1](https://github.com/onderwijsin/plausible-mc
 - Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` (mocked API; no live
   deployment or account permissions verified). LLM eval requires external credentials
   and was not run.
+
+## 2026-10-15 — Pagination and completeness for row results
+
+Issue: [onderwijsin/plausible-mcp#4](https://github.com/onderwijsin/plausible-mcp/issues/4).
+
+- Added zero-based offsets to `get_breakdown` and limit/offset controls to
+  `get_conversions`, including per-page conversions. Existing default sizes remain
+  20 and 10000 respectively; breakdown's existing maximum of 1000 is preserved.
+- Both request upstream total-row counts and explicitly order by the first metric
+  descending, then every grouping dimension ascending to resolve tied rankings.
+  Pagination preserves metrics, filters, dimensions and date scope.
+- Added pagination summaries to text and structured outputs: requested limit/offset,
+  returned/total rows, has-more, next offset, completeness and warnings. Only a full
+  response from offset zero is labelled complete; missing/invalid totals remain
+  unknown. Short/inconsistent responses warn about caps or changing data. No hard
+  aggregate cap is assumed; offset pagination can continue beyond one page.
+- Updated server guidance, README, tool-selection evals, and regression coverage
+  for boundary/invalid inputs, empty pages, missing totals, scope preservation,
+  ordering and actual request serialization. Existing timeseries/comparison output
+  contracts remain unchanged. New behavior uses the shared server for both entries.
+- Validation: `pnpm build`, `pnpm typecheck`, `pnpm test`; mocked upstream responses,
+  no live deployment or LLM eval run.

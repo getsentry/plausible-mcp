@@ -5,6 +5,8 @@ export interface PlausibleQueryParams {
   dimensions?: string[];
   filters?: unknown[];
   pagination?: { limit: number; offset?: number };
+  include?: { total_rows: boolean };
+  order_by?: [string, "asc" | "desc"][];
 }
 
 export interface PlausibleResult {
@@ -126,6 +128,9 @@ export class PlausibleClient {
     if (params.pagination) {
       body.pagination = params.pagination;
     }
+
+    if (params.include) body.include = params.include;
+    if (params.order_by) body.order_by = params.order_by;
 
     const response = await fetch(url, {
       method: "POST",
