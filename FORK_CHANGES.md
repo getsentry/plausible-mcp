@@ -153,3 +153,16 @@ Issue: [onderwijsin/plausible-mcp#3](https://github.com/onderwijsin/plausible-mc
   MCP transport and modern/legacy Worker tool discovery include the new tool.
 - Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked API responses;
   no live API, deployment or LLM eval run.
+
+## 2026-10-15 — Deploy Worker on merges to main
+
+- Added `.github/workflows/deploy.yml`, triggered by pushes to `main`, including
+  merged pull requests. Uses the existing Node 22/pnpm setup, frozen dependencies,
+  build, Worker typecheck and tests before deploying with the installed Wrangler.
+- Reads only `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` Actions secrets at
+  the deployment step. Serializes deployments and uses read-only GitHub permissions.
+  Runtime secrets remain in Cloudflare. Direct Wrangler deployment avoids requiring
+  Sentry release credentials or uploading sourcemaps to the upstream project.
+- Documented required repository/organization secrets and deployment behavior.
+- Validation: workflow YAML parse, `pnpm build`, `pnpm typecheck`, `pnpm test`.
+  No live deployment performed.

@@ -117,6 +117,23 @@ Because the Managed OAuth application must cover the **bare hostname with no pat
 
 > **Beta / client requirement.** Cloudflare Access [Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/) is in Beta and **requires an MCP client that supports [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)** (resource indicators). Confirm your connector supports it before relying on this path.
 
+#### Automatic deployments from GitHub
+
+The `Deploy Worker` workflow runs on pushes to `main` (including merged pull
+requests). It installs locked dependencies, runs build/typecheck/tests, then
+runs `pnpm exec wrangler deploy` using the committed `wrangler.toml`.
+
+Add these repository Actions secrets, or make existing organization secrets
+available to this repository:
+
+- `CLOUDFLARE_ACCOUNT_ID` — the account configured in `wrangler.toml`.
+- `CLOUDFLARE_API_TOKEN` — a token authorized to deploy this Worker and its configured custom domain.
+
+No additional GitHub secrets are needed. Runtime Worker secrets such as
+`PLAUSIBLE_API_KEY` and optional `SENTRY_DSN` remain configured in Cloudflare as
+shown below. The workflow deploys directly with Wrangler; it does not run the
+Sentry release/sourcemap steps in `pnpm deploy`.
+
 #### Setting up the `/internal` endpoint (Cloudflare Access Managed OAuth)
 
 The Worker runs **no OAuth server** — Cloudflare Access is the authorization server. There is no `OAUTH_KV`, no cookie key, and no OAuth client id/secret. You create **two** Access applications on the same hostname.
