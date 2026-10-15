@@ -89,3 +89,24 @@ Issue: [onderwijsin/plausible-mcp#7](https://github.com/onderwijsin/plausible-mc
   Worker registrations; no endpoint or telemetry configuration changes.
 - Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked responses;
   no live API or deployment run.
+
+## 2026-10-15 — Correct trailing page wildcards to literal prefixes
+
+Issue: [onderwijsin/plausible-mcp#10](https://github.com/onderwijsin/plausible-mcp/issues/10).
+
+- Changed the shared page shortcut so a final `*` generates an anchored RE2
+  `matches` filter with the preceding text escaped literally. `/traineeship*`
+  includes `/traineeship` and `/traineeship/apply`, excluding `/archive/traineeship`.
+  Exact inputs retain the existing `is` filter.
+- Compatibility decision: correct the documented wildcard contract rather than
+  preserve accidental substring broadening. Callers wanting the previous scope
+  must explicitly use `property_filters` with `event:page` and `contains`.
+- Applied consistently to timeseries, breakdowns, conversions and both comparison
+  periods. Deployments without `matches` support return the upstream error with
+  no broader fallback. Updated shared parameter descriptions, agent guidance,
+  README and tool-selection eval; resolved query filters remain inspectable.
+- Regression tests cover the three reported paths, regex metacharacters, Unicode,
+  root/empty prefixes, literal internal asterisks, scope across every query tool,
+  effective returned filters and honest upstream rejection.
+- Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked API responses.
+  No live deployment or LLM eval run.

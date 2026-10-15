@@ -90,10 +90,10 @@ export const dateRangeSchema = z
 export const pageSchema = z
   .string()
   .max(1024)
+  .optional()
   .describe(
-    "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*)"
-  )
-  .optional();
+    "Filter by page path: exact match by default. A final * means literal prefix (e.g. /blog* matches /blog and /blog/post, not /archive/blog). For substring matching use property_filters with event:page and contains. Prefix requires upstream matches support; API errors are returned without substring fallback."
+  );
 
 export const goalSchema = z
   .string()
@@ -108,12 +108,13 @@ export const metricsSchema = z
 
 /**
  * Build a Plausible filter for a page path.
- * Trailing * → contains match, otherwise exact match.
+ * Trailing * → anchored literal prefix via RE2 matches, otherwise exact match.
  */
 export function buildPageFilter(page: string): unknown[] {
   if (page.endsWith("*")) {
     const prefix = page.slice(0, -1);
-    return ["contains", "event:page", [prefix]];
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return ["matches", "event:page", [`^${escaped}`]];
   }
   return ["is", "event:page", [page]];
 }

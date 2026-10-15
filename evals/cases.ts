@@ -7,6 +7,12 @@ export interface EvalCase {
 
 export const cases: EvalCase[] = [
   {
+    name: "literal page prefix scope",
+    prompt: "Show daily visitors to example.com over the last 30 days for all paths starting with /traineeship, including /traineeship/apply but excluding /archive/traineeship.",
+    expectedTool: "get_timeseries",
+    assertions: (args) => args.page === "/traineeship*" ? [] : ["Expected page /traineeship* for literal prefix scope"],
+  },
+  {
     name: "request imported history in a breakdown",
     prompt: "Show traffic sources for example.com across all time, explicitly including imported historical statistics.",
     expectedTool: "get_breakdown",

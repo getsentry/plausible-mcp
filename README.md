@@ -364,3 +364,27 @@ and resolved scope before interpreting differences. Null metrics stay null and
 produce null deltas where applicable. Missing upstream objects remain absent;
 explicitly returned empty objects are preserved. Unknown metadata keys and nested
 warning details are retained.
+
+### Exact, prefix and substring page matching
+
+The `page` shortcut has the same meaning in all four statistics tools:
+
+| Request | Effective filter | Scope |
+| --- | --- | --- |
+| `page: "/traineeship"` | `is`, `/traineeship` | Exactly that path |
+| `page: "/traineeship*"` | `matches`, `^/traineeship` | That path and any path starting with it, including `/traineeship/apply`; excludes `/archive/traineeship` |
+| `property_filters: [{ "property": "event:page", "operator": "contains", "values": ["/traineeship"] }]` | `contains`, `/traineeship` | Substring anywhere, including `/archive/traineeship` |
+
+A trailing `*` is the prefix marker. Everything before it is escaped as a literal
+RE2 prefix, including regex punctuation and any earlier asterisks. `/blog/*`
+requires the `/blog/` prefix; `/blog*` also matches `/blogroll`. `/*` matches paths
+starting with `/`, while `*` matches any path. Exact paths keep their existing
+`is` filter. Do not combine the `page` shortcut and an `event:page` property filter.
+
+Compatibility correction: trailing wildcards previously used substring matching,
+which could silently include unrelated archived paths. They now use the
+[Stats API's `matches` operator](https://plausible.io/docs/stats-api). To retain
+substring behavior, use the explicit `contains` property filter above. If an older
+Plausible deployment rejects `matches`, the tool returns the upstream error;
+it never retries with a broader substring filter. Returned `query.filters`, when
+provided by Plausible, expose the executed filter.
