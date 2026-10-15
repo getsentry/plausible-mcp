@@ -283,7 +283,23 @@ export function buildPropertyFilters(filters: PropertyFilter[]): unknown[][] {
  * Value types are kept permissive (`number | string | null`) so an unexpected Plausible value
  * can't trip the SDK's output validation and turn a successful query into a tool error.
  */
+/** Upstream fields are open records so new warnings and resolved scope survive validation. */
+export const upstreamResultFields = {
+  meta: z.record(z.string(), z.unknown()).optional()
+    .describe("Unmodified upstream metadata, including warnings and coverage; absent if not returned"),
+  query: z.record(z.string(), z.unknown()).optional()
+    .describe("Upstream resolved query scope; absent if not returned"),
+};
+
+export function preserveUpstreamContext(response: PlausibleResponse) {
+  return {
+    ...(response.meta !== undefined ? { meta: response.meta } : {}),
+    ...(response.query !== undefined ? { query: response.query } : {}),
+  };
+}
+
 export const queryResultOutputSchema = z.object({
+  ...upstreamResultFields,
   imports: importCoverageSchema.optional(),
   metrics: z
     .array(z.string())
@@ -312,6 +328,7 @@ export function buildQueryStructuredContent(
   includeImports?: boolean
 ) {
   return {
+    ...preserveUpstreamContext(response),
     ...buildImportCoverage(response, includeImports),
     metrics,
     dimensions,

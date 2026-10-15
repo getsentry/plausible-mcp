@@ -113,7 +113,8 @@ describe("MCP Server Integration", () => {
       imports_skip_reason: "unsupported_query",
       imports_warning: "Imported statistics are unavailable for this query.",
     };
-    mockPlausibleOk({ results: [{ dimensions: [], metrics: [100, 200, 3, 4] }], meta: metadata, query: {} });
+    const resolvedQuery = { site_id: "example.com", date_range: ["2020-01-01T00:00:00Z", "2020-12-31T23:59:59Z"], include: { imports: true } };
+    mockPlausibleOk({ results: [{ dimensions: [], metrics: [100, 200, 3, 4] }], meta: metadata, query: resolvedQuery });
     const result = await client.callTool({ name, arguments: {
       include_imports: true,
       ...(name === "compare_periods"
@@ -123,6 +124,13 @@ describe("MCP Server Integration", () => {
     } });
     expect(result.isError).toBeFalsy();
     const structured = result.structuredContent as any;
+    const period = name === "compare_periods" ? structured.period_a : structured;
+    expect(period.meta).toEqual(metadata);
+    expect(period.query).toEqual(resolvedQuery);
+    if (name === "compare_periods") {
+      expect(structured.period_b.meta).toEqual(metadata);
+      expect(structured.period_b.query).toEqual(resolvedQuery);
+    }
     const coverage = name === "compare_periods" ? structured.period_a.imports : structured.imports;
     expect(coverage).toMatchObject({ requested: true, ...metadata });
     expect(coverage.warnings.join(" ")).toContain("native-only");

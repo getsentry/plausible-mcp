@@ -40,6 +40,8 @@ DATE RANGES (date_range, period_a, period_b):
 - Absolute: "YYYY-MM-DD,YYYY-MM-DD" (start,end), both inclusive.
 - Dates must not be in the future. Today is the latest valid date; a range that ends after today returns a 400.
 
+UPSTREAM CONTEXT: Statistics results preserve upstream meta (warnings and coverage) and query (resolved executed scope). Comparisons preserve these independently inside each period. Inspect both before interpreting metrics/deltas; missing fields are not evidence of complete coverage.
+
 IMPORTED HISTORY: All statistics tools and compare_periods accept include_imports (default false/native-only). Set true when imported historical statistics are wanted. Inspect imports.imports_included, imports_skip_reason, imports_warning and warnings on each result or comparison period. False means native-only results; null means coverage is unconfirmed. Neither means missing imported history is zero traffic. Check both periods before interpreting comparison deltas; coverage may differ.
 
 PAGINATION: get_breakdown and get_conversions accept limit/offset and return pagination with total_rows, has_more, next_offset, completeness and warnings. Only completeness=complete means the current response contains all rows. Partial pages must be accumulated from offset 0; a terminal page at a later offset is not exhaustive by itself. Unknown totals never prove completeness, even on short/empty pages. Follow next_offset with identical scope and limit. Use fixed absolute dates for multi-page reports and avoid treating live changing data as a snapshot.

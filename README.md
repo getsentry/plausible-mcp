@@ -348,3 +348,19 @@ Comparisons return coverage independently under `period_a.imports` and
 periods' coverage before interpreting changes, since they may cover different
 sources. Calls with no inclusion setting and no upstream import metadata retain
 the previous output shape.
+
+### Upstream warnings and resolved query scope
+
+All statistics query tools preserve Plausible's `meta` and `query` objects in
+structured output as well as text output. `meta` carries upstream import coverage,
+metric warnings, pagination totals and any additional metadata. `query` is the
+scope actually executed by Plausible, including resolved date ranges, metrics,
+dimensions and filters; it is not reconstructed from the tool arguments.
+
+`compare_periods` preserves these objects independently under `period_a.meta`,
+`period_a.query`, `period_b.meta` and `period_b.query`. Existing range labels,
+aggregate metrics and deltas retain their meaning. Check each period's warnings
+and resolved scope before interpreting differences. Null metrics stay null and
+produce null deltas where applicable. Missing upstream objects remain absent;
+explicitly returned empty objects are preserved. Unknown metadata keys and nested
+warning details are retained.

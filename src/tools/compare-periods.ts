@@ -5,6 +5,8 @@ import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
 import { reportToolError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
+  upstreamResultFields,
+  preserveUpstreamContext,
   siteIdSchemaFor,
   dateRangeSchema,
   pageSchema,
@@ -19,14 +21,9 @@ import {
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
-type PeriodComparison = {
-  period_a: { range: string; metrics: Record<string, number | null> } & ReturnType<typeof buildImportCoverage>;
-  period_b: { range: string; metrics: Record<string, number | null> } & ReturnType<typeof buildImportCoverage>;
-  deltas: Record<string, { absolute: number | null; percent: number | null }>;
-};
-
 const nullableNumber = z.union([z.number(), z.null()]);
 const periodSchema = z.object({
+  ...upstreamResultFields,
   imports: importCoverageSchema.optional(),
   range: z.string().describe("The date range this period covers"),
   metrics: z
@@ -142,9 +139,9 @@ export function register(
         const metricsA = extractAggregateMetrics(responseA, metrics);
         const metricsB = extractAggregateMetrics(responseB, metrics);
 
-        const comparison: PeriodComparison = {
-          period_a: { range: args.period_a, metrics: metricsA, ...buildImportCoverage(responseA, args.include_imports) },
-          period_b: { range: args.period_b, metrics: metricsB, ...buildImportCoverage(responseB, args.include_imports) },
+        const comparison: z.infer<typeof comparePeriodsOutputSchema> = {
+          period_a: { range: args.period_a, metrics: metricsA, ...preserveUpstreamContext(responseA), ...buildImportCoverage(responseA, args.include_imports) },
+          period_b: { range: args.period_b, metrics: metricsB, ...preserveUpstreamContext(responseB), ...buildImportCoverage(responseB, args.include_imports) },
           deltas: computeDeltas(metricsA, metricsB),
         };
 

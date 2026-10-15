@@ -16,8 +16,8 @@ export interface PlausibleResult {
 
 export interface PlausibleResponse {
   results: PlausibleResult[];
-  meta: Record<string, unknown>;
-  query: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+  query?: Record<string, unknown>;
 }
 
 const MAX_ERROR_DETAIL_LENGTH = 500;

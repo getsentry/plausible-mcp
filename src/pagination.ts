@@ -21,7 +21,7 @@ export function paginationOrder(metrics: string[], dimensions: string[]): [strin
 
 export function buildPagination(response: PlausibleResponse, limit: number, offset: number) {
   const count = response.results.length;
-  const rawTotal = response.meta.total_rows;
+  const rawTotal = response.meta?.total_rows;
   const total = typeof rawTotal === "number" && Number.isSafeInteger(rawTotal) && rawTotal >= 0
     ? rawTotal : null;
   const end = offset + count;

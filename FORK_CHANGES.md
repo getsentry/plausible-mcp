@@ -69,3 +69,23 @@ Issue: [onderwijsin/plausible-mcp#6](https://github.com/onderwijsin/plausible-mc
   results, independent comparison coverage and merged request serialization.
 - Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked upstream
   responses. No live API, deployment or LLM eval run.
+
+## 2026-10-15 — Preserve metadata and resolved query scope
+
+Issue: [onderwijsin/plausible-mcp#7](https://github.com/onderwijsin/plausible-mcp/issues/7).
+
+- Added upstream `meta` and `query` to structured timeseries, breakdown and
+  conversion outputs. Open record schemas preserve all returned warning/coverage
+  fields, resolved scope and future nested metadata without reconstructing values.
+- Comparisons retain metadata and resolved queries independently inside each
+  period, in both text and structured output. Existing metric values, range labels,
+  import summaries and delta calculations remain compatible, including nulls.
+- Missing upstream context remains absent, while explicit empty objects remain
+  empty. Made response types and import/pagination helpers tolerate absent context.
+  No new metadata, resolved dates or coverage claims are manufactured.
+- Added regression coverage across all statistics tools for null metrics, import
+  and metric warnings, unknown nested metadata, missing fields and differing
+  per-period context, plus MCP transport assertions. Shared code covers STDIO and
+  Worker registrations; no endpoint or telemetry configuration changes.
+- Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked responses;
+  no live API or deployment run.

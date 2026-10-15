@@ -15,7 +15,7 @@ export const importCoverageSchema = z.object({
 
 /** Omit the additive coverage field for unchanged calls with no upstream import metadata. */
 export function buildImportCoverage(response: PlausibleResponse, requested?: boolean) {
-  const meta = response.meta;
+  const meta = response.meta ?? {};
   if (requested === undefined && !["imports_included", "imports_skip_reason", "imports_warning"].some((key) => key in meta)) {
     return {};
   }
