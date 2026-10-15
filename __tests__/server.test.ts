@@ -47,13 +47,14 @@ describe("MCP Server Integration", () => {
     await client.close();
   });
 
-  it("lists all 5 tools", async () => {
+  it("lists all 6 tools", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "compare_periods",
       "get_breakdown",
       "get_conversions",
+      "get_goals",
       "get_sites",
       "get_timeseries",
     ]);
@@ -137,6 +138,15 @@ describe("MCP Server Integration", () => {
     const text = JSON.parse((result.content[0] as { text: string }).text);
     expect(name === "compare_periods" ? text.period_a.imports : text.imports).toEqual(coverage);
     if (name === "compare_periods") expect(structured.period_b.imports).toEqual(coverage);
+  });
+
+  it("discovers configured goals through MCP independently of conversion activity", async () => {
+    const goal = { id: "1", goal_type: "event", display_name: "Webinar registrations", event_name: "Register", page_path: null, custom_props: { type: "webinar" } };
+    mockPlausibleOk({ goals: [goal], meta: { after: null } });
+    const result = await client.callTool({ name: "get_goals", arguments: {} });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ status: "available", goals: [goal], completeness: "complete", site_id: "example.com" });
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(result.structuredContent);
   });
 
   it("returns structuredContent alongside the text block", async () => {
@@ -390,7 +400,7 @@ describe("MCP HTTP protocol eras", () => {
       expect(toolList.tools.map((tool) => tool.name)).toEqual([
         "get_timeseries",
         "get_sites",
-        "get_breakdown",
+        "get_goals",        "get_breakdown",
         "get_conversions",
         "compare_periods",
       ]);
@@ -410,7 +420,7 @@ describe("MCP HTTP protocol eras", () => {
       await legacyClient.connect(transport);
       expect(legacyClient.getProtocolEra()).toBe("legacy");
       const { tools } = await legacyClient.listTools();
-      expect(tools).toHaveLength(5);
+      expect(tools).toHaveLength(6);
     } finally {
       await legacyClient.close();
     }

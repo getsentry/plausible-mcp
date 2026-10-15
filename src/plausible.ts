@@ -108,6 +108,21 @@ export class PlausibleClient {
     return response.json();
   }
 
+  /** Goal configuration is independent of Stats API activity and uses the caller's key. */
+  async getGoals(siteId: string, after?: string): Promise<unknown> {
+    const url = new URL(`${this.baseUrl}/api/v1/sites/goals`);
+    url.searchParams.set("site_id", siteId);
+    url.searchParams.set("limit", "100");
+    if (after) url.searchParams.set("after", after);
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    // Configuration errors may echo private identifiers; expose status only.
+    if (!response.ok) throw new PlausibleApiError(response.status, "");
+    return response.json();
+  }
+
   async query(params: PlausibleQueryParams): Promise<PlausibleResponse> {
     const url = `${this.baseUrl}/api/v2/query`;
 

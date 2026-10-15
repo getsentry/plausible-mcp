@@ -14,6 +14,7 @@ Built for teams that want to ask questions like:
 | `get_timeseries` | Traffic and conversion metrics over time (daily/weekly/monthly) |
 | `get_breakdown` | Break down by page, source, country, device, browser, OS, UTM params |
 | `get_conversions` | Goal conversion rates, optionally per-page |
+| `get_goals` | Discover configured goals and definitions, including goals with no conversion activity |
 | `get_sites` | Discover authorized sites, reporting time zones and site-local today; verify the server default |
 | `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas |
 
@@ -388,3 +389,34 @@ substring behavior, use the explicit `contains` property filter above. If an old
 Plausible deployment rejects `matches`, the tool returns the upstream error;
 it never retries with a broader substring filter. Returned `query.filters`, when
 provided by Plausible, expose the executed filter.
+
+### Configured goal discovery
+
+Call `get_goals` with `site_id`, or omit the site when a server default is configured.
+It reads the documented
+[GET /api/v1/sites/goals endpoint](https://plausible.io/docs/sites-api) on the configured
+Plausible host using the existing caller key. Plausible documents that Stats API
+keys can access read-only Sites API endpoints; actual support depends on the
+key's permissions and deployed version. No separate or elevated key is used.
+
+An `available` response contains configured definitions, independent of whether
+any conversions occurred. Returned fields include `display_name`, `goal_type`,
+`event_name`, `page_path`, `custom_props`, and additional definition fields when
+provided upstream. For webinar registrations, inspect these definitions and use
+the appropriate returned `display_name` as `goal` in `get_conversions`; do not
+invent an event or goal name. Discovery does not return or synthesize counts.
+
+Each page contains at most 100 definitions. Repeat with `after: next_after` and
+the same site until `next_after` is null. `completeness: complete` means a single
+response covers the whole configuration; subsequent or nonterminal pages are
+`partial`. Only a complete available inventory (one response or all accumulated
+pages) can establish that a goal is unconfigured. An available empty inventory
+means no goals are configured. A configured goal absent from conversion rows is
+still configured; the conversion response describes activity for its query scope.
+
+`unsupported`, `permission_denied` or `unavailable` statuses mean configuration is
+unknown. Their empty goal arrays must not be interpreted as an empty configuration.
+A 404 can mean the endpoint or requested site is unavailable and does not establish
+that the site or goal exists. Missing pagination metadata and malformed responses
+are also unavailable. There is no fallback to historical event rows, scraping or
+broader credentials; if discovery fails, configuration must be verified separately.

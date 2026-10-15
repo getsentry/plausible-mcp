@@ -7,6 +7,12 @@ export interface EvalCase {
 
 export const cases: EvalCase[] = [
   {
+    name: "discover configured webinar registration goal",
+    prompt: "Which configured goal on example.com represents webinar registrations? Check configuration, even if it has never had conversions; do not guess the name.",
+    expectedTool: "get_goals",
+    assertions: (args) => args.site_id === "example.com" ? [] : ["Expected example.com site"],
+  },
+  {
     name: "literal page prefix scope",
     prompt: "Show daily visitors to example.com over the last 30 days for all paths starting with /traineeship, including /traineeship/apply but excluding /archive/traineeship.",
     expectedTool: "get_timeseries",

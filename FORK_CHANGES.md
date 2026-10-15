@@ -110,3 +110,24 @@ Issue: [onderwijsin/plausible-mcp#10](https://github.com/onderwijsin/plausible-m
   effective returned filters and honest upstream rejection.
 - Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked API responses.
   No live deployment or LLM eval run.
+
+## 2026-10-15 — Configured goal discovery independent of activity
+
+Issue: [onderwijsin/plausible-mcp#2](https://github.com/onderwijsin/plausible-mcp/issues/2).
+
+- Added read-only `get_goals`, using documented `GET /api/v1/sites/goals` with the
+  caller's existing key and configured host. Supports explicit/default sites and
+  cursor pagination at a fixed 100 definitions per page, for STDIO and Worker.
+- Returns configured display names, event/page definitions, custom properties and
+  additional upstream definition fields without depending on observed conversions.
+  Agents can select the actual webinar-registration display name for statistics.
+- Available empty configuration is distinct from unsupported, denied or unavailable
+  discovery. Completeness makes partial inventories explicit; absent/malformed page
+  metadata cannot establish missing goals. Errors expose no upstream bodies, goal
+  definitions or default site IDs. No broader key, scraping or activity inference.
+- Added usage/agent guidance, tool-selection eval and tests for configured goals
+  without activity, confirmed empty inventories, paging, default/explicit sites,
+  unknown fields, permissions/version failures, malformed/network responses, safe
+  failure outputs and MCP transport. Updated tool counts for modern/legacy clients.
+- Validation: `pnpm build`, `pnpm typecheck`, `pnpm test` with mocked responses;
+  no live API, deployment or LLM eval run.
