@@ -7,6 +7,12 @@ export interface EvalCase {
 
 export const cases: EvalCase[] = [
   {
+    name: "discover sites and reporting zones",
+    prompt: "Which websites can I access, and what reporting time zone does each use?",
+    expectedTool: "get_sites",
+    assertions: () => [],
+  },
+  {
     name: "before/after deploy comparison",
     prompt:
       "Did traffic to /pricing drop after March 15, 2024? Compare the week before and after.",

@@ -71,3 +71,10 @@ Releases are automated with [craft](https://github.com/getsentry/craft). **Don't
 3. craft cuts a `release/X.Y.Z` branch, then publishes a git tag and GitHub release once CI is green.
 
 Deploying the Cloudflare Worker (`pnpm deploy`) is separate from cutting a release.
+
+## Fork change log
+
+Record every fork-specific addition, fix or behavior change in `FORK_CHANGES.md`,
+including the issue, affected behavior, upstream compatibility and validation.
+Keep entries with the implementation so future upstream merges can account for them.
+This log is separate from the release-managed `CHANGELOG.md`.

@@ -14,6 +14,7 @@ Built for teams that want to ask questions like:
 | `get_timeseries` | Traffic and conversion metrics over time (daily/weekly/monthly) |
 | `get_breakdown` | Break down by page, source, country, device, browser, OS, UTM params |
 | `get_conversions` | Goal conversion rates, optionally per-page |
+| `get_sites` | Discover authorized sites, reporting time zones and site-local today; verify the server default |
 | `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas |
 
 All query tools are **read-only** and annotated with `readOnlyHint: true`.
@@ -258,3 +259,26 @@ The Worker reports to Sentry with an endpoint-dependent privacy posture:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Site discovery and reporting dates
+
+Call `get_sites` without arguments to list sites authorized by the current caller's
+Plausible key. Pass the returned `next_after` as `after` to retrieve subsequent pages;
+a null cursor ends the list. Use `{ "site_id": "example.com" }` for a specific site,
+or `{ "use_default": true }` to look up the configured server default. A default is
+exposed only after an authorized API response, and list results mark it with `is_default`.
+
+Each site includes `timezone`, `timezone_status`, and `today` (YYYY-MM-DD in that
+reporting zone). Use these to resolve calendar dates; pass supported relative ranges
+such as `7d` unchanged to the Stats API. Never assume the user's or server's zone.
+Missing or invalid metadata returns null zone/date fields and an explicit unavailable
+status. An empty available list means no sites were returned, not an API failure.
+
+Discovery uses the read-only [Plausible Sites API](https://plausible.io/docs/sites-api)
+on `PLAUSIBLE_BASE_URL`, with the same caller key as statistics queries. API permissions
+and deployed versions vary: top-level `permission_denied`, `unsupported`, or
+`unavailable` results include no site details. HTTP 404 is treated as unsupported
+metadata (it can also mean the requested site is unavailable); it never proves that a
+site exists. Discovery failures do not prevent existing statistics tools from working.
+
+Fork-specific additions and their rationale are tracked in [FORK_CHANGES.md](FORK_CHANGES.md).

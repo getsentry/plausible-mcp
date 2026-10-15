@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/server";
 import { PlausibleClient } from "./plausible.js";
+import { register as registerSites } from "./tools/get-sites.js";
 import { register as registerTimeseries } from "./tools/get-timeseries.js";
 import { register as registerBreakdown } from "./tools/get-breakdown.js";
 import { register as registerConversions } from "./tools/get-conversions.js";
@@ -52,6 +53,8 @@ COMBINATION RULES:
 - For goal conversions, use get_conversions rather than passing session metrics alongside a goal.
 - An empty-string visit:entry_page or visit:exit_page row is a session that recorded custom events but no pageview (e.g. the pageview was blocked). Its bounce_rate is always 0 because bounce counts single-pageview visits. Present it as "no pageview recorded", not as a page.
 
+SITE DISCOVERY: Call get_sites to discover authorized sites and their reporting time zones, or use use_default to verify the server default. Follow next_after for more pages. Metadata may be unsupported or unavailable with the current key/version; never infer a reporting zone. Resolve calendar dates using the returned timezone and today, never the user or server zone. Pass supported relative date ranges unchanged to Plausible, which resolves them in the site zone.
+
 SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's default site is used; if there is no default, the call fails — ask the user which site to query.`;
 
 const FEEDBACK_INSTRUCTIONS = `
@@ -87,6 +90,7 @@ export function createServer(config: ServerConfig): McpServer {
   });
 
   registerTimeseries(server, client, config.defaultSiteId);
+  registerSites(server, client, config.defaultSiteId);
   registerBreakdown(server, client, config.defaultSiteId);
   registerConversions(server, client, config.defaultSiteId);
   registerComparePeriods(server, client, config.defaultSiteId);

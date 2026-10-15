@@ -90,6 +90,22 @@ export class PlausibleClient {
     this.baseUrl = raw;
   }
 
+  /** Read-only Sites API requests always use this caller's key and configured host. */
+  async getSitesMetadata(siteId?: string, after?: string): Promise<unknown> {
+    const url = new URL(`${this.baseUrl}/api/v1/sites${siteId ? `/${encodeURIComponent(siteId)}` : ""}`);
+    if (!siteId) {
+      url.searchParams.set("limit", "100");
+      if (after) url.searchParams.set("after", after);
+    }
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    // Do not propagate upstream bodies: they may contain inaccessible site identifiers.
+    if (!response.ok) throw new PlausibleApiError(response.status, "");
+    return response.json();
+  }
+
   async query(params: PlausibleQueryParams): Promise<PlausibleResponse> {
     const url = `${this.baseUrl}/api/v2/query`;
 
