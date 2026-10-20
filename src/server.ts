@@ -48,8 +48,9 @@ FILTERS: every query tool accepts property_filters, which â€” despite the name â
 CUSTOM PROPERTIES: sites send their own custom event properties, addressed as "event:props:<name>". Break down by one in get_breakdown with dimension "event:props:<name>" (e.g. "event:props:plan"). Property names are site-specific; if you don't know them, break down by the property to see its values, or ask the user.
 
 COMBINATION RULES:
-- Session metrics bounce_rate, visit_duration, and views_per_visit cannot be combined with event:goal or event:props:<name> dimensions or goal filters. event:page is compatible, and event:hostname is compatible when paired with event:page. Use visitors, visits, pageviews, or events for custom-property breakdowns.
+- Session metrics bounce_rate and visit_duration cannot be combined with event:goal or event:props:<name> dimensions (goal filters are fine). event:page is compatible, and event:hostname is compatible when paired with event:page. Use visitors, visits, pageviews, or events for custom-property breakdowns.
 - The reverse also applies: event metrics pageviews, events, scroll_depth, and time_on_page cannot be combined with the visit:entry_page or visit:exit_page dimensions. Use visitors, visits, bounce_rate, or visit_duration for entry/exit page breakdowns. Filtering on visit:entry_page or visit:exit_page with event metrics is allowed.
+- views_per_visit cannot be combined with any non-time dimension or with a page/event:page filter, so it fails in every get_breakdown call. Use it in get_timeseries or compare_periods without page.
 - For goal conversions, use get_conversions rather than passing session metrics alongside a goal.
 - An empty-string visit:entry_page or visit:exit_page row is a session that recorded custom events but no pageview (e.g. the pageview was blocked). Its bounce_rate is always 0 because bounce counts single-pageview visits. Present it as "no pageview recorded", not as a page.
 
