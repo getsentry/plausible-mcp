@@ -49,6 +49,7 @@ CUSTOM PROPERTIES: sites send their own custom event properties, addressed as "e
 
 COMBINATION RULES:
 - Session metrics bounce_rate, visit_duration, and views_per_visit cannot be combined with event:goal or event:props:<name> dimensions or goal filters. event:page is compatible, and event:hostname is compatible when paired with event:page. Use visitors, visits, pageviews, or events for custom-property breakdowns.
+- The reverse also applies: event metrics pageviews, events, scroll_depth, and time_on_page cannot be combined with the visit:entry_page or visit:exit_page dimensions. Use visitors, visits, bounce_rate, or visit_duration for entry/exit page breakdowns. Filtering on visit:entry_page or visit:exit_page with event metrics is allowed.
 - For goal conversions, use get_conversions rather than passing session metrics alongside a goal.
 - An empty-string visit:entry_page or visit:exit_page row is a session that recorded custom events but no pageview (e.g. the pageview was blocked). Its bounce_rate is always 0 because bounce counts single-pageview visits. Present it as "no pageview recorded", not as a page.
 

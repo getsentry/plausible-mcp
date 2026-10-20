@@ -106,6 +106,19 @@ describe("get_breakdown tool", () => {
     );
   });
 
+  it.each([
+    ["event:goal", ["visitors", "pageviews", "events"]],
+    ["visit:entry_page", ["visitors", "visits", "bounce_rate"]],
+    ["visit:exit_page", ["visitors", "visits", "bounce_rate"]],
+  ])("defaults %s to metrics Plausible accepts with it", async (dimension, metrics) => {
+    const handler = getToolHandler(server, "get_breakdown");
+    await handler({ site_id: "example.com", date_range: "30d", dimension });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({ dimensions: [dimension], metrics })
+    );
+  });
+
   it("adds custom property filters", async () => {
     const handler = getToolHandler(server, "get_breakdown");
     await handler({
