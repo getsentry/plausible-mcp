@@ -5,6 +5,7 @@ export interface PlausibleQueryParams {
   dimensions?: string[];
   filters?: unknown[];
   pagination?: { limit: number; offset?: number };
+  order_by?: [string, "asc" | "desc"][];
 }
 
 export interface PlausibleResult {
@@ -52,7 +53,8 @@ export class PlausibleApiError extends Error {
 
   constructor(
     public readonly status: number,
-    body: string
+    body: string,
+    public readonly retryAfterSeconds?: number
   ) {
     super(`Plausible API error ${status}`);
     Object.defineProperty(this, "detail", {
@@ -61,6 +63,15 @@ export class PlausibleApiError extends Error {
     });
     this.name = "PlausibleApiError";
   }
+}
+
+/** Retry-After is either delta-seconds or an HTTP-date; both are normalized to seconds from now. */
+function parseRetryAfterSeconds(header: string | null): number | undefined {
+  const value = header?.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : undefined;
 }
 
 export interface PlausibleClientConfig {
@@ -111,6 +122,10 @@ export class PlausibleClient {
       body.pagination = params.pagination;
     }
 
+    if (params.order_by?.length) {
+      body.order_by = params.order_by;
+    }
+
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -122,7 +137,11 @@ export class PlausibleClient {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new PlausibleApiError(response.status, text);
+      throw new PlausibleApiError(
+        response.status,
+        text,
+        parseRetryAfterSeconds(response.headers.get("Retry-After"))
+      );
     }
 
     return (await response.json()) as PlausibleResponse;

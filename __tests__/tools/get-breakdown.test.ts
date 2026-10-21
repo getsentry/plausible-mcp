@@ -26,7 +26,7 @@ describe("get_breakdown tool", () => {
         site_id: "example.com",
         dimensions: ["event:page"],
         metrics: ["visitors", "pageviews", "bounce_rate"],
-        pagination: { limit: 20 },
+        pagination: { limit: 21, offset: 0 },
       })
     );
   });
@@ -41,7 +41,7 @@ describe("get_breakdown tool", () => {
     });
 
     expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ pagination: { limit: 50 } })
+      expect.objectContaining({ pagination: { limit: 51, offset: 0 } })
     );
   });
 
@@ -219,5 +219,100 @@ describe("get_breakdown tool", () => {
     expect(client.query).toHaveBeenCalledWith(
       expect.objectContaining({ metrics: ["visitors", "visit_duration"] })
     );
+  });
+
+  it("passes offset through to the query", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    await handler({
+      site_id: "example.com",
+      date_range: "7d",
+      dimension: "event:page",
+      limit: 10,
+      offset: 30,
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({ pagination: { limit: 11, offset: 30 } })
+    );
+  });
+
+  it("orders by the first metric with the dimension as a tiebreaker", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    await handler({
+      site_id: "example.com",
+      date_range: "7d",
+      dimension: "event:page",
+      metrics: ["pageviews", "visitors"],
+    });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        order_by: [
+          ["pageviews", "desc"],
+          ["event:page", "asc"],
+        ],
+      })
+    );
+  });
+
+  it("omits the dimension tiebreaker for event:goal, which Plausible rejects in order_by", async () => {
+    const handler = getToolHandler(server, "get_breakdown");
+    await handler({ site_id: "example.com", date_range: "7d", dimension: "event:goal" });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({ order_by: [["visitors", "desc"]] })
+    );
+  });
+
+  describe("paging", () => {
+    function rows(n: number) {
+      return Array.from({ length: n }, (_, i) => ({
+        dimensions: [`/page-${i}`],
+        metrics: [i, i, 0],
+      }));
+    }
+
+    it("trims the extra row and reports has_more when another page exists", async () => {
+      client.query.mockResolvedValue({ results: rows(3), meta: {}, query: {} });
+      const handler = getToolHandler(server, "get_breakdown");
+      const result = await handler({
+        site_id: "example.com",
+        date_range: "7d",
+        dimension: "event:page",
+        limit: 2,
+        offset: 4,
+      });
+
+      expect(result.structuredContent.results).toHaveLength(2);
+      expect(result.structuredContent.pagination).toEqual({
+        limit: 2,
+        offset: 4,
+        has_more: true,
+      });
+      const text = JSON.parse(result.content[0].text);
+      expect(text.results).toHaveLength(2);
+      expect(text.pagination).toEqual(result.structuredContent.pagination);
+    });
+
+    it("reports has_more false when the page is not full beyond limit", async () => {
+      client.query.mockResolvedValue({ results: rows(2), meta: {}, query: {} });
+      const handler = getToolHandler(server, "get_breakdown");
+      const result = await handler({
+        site_id: "example.com",
+        date_range: "7d",
+        dimension: "event:page",
+        limit: 2,
+      });
+
+      expect(result.structuredContent.results).toHaveLength(2);
+      expect(result.structuredContent.pagination).toEqual({
+        limit: 2,
+        offset: 0,
+        has_more: false,
+      });
+      expect(JSON.parse(result.content[0].text).pagination).toEqual(
+        result.structuredContent.pagination
+      );
+    });
   });
 });

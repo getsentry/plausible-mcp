@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient } from "../plausible.js";
-import { reportToolError } from "../errors.js";
+import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
   siteIdSchemaFor,
@@ -57,7 +57,15 @@ export function register(
           .min(1)
           .max(1000)
           .default(20)
-          .describe("Max results to return")
+          .describe(
+            "Max results to return per page. Use offset to fetch further pages; pagination.has_more in the result says whether more rows exist."
+          )
+          .optional(),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .describe("Number of rows to skip, for paging past the first `limit` rows")
           .optional(),
       }),
     },
@@ -67,6 +75,7 @@ export function register(
         const siteId = resolveSiteId(args.site_id, defaultSiteId);
         const metrics = args.metrics ?? defaultMetrics(args.dimension);
         const limit = args.limit ?? 20;
+        const offset = args.offset ?? 0;
 
         assertNoShortcutOverlap(args.property_filters, { page: args.page });
         const filters: unknown[][] = [];
@@ -81,19 +90,40 @@ export function register(
           date_range: args.date_range,
           dimensions: [args.dimension],
           filters,
-          pagination: { limit },
+          // One extra row reveals whether another page exists without relying on
+          // include.total_rows, which older self-hosted versions lack.
+          pagination: { limit: limit + 1, offset },
+          // Plausible orders only by the first metric; without a tiebreaker, tied rows can
+          // swap between requests and offset pages would skip or repeat them. Plausible
+          // rejects event:goal in order_by, so goal breakdowns go without one.
+          order_by:
+            args.dimension === "event:goal"
+              ? [[metrics[0], "desc"]]
+              : [
+                  [metrics[0], "desc"],
+                  [args.dimension, "asc"],
+                ],
         });
 
+        const trimmed = {
+          ...result,
+          results: result.results.slice(0, limit),
+        };
+        const pagination = { limit, offset, has_more: result.results.length > limit };
+
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: buildQueryStructuredContent(result, metrics, [args.dimension]),
+          content: [
+            { type: "text" as const, text: JSON.stringify({ ...trimmed, pagination }, null, 2) },
+          ],
+          structuredContent: buildQueryStructuredContent(
+            trimmed,
+            metrics,
+            [args.dimension],
+            pagination
+          ),
         };
       } catch (error) {
-        const message = reportToolError(error, "get_breakdown");
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          isError: true,
-        };
+        return toolErrorResult(error, "get_breakdown");
       }
     }
   );

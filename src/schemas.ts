@@ -83,26 +83,30 @@ export const dateRangeSchema = z
     'Must be "Nh", "Nd", "Nmo", "day", "month", "year", "all", or "YYYY-MM-DD,YYYY-MM-DD"'
   )
   .describe(
-    'Date range: "7d", "30d", "12mo", "month", "year", "all", or "YYYY-MM-DD,YYYY-MM-DD"'
+    'Date range: "7d", "30d", "12mo", "month", "year", "all", or "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive). Days after today count as zero.'
   );
 
 export const pageSchema = z
   .string()
   .max(1024)
   .describe(
-    "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*)"
+    "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected."
   )
   .optional();
 
 export const goalSchema = z
   .string()
   .max(1024)
-  .describe("Filter by goal name (e.g. Signup, Purchase)")
+  .describe(
+    "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected."
+  )
   .optional();
 
 export const metricsSchema = z
   .array(z.enum(VALID_METRICS))
-  .describe("Metrics to return. Defaults vary by tool.")
+  .describe(
+    "Metrics to return. Defaults vary by tool. Plausible rejects these combinations: bounce_rate or visit_duration with event:goal or event:props:<name> dimensions; pageviews, events, scroll_depth or time_on_page with visit:entry_page or visit:exit_page dimensions; views_per_visit with any non-time dimension or a page filter. For goal conversions use get_conversions."
+  )
   .optional();
 
 /**
@@ -155,7 +159,7 @@ const customPropertyDimensionSchema = z
 export const dimensionSchema = z
   .union([z.enum(VALID_DIMENSIONS), customPropertyDimensionSchema])
   .describe(
-    'Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan).'
+    'Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan). Prefer visit:country_name/region_name/city_name over the code variants when presenting geography to people. An empty visit:entry_page or visit:exit_page value means a session with no recorded pageview.'
   );
 
 /** Matches the cap on the `page`/`goal` shortcut params, which compile to the same filters. */
@@ -297,6 +301,14 @@ export const queryResultOutputSchema = z.object({
       })
     )
     .describe("One row per dimension-value combination returned by Plausible"),
+  pagination: z
+    .object({
+      limit: z.number().describe("Max rows requested"),
+      offset: z.number().describe("Rows skipped before the first returned row"),
+      has_more: z.boolean().describe("True when rows exist beyond this page"),
+    })
+    .describe("Present only on paged tools (get_breakdown)")
+    .optional(),
 });
 
 /**
@@ -306,7 +318,8 @@ export const queryResultOutputSchema = z.object({
 export function buildQueryStructuredContent(
   response: PlausibleResponse,
   metrics: string[],
-  dimensions: string[]
+  dimensions: string[],
+  pagination?: z.infer<typeof queryResultOutputSchema>["pagination"]
 ) {
   return {
     metrics,
@@ -315,5 +328,6 @@ export function buildQueryStructuredContent(
       dimensions: row.dimensions,
       metrics: row.metrics,
     })),
+    ...(pagination && { pagination }),
   };
 }

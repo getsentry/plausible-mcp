@@ -29,7 +29,7 @@ export interface ServerConfig {
 /**
  * Usage guidance surfaced to MCP clients during discovery/initialization and injected into the
  * model's context. It documents the Stats API v2 constraints that clients most often get wrong
- * (date formats, future dates, illegal metric/dimension combinations) to cut the resulting 400s
+ * (date formats, illegal metric/dimension combinations) to cut the resulting 400s
  * at the source.
  */
 const SERVER_INSTRUCTIONS = `This server queries Plausible Analytics (Stats API v2) for a site's traffic and conversions. All tools are read-only.
@@ -37,7 +37,7 @@ const SERVER_INSTRUCTIONS = `This server queries Plausible Analytics (Stats API 
 DATE RANGES (date_range, period_a, period_b):
 - Relative: "7d", "30d", "12mo" (N days/months back), or "day", "month", "year", "all".
 - Absolute: "YYYY-MM-DD,YYYY-MM-DD" (start,end), both inclusive.
-- Dates must not be in the future. Today is the latest valid date; a range that ends after today returns a 400.
+- Days after today have no data and count as zero, so end ranges at today or earlier to keep totals and averages accurate.
 
 METRICS: visitors, visits, pageviews, views_per_visit, bounce_rate, visit_duration, events, scroll_depth, percentage, conversion_rate, group_conversion_rate, average_revenue, total_revenue, time_on_page.
 
@@ -53,6 +53,8 @@ COMBINATION RULES:
 - views_per_visit cannot be combined with any non-time dimension or with a page/event:page filter, so it fails in every get_breakdown call. Use it in get_timeseries or compare_periods without page.
 - For goal conversions, use get_conversions rather than passing session metrics alongside a goal.
 - An empty-string visit:entry_page or visit:exit_page row is a session that recorded custom events but no pageview (e.g. the pageview was blocked). Its bounce_rate is always 0 because bounce counts single-pageview visits. Present it as "no pageview recorded", not as a page.
+
+ERRORS: a failed call returns isError. The first text block is a readable message; the second is JSON { "error": { code, message, retryable, retry_after_seconds? } }. Codes: invalid_input, unauthorized, rate_limited, upstream_unavailable, invalid_query, internal. For rate_limited and upstream_unavailable, wait retry_after_seconds (when present) before retrying.
 
 SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's default site is used; if there is no default, the call fails — ask the user which site to query.`;
 

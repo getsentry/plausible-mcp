@@ -214,6 +214,7 @@ describe("MCP Server Integration", () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 401,
+      headers: new Headers(),
       text: () => Promise.resolve("Invalid API key"),
     });
 

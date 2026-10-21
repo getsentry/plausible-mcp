@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
-import { reportToolError } from "../errors.js";
+import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
   siteIdSchemaFor,
@@ -151,11 +151,7 @@ export function register(
           structuredContent: comparison,
         };
       } catch (error) {
-        const message = reportToolError(error, "compare_periods");
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          isError: true,
-        };
+        return toolErrorResult(error, "compare_periods");
       }
     }
   );

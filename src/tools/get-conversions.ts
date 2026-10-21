@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient } from "../plausible.js";
-import { reportToolError } from "../errors.js";
+import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
   siteIdSchemaFor,
@@ -78,11 +78,7 @@ export function register(
           structuredContent: buildQueryStructuredContent(result, metrics, dimensions),
         };
       } catch (error) {
-        const message = reportToolError(error, "get_conversions");
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          isError: true,
-        };
+        return toolErrorResult(error, "get_conversions");
       }
     }
   );
