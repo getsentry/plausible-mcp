@@ -110,13 +110,19 @@ Rates:
   Every `initialize` counts, not only the uptime monitor's: the client name that used to
   single it out lives in the body, which the sampler cannot read, and a real session's
   signal is in its tool calls, which stay at 100%.
+- **`resources/list`, `resources/templates/list`, and `subscriptions/listen`**: also 1%.
+  The listings return instantly and identically on every connect. A `subscriptions/listen`
+  span lasts as long as the client keeps its stream open, often close to an hour, so at
+  100% these spans were half of all root spans and pushed `POST` p95 to many minutes.
+- **`GET /mcp` with no MCP method**: 1%. Clients probe for a standalone server-sent event
+  stream, which this server does not offer, and the transport answers 405.
 - **`notifications/initialized` and `notifications/roots/list_changed`**: 0%.
   These are handshake bookkeeping and a roots capability notification the server does not
   implement, so neither has per-request debugging value. `notifications/cancelled` is kept:
   it marks a client abandoning an in-flight request, which is a signal when tool latency is
   under investigation.
-- **Everything else** (real tool calls, reads, unknown methods, the endpoint with no method
-  header yet): 100%.
+- **Everything else** (real tool calls, reads, unknown methods, a non-GET request to the
+  endpoint with no method header yet): 100%.
 - **Metrics remain complete**: the `app.server.response` metric counts 100% of sampled and
   dropped protocol requests, including `mcp.method.name` and `app.mcp.request.kind`, so
   uptime, volume, and method dashboards are unaffected.

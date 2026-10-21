@@ -241,6 +241,19 @@ describe("rootSampleRate", () => {
 
   it("keeps the endpoint itself with no method header", () => {
     expect(rootSampleRate({ pathname: "/mcp", mcpMethod: null })).toBe(1);
+    expect(rootSampleRate({ pathname: "/mcp", mcpMethod: null, requestMethod: "POST" }))
+      .toBe(1);
+  });
+
+  it("samples GET probes for an event stream down to the heartbeat keep-rate", () => {
+    expect(rootSampleRate({ pathname: "/mcp", mcpMethod: null, requestMethod: "GET" }))
+      .toBe(HEARTBEAT_SPAN_KEEP_RATE);
+  });
+
+  it("still drops GET probes of untracked routes and tracked sub-paths", () => {
+    for (const pathname of ["/.env", "/mcp/actuator/heapdump"]) {
+      expect(rootSampleRate({ pathname, mcpMethod: null, requestMethod: "GET" })).toBe(0);
+    }
   });
 
   it("drops handshake-only notifications", () => {
@@ -253,7 +266,15 @@ describe("rootSampleRate", () => {
   });
 
   it("samples handshake/keepalive noise down to the heartbeat keep-rate", () => {
-    for (const method of ["ping", "server/discover", "tools/list", "initialize"]) {
+    for (const method of [
+      "ping",
+      "server/discover",
+      "tools/list",
+      "initialize",
+      "resources/list",
+      "resources/templates/list",
+      "subscriptions/listen",
+    ]) {
       expect(rootSampleRate({ pathname: "/mcp", mcpMethod: method }))
         .toBe(HEARTBEAT_SPAN_KEEP_RATE);
     }
