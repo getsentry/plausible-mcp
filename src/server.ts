@@ -54,7 +54,7 @@ COMBINATION RULES:
 - For goal conversions, use get_conversions rather than passing session metrics alongside a goal.
 - An empty-string visit:entry_page or visit:exit_page row is a session that recorded custom events but no pageview (e.g. the pageview was blocked). Its bounce_rate is always 0 because bounce counts single-pageview visits. Present it as "no pageview recorded", not as a page.
 
-ERRORS: a failed call returns isError. The first text block is a readable message; the second is JSON { "error": { code, message, retryable, retry_after_seconds? } }. Codes: invalid_input, unauthorized, rate_limited, upstream_unavailable, invalid_query, internal. For rate_limited and upstream_unavailable, wait retry_after_seconds (when present) before retrying.
+ERRORS: a failed call returns isError. The first text block is a readable message; the second is JSON { "error": { code, message, retryable, retry_after_seconds? } }. Codes: invalid_input, unauthorized, rate_limited, upstream_unavailable, invalid_query, internal. For rate_limited and upstream_unavailable, wait retry_after_seconds (when present) before retrying. Arguments that fail the tool's input schema are rejected before the tool runs, with only the readable message and no JSON block; fix the arguments named in it.
 
 SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's default site is used; if there is no default, the call fails — ask the user which site to query.`;
 

@@ -3,6 +3,7 @@ import {
   PlausibleClient,
   PlausibleApiError,
   parsePlausibleErrorDetail,
+  PlausibleUnreachableError,
 } from "../src/plausible.js";
 
 const mockFetch = vi.fn();
@@ -74,6 +75,18 @@ describe("PlausibleClient", () => {
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.date_range).toEqual(["2026-07-01", "2026-07-07"]);
+  });
+
+  it("wraps a rejected fetch as PlausibleUnreachableError", async () => {
+    const cause = new TypeError("fetch failed");
+    mockFetch.mockRejectedValueOnce(cause);
+
+    const error = await client
+      .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
+      .catch((e) => e);
+
+    expect(error).toBeInstanceOf(PlausibleUnreachableError);
+    expect((error as Error).cause).toBe(cause);
   });
 
   it("includes dimensions when provided", async () => {

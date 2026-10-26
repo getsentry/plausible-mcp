@@ -12,7 +12,7 @@ vi.mock("@sentry/cloudflare", () => ({
 
 const { captureException, count } = sentry;
 
-import { PlausibleApiError } from "../src/plausible.js";
+import { PlausibleApiError, PlausibleUnreachableError } from "../src/plausible.js";
 import { reportToolError, toolErrorResult, UserFacingError } from "../src/errors.js";
 
 const toolName = "get_timeseries";
@@ -111,6 +111,23 @@ describe("reportToolError", () => {
     const captured = captureException.mock.calls[0][0] as Error;
     expect(captured.message).toBe("Plausible API error 503");
     expect(JSON.stringify(captured)).not.toContain("customer@example.com");
+  });
+
+  it("classifies an unreachable Plausible API as retryable upstream_unavailable", () => {
+    const error = new PlausibleUnreachableError(new TypeError("fetch failed"));
+
+    expect(reportToolError(error, toolName)).toEqual({
+      code: "upstream_unavailable",
+      message: "Could not reach the Plausible API",
+      retryable: true,
+    });
+    expect(count).toHaveBeenCalledWith("mcp.tool.error", 1, {
+      attributes: {
+        "mcp.tool.name": toolName,
+        "error.kind": "plausible_unreachable",
+      },
+    });
+    expect(captureException).toHaveBeenCalledWith(error);
   });
 
   it("captures unexpected failures and returns a safe message", () => {

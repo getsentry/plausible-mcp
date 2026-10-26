@@ -294,6 +294,40 @@ describe("get_breakdown tool", () => {
       expect(text.pagination).toEqual(result.structuredContent.pagination);
     });
 
+    it("pages goals over a stable order however Plausible orders tied rows", async () => {
+      const goal = (name: string, visitors: number) => ({
+        dimensions: [name],
+        metrics: [visitors, 0, 0],
+      });
+      const handler = getToolHandler(server, "get_breakdown");
+      const pageOf = async (results: unknown[], offset: number) => {
+        client.query.mockResolvedValueOnce({ results, meta: {}, query: {} });
+        const result = await handler({
+          site_id: "example.com",
+          date_range: "2026-10-01,2026-10-07",
+          dimension: "event:goal",
+          limit: 2,
+          offset,
+        });
+        return result.structuredContent;
+      };
+
+      const first = await pageOf([goal("Top", 9), goal("B", 5), goal("A", 5), goal("C", 5)], 0);
+      const second = await pageOf([goal("Top", 9), goal("C", 5), goal("A", 5), goal("B", 5)], 2);
+
+      expect(client.query).toHaveBeenCalledWith(
+        expect.objectContaining({ pagination: { limit: 10_000 } })
+      );
+      expect([...first.results, ...second.results].map((r: any) => r.dimensions[0])).toEqual([
+        "Top",
+        "A",
+        "B",
+        "C",
+      ]);
+      expect(first.pagination.has_more).toBe(true);
+      expect(second.pagination.has_more).toBe(false);
+    });
+
     it("reports has_more false when the page is not full beyond limit", async () => {
       client.query.mockResolvedValue({ results: rows(2), meta: {}, query: {} });
       const handler = getToolHandler(server, "get_breakdown");

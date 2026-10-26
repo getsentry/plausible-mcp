@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/cloudflare";
-import { PlausibleApiError } from "./plausible.js";
+import { PlausibleApiError, PlausibleUnreachableError } from "./plausible.js";
 
 export type ToolName =
   | "get_timeseries"
@@ -80,6 +80,17 @@ export function reportToolError(error: unknown, toolName: ToolName): ToolErrorIn
       };
     }
     return { code: "invalid_query", message, retryable: false };
+  }
+
+  if (error instanceof PlausibleUnreachableError) {
+    Sentry.metrics.count("mcp.tool.error", 1, {
+      attributes: {
+        "mcp.tool.name": toolName,
+        "error.kind": "plausible_unreachable",
+      },
+    });
+    Sentry.captureException(error);
+    return { code: "upstream_unavailable", message: error.message, retryable: true };
   }
 
   Sentry.metrics.count("mcp.tool.error", 1, {

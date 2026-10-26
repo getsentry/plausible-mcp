@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { PlausibleClient } from "../plausible.js";
+import type { PlausibleClient, PlausibleResult } from "../plausible.js";
 import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
@@ -29,6 +29,15 @@ function defaultMetrics(dimension: string): string[] {
     return ["visitors", "visits", "bounce_rate"];
   }
   return ["visitors", "pageviews", "bounce_rate"];
+}
+
+const PLAUSIBLE_MAX_ROWS = 10_000;
+
+function byFirstMetricThenName(a: PlausibleResult, b: PlausibleResult): number {
+  const byMetric = (b.metrics[0] ?? 0) - (a.metrics[0] ?? 0);
+  if (byMetric !== 0) return byMetric;
+  const [nameA, nameB] = [String(a.dimensions[0]), String(b.dimensions[0])];
+  return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
 }
 
 export function register(
@@ -84,6 +93,11 @@ export function register(
           filters.push(...buildPropertyFilters(args.property_filters));
         }
 
+        // Plausible orders only by the first metric; without a tiebreaker, tied rows can
+        // swap between requests and offset pages would skip or repeat them. Plausible
+        // rejects event:goal in order_by, so goals (few per site) are fetched in full and
+        // paged here over a stable order instead.
+        const isGoal = args.dimension === "event:goal";
         const result = await client.query({
           site_id: siteId,
           metrics,
@@ -92,24 +106,20 @@ export function register(
           filters,
           // One extra row reveals whether another page exists without relying on
           // include.total_rows, which older self-hosted versions lack.
-          pagination: { limit: limit + 1, offset },
-          // Plausible orders only by the first metric; without a tiebreaker, tied rows can
-          // swap between requests and offset pages would skip or repeat them. Plausible
-          // rejects event:goal in order_by, so goal breakdowns go without one.
-          order_by:
-            args.dimension === "event:goal"
-              ? [[metrics[0], "desc"]]
-              : [
-                  [metrics[0], "desc"],
-                  [args.dimension, "asc"],
-                ],
+          pagination: isGoal ? { limit: PLAUSIBLE_MAX_ROWS } : { limit: limit + 1, offset },
+          order_by: isGoal
+            ? [[metrics[0], "desc"]]
+            : [
+                [metrics[0], "desc"],
+                [args.dimension, "asc"],
+              ],
         });
 
-        const trimmed = {
-          ...result,
-          results: result.results.slice(0, limit),
-        };
-        const pagination = { limit, offset, has_more: result.results.length > limit };
+        const rows = isGoal
+          ? [...result.results].sort(byFirstMetricThenName).slice(offset, offset + limit + 1)
+          : result.results;
+        const trimmed = { ...result, results: rows.slice(0, limit) };
+        const pagination = { limit, offset, has_more: rows.length > limit };
 
         return {
           content: [

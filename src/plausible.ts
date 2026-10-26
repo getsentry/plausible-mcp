@@ -48,6 +48,14 @@ export function parsePlausibleErrorDetail(body: string): string | undefined {
  * exception surface entirely and handed to the caller separately. `detail` is non-enumerable
  * so a serializer walking the error cannot pick it up either.
  */
+/** fetch rejected before Plausible sent a response: DNS, TLS, or a dropped connection. */
+export class PlausibleUnreachableError extends Error {
+  constructor(cause: unknown) {
+    super("Could not reach the Plausible API", { cause });
+    this.name = "PlausibleUnreachableError";
+  }
+}
+
 export class PlausibleApiError extends Error {
   readonly detail: string | undefined;
 
@@ -126,14 +134,19 @@ export class PlausibleClient {
       body.order_by = params.order_by;
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (cause) {
+      throw new PlausibleUnreachableError(cause);
+    }
 
     if (!response.ok) {
       const text = await response.text();
