@@ -87,9 +87,22 @@ export interface PlausibleClientConfig {
   baseUrl?: string;
 }
 
+const MS_PER_HOUR = 3_600_000;
+
+function toIsoSeconds(ms: number): string {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 function encodeDateRange(dateRange: string): string | [string, string] {
-  const absoluteRange = /^(\d{4}-\d{2}-\d{2}),(\d{4}-\d{2}-\d{2})$/.exec(dateRange);
-  return absoluteRange ? [absoluteRange[1], absoluteRange[2]] : dateRange;
+  // Plausible's only hour shorthand is "24h", so every "Nh" is sent as the
+  // equivalent rolling datetime window.
+  const hours = /^(\d+)h$/.exec(dateRange);
+  if (hours) {
+    const now = Date.now();
+    return [toIsoSeconds(now - Number(hours[1]) * MS_PER_HOUR), toIsoSeconds(now)];
+  }
+  const [start, end] = dateRange.split(",");
+  return end === undefined ? dateRange : [start, end];
 }
 
 export class PlausibleClient {

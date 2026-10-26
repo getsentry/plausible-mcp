@@ -3,6 +3,7 @@ import {
   buildPropertyFilters,
   isCustomPropertyDimension,
   dimensionSchema,
+  dateRangeSchema,
   propertyFilterSchema,
   assertNoShortcutOverlap,
 } from "../src/schemas.js";
@@ -19,6 +20,31 @@ describe("isCustomPropertyDimension", () => {
 
   it("rejects the bare prefix with no name", () => {
     expect(isCustomPropertyDimension("event:props:")).toBe(false);
+  });
+});
+
+describe("dateRangeSchema", () => {
+  it.each([
+    "1h",
+    "24h",
+    "7d",
+    "12mo",
+    "day",
+    "all",
+    "2026-07-01,2026-07-07",
+    "2026-07-01T09:00:00Z,2026-07-01T12:00:00Z",
+    "2026-07-01T09:00:00+02:00,2026-07-01T12:00:00-05:00",
+  ])("accepts %s", (value) => {
+    expect(dateRangeSchema.safeParse(value).success).toBe(true);
+  });
+
+  it.each([
+    "10m",
+    "2026-07-01T09:00:00,2026-07-01T12:00:00",
+    "2026-07-01T09:00Z,2026-07-01T12:00Z",
+    "2026-07-01,2026-07-01T12:00:00Z",
+  ])("rejects %s", (value) => {
+    expect(dateRangeSchema.safeParse(value).success).toBe(false);
   });
 });
 

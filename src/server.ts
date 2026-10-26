@@ -35,8 +35,9 @@ export interface ServerConfig {
 const SERVER_INSTRUCTIONS = `This server queries Plausible Analytics (Stats API v2) for a site's traffic and conversions. All tools are read-only.
 
 DATE RANGES (date_range, period_a, period_b):
-- Relative: "7d", "30d", "12mo" (N days/months back), or "day", "month", "year", "all".
+- Relative: "7d", "30d", "12mo" (N days/months back), "1h", "24h" (last N hours, ending now), or "day", "month", "year", "all".
 - Absolute: "YYYY-MM-DD,YYYY-MM-DD" (start,end), both inclusive.
+- Sub-day window: two ISO 8601 datetimes with offsets, "2026-01-01T09:00:00Z,2026-01-01T12:00:00Z". The finest get_timeseries granularity is "hour"; minute buckets are not available.
 - Days after today have no data and count as zero, so end ranges at today or earlier to keep totals and averages accurate.
 
 METRICS: visitors, visits, pageviews, views_per_visit, bounce_rate, visit_duration, events, scroll_depth, percentage, conversion_rate, group_conversion_rate, average_revenue, total_revenue, time_on_page.

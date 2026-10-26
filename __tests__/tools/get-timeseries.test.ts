@@ -79,6 +79,15 @@ describe("get_timeseries tool", () => {
     );
   });
 
+  it("uses hourly granularity", async () => {
+    const handler = getToolHandler(server, "get_timeseries");
+    await handler({ site_id: "example.com", date_range: "24h", granularity: "hour" });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({ dimensions: ["time:hour"] })
+    );
+  });
+
   it("adds page filter for exact path", async () => {
     const handler = getToolHandler(server, "get_timeseries");
     await handler({ site_id: "example.com", date_range: "7d", page: "/pricing" });
