@@ -48,6 +48,9 @@ export function parsePlausibleErrorDetail(body: string): string | undefined {
  * exception surface entirely and handed to the caller separately. `detail` is non-enumerable
  * so a serializer walking the error cannot pick it up either.
  */
+/** Plausible's largest pagination limit, and its default: a query returns at most this many rows. */
+export const PLAUSIBLE_MAX_ROWS = 10_000;
+
 /** fetch rejected before Plausible sent a response: DNS, TLS, or a dropped connection. */
 export class PlausibleUnreachableError extends Error {
   constructor(cause: unknown) {
