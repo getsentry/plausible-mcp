@@ -108,6 +108,7 @@ describe("get_breakdown tool", () => {
 
   it.each([
     ["event:goal", ["visitors", "pageviews", "events"]],
+    ["event:hostname", ["visitors", "pageviews", "events"]],
     ["visit:entry_page", ["visitors", "visits", "bounce_rate"]],
     ["visit:exit_page", ["visitors", "visits", "bounce_rate"]],
   ])("defaults %s to metrics Plausible accepts with it", async (dimension, metrics) => {

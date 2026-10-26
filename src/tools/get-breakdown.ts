@@ -19,10 +19,15 @@ import {
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
-// Plausible rejects session metrics (bounce_rate) with goal/property dimensions,
-// and event metrics (pageviews) with entry/exit page dimensions.
+// Plausible rejects session metrics (bounce_rate) with goal/property dimensions and with
+// event:hostname unless event:page is also a dimension, which a single-dimension breakdown
+// never has. It rejects event metrics (pageviews) with entry/exit page dimensions.
 function defaultMetrics(dimension: string): string[] {
-  if (dimension === "event:goal" || isCustomPropertyDimension(dimension)) {
+  if (
+    dimension === "event:goal" ||
+    dimension === "event:hostname" ||
+    isCustomPropertyDimension(dimension)
+  ) {
     return ["visitors", "pageviews", "events"];
   }
   if (dimension === "visit:entry_page" || dimension === "visit:exit_page") {
