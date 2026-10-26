@@ -76,14 +76,18 @@ export function siteIdSchemaFor(defaultSiteId: string | undefined) {
   return defaultSiteId ? siteIdSchema : requiredSiteIdSchema;
 }
 
+const ISO_DATETIME = String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})`;
+
 export const dateRangeSchema = z
   .string()
   .regex(
-    /^(\d+h|\d+d|\d+mo|day|month|year|all|\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2})$/,
-    'Must be "Nh", "Nd", "Nmo", "day", "month", "year", "all", or "YYYY-MM-DD,YYYY-MM-DD"'
+    new RegExp(
+      String.raw`^(\d+h|\d+d|\d+mo|day|month|year|all|\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2}|${ISO_DATETIME},${ISO_DATETIME})$`
+    ),
+    'Must be "Nh", "Nd", "Nmo", "day", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD", or two ISO 8601 datetimes with offsets'
   )
   .describe(
-    'Date range: "7d", "30d", "12mo", "month", "year", "all", or "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive). Days after today count as zero.'
+    'Date range: "1h", "24h" (last N hours, ending now), "7d", "30d", "12mo", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive), or "YYYY-MM-DDTHH:MM:SSZ,YYYY-MM-DDTHH:MM:SSZ" for a sub-day window (any offset, e.g. +02:00). Days after today count as zero.'
   );
 
 export const pageSchema = z

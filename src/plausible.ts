@@ -48,6 +48,9 @@ export function parsePlausibleErrorDetail(body: string): string | undefined {
  * exception surface entirely and handed to the caller separately. `detail` is non-enumerable
  * so a serializer walking the error cannot pick it up either.
  */
+/** Plausible's largest pagination limit, and its default: a query returns at most this many rows. */
+export const PLAUSIBLE_MAX_ROWS = 10_000;
+
 /** fetch rejected before Plausible sent a response: DNS, TLS, or a dropped connection. */
 export class PlausibleUnreachableError extends Error {
   constructor(cause: unknown) {
@@ -87,9 +90,22 @@ export interface PlausibleClientConfig {
   baseUrl?: string;
 }
 
+const MS_PER_HOUR = 3_600_000;
+
+function toIsoSeconds(ms: number): string {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 function encodeDateRange(dateRange: string): string | [string, string] {
-  const absoluteRange = /^(\d{4}-\d{2}-\d{2}),(\d{4}-\d{2}-\d{2})$/.exec(dateRange);
-  return absoluteRange ? [absoluteRange[1], absoluteRange[2]] : dateRange;
+  // Plausible's only hour shorthand is "24h", so every "Nh" is sent as the
+  // equivalent rolling datetime window.
+  const hours = /^(\d+)h$/.exec(dateRange);
+  if (hours) {
+    const now = Date.now();
+    return [toIsoSeconds(now - Number(hours[1]) * MS_PER_HOUR), toIsoSeconds(now)];
+  }
+  const [start, end] = dateRange.split(",");
+  return end === undefined ? dateRange : [start, end];
 }
 
 export class PlausibleClient {

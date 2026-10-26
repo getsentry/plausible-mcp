@@ -79,6 +79,31 @@ describe("get_timeseries tool", () => {
     );
   });
 
+  it("uses hourly granularity", async () => {
+    const handler = getToolHandler(server, "get_timeseries");
+    await handler({ site_id: "example.com", date_range: "24h", granularity: "hour" });
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.objectContaining({ dimensions: ["time:hour"] })
+    );
+  });
+
+  it("rejects a series that reaches Plausible's row limit instead of returning it truncated", async () => {
+    client.query.mockResolvedValueOnce({
+      results: Array.from({ length: 10_000 }, (_, i) => ({
+        dimensions: [`t${i}`],
+        metrics: [1, 1, 0, 0],
+      })),
+      meta: {},
+      query: {},
+    });
+    const handler = getToolHandler(server, "get_timeseries");
+    const result = await handler({ site_id: "example.com", date_range: "24mo", granularity: "hour" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("10,000-bucket limit");
+  });
+
   it("adds page filter for exact path", async () => {
     const handler = getToolHandler(server, "get_timeseries");
     await handler({ site_id: "example.com", date_range: "7d", page: "/pricing" });

@@ -89,6 +89,34 @@ describe("PlausibleClient", () => {
     expect((error as Error).cause).toBe(cause);
   });
 
+  it("encodes a datetime range as the Plausible v2 tuple", async () => {
+    mockOk({ results: [], meta: {}, query: {} });
+
+    await client.query({
+      site_id: "example.com",
+      metrics: ["visitors"],
+      date_range: "2026-07-01T09:00:00+02:00,2026-07-01T12:00:00+02:00",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.date_range).toEqual(["2026-07-01T09:00:00+02:00", "2026-07-01T12:00:00+02:00"]);
+  });
+
+  it("sends an hour range as a rolling datetime window ending now", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-25T14:58:32.578Z"));
+    mockOk({ results: [], meta: {}, query: {} });
+
+    try {
+      await client.query({ site_id: "example.com", metrics: ["events"], date_range: "1h" });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.date_range).toEqual(["2026-10-25T13:58:32Z", "2026-10-25T14:58:32Z"]);
+  });
+
   it("includes dimensions when provided", async () => {
     mockOk({ results: [], meta: {}, query: {} });
 

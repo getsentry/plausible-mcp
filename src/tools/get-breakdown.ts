@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient, PlausibleResult } from "../plausible.js";
 import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -35,8 +36,6 @@ function defaultMetrics(dimension: string): string[] {
   }
   return ["visitors", "pageviews", "bounce_rate"];
 }
-
-const PLAUSIBLE_MAX_ROWS = 10_000;
 
 function byFirstMetricThenName(a: PlausibleResult, b: PlausibleResult): number {
   const byMetric = (b.metrics[0] ?? 0) - (a.metrics[0] ?? 0);

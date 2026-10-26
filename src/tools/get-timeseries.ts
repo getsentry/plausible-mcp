@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient } from "../plausible.js";
 import { toolErrorResult, UserFacingError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -49,9 +50,9 @@ export function register(
         site_id: siteIdSchemaFor(defaultSiteId),
         date_range: dateRangeSchema,
         granularity: z
-          .enum(["day", "week", "month"])
+          .enum(["hour", "day", "week", "month"])
           .default("day")
-          .describe("Time bucket size"),
+          .describe('Time bucket size. Use "hour" with a sub-day or few-day date_range.'),
         page: pageSchema,
         metrics: metricsSchema,
         goal: goalSchema,
@@ -83,6 +84,13 @@ export function register(
           dimensions: [timeKey],
           filters,
         });
+        // Plausible stops at its row limit without saying so; returning the rows would
+        // present a series that silently ends early.
+        if (result.results.length >= PLAUSIBLE_MAX_ROWS) {
+          throw new UserFacingError(
+            `This query reached Plausible's ${PLAUSIBLE_MAX_ROWS.toLocaleString("en-US")}-bucket limit, so later buckets may be missing. Narrow date_range or use a coarser granularity.`
+          );
+        }
 
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
