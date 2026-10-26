@@ -19,6 +19,23 @@ import {
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
+// Plausible rejects session metrics (bounce_rate) with goal/property dimensions and with
+// event:hostname unless event:page is also a dimension, which a single-dimension breakdown
+// never has. It rejects event metrics (pageviews) with entry/exit page dimensions.
+function defaultMetrics(dimension: string): string[] {
+  if (
+    dimension === "event:goal" ||
+    dimension === "event:hostname" ||
+    isCustomPropertyDimension(dimension)
+  ) {
+    return ["visitors", "pageviews", "events"];
+  }
+  if (dimension === "visit:entry_page" || dimension === "visit:exit_page") {
+    return ["visitors", "visits", "bounce_rate"];
+  }
+  return ["visitors", "pageviews", "bounce_rate"];
+}
+
 export function register(
   server: McpServer,
   client: PlausibleClient,
@@ -53,11 +70,7 @@ export function register(
       recordMcpClientInfo(ctx);
       try {
         const siteId = resolveSiteId(args.site_id, defaultSiteId);
-        const metrics =
-          args.metrics ??
-          (isCustomPropertyDimension(args.dimension)
-            ? ["visitors", "pageviews", "events"]
-            : ["visitors", "pageviews", "bounce_rate"]);
+        const metrics = args.metrics ?? defaultMetrics(args.dimension);
         const limit = args.limit ?? 20;
 
         assertNoShortcutOverlap(args.property_filters, { page: args.page });
