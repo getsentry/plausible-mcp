@@ -246,11 +246,26 @@ export function errorDropReason(event: ErrorEventLike): string | null {
 
 // --- Root span sampling (tracesSampler) ---------------------------------------
 
+/**
+ * Control methods sampled like heartbeats. The listings return instantly and identically
+ * on every connect. A `subscriptions/listen` span lasts as long as its stream stays open,
+ * often close to an hour, so at 100% it buried request latency under connection lifetime.
+ */
+const LOW_SIGNAL_MCP_METHODS = new Set([
+  "initialize",
+  "tools/list",
+  "resources/list",
+  "resources/templates/list",
+  "subscriptions/listen",
+]);
+
 export interface RootSpanSampleInput {
   /** Request pathname, or null when the URL could not be parsed. */
   pathname: string | null;
   /** Raw `Mcp-Method` request header, or null when absent. */
   mcpMethod: string | null;
+  /** HTTP request method, when known. */
+  requestMethod?: string;
   /** Sampling decision of the enclosing root span, when this span has one. */
   parentSampled?: boolean;
 }
@@ -259,9 +274,10 @@ export interface RootSpanSampleInput {
  * Sample rate for a root span, decided when it starts. Streamed spans cannot be
  * dropped once started, so every noise rule is a rate here: 0 for scanner routes,
  * sub-paths with no MCP method (`/mcp/actuator/heapdump`), and the two handshake
- * notifications; HEARTBEAT_SPAN_KEEP_RATE for `ping`, `server/discover`,
- * `tools/list`, and `initialize`; 1 for everything else. An MCP child segment
- * passes its parent's decision through so root and child are kept or dropped together.
+ * notifications; HEARTBEAT_SPAN_KEEP_RATE for keepalives, handshake listings,
+ * `subscriptions/listen` streams, and GET probes for a server-sent event stream;
+ * 1 for everything else. An MCP child segment passes its parent's decision through so
+ * root and child are kept or dropped together.
  * `app.server.response` still counts 100% of requests.
  */
 export function rootSampleRate(input: RootSpanSampleInput): number {
@@ -269,7 +285,10 @@ export function rootSampleRate(input: RootSpanSampleInput): number {
   if (input.pathname === null) return 1;
   if (classifyRoute(input.pathname) === null) return 0;
   if (isTrackedSubpath(input.pathname) && input.mcpMethod === null) return 0;
-  if (input.mcpMethod === null) return 1;
+  if (input.mcpMethod === null) {
+    // The transport answers a GET with 405: there is no standalone event stream.
+    return input.requestMethod === "GET" ? HEARTBEAT_SPAN_KEEP_RATE : 1;
+  }
 
   const classified = classifyMcpMethod(input.mcpMethod);
   if (
@@ -278,11 +297,7 @@ export function rootSampleRate(input: RootSpanSampleInput): number {
   ) {
     return 0;
   }
-  if (
-    classified.kind === "heartbeat" ||
-    classified.method === "tools/list" ||
-    classified.method === "initialize"
-  ) {
+  if (classified.kind === "heartbeat" || LOW_SIGNAL_MCP_METHODS.has(classified.method)) {
     return HEARTBEAT_SPAN_KEEP_RATE;
   }
   return 1;

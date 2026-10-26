@@ -177,6 +177,7 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
       rootSampleRate({
         pathname: pathnameOf(normalizedRequest?.url),
         mcpMethod: normalizedRequest?.headers?.["mcp-method"] ?? null,
+        requestMethod: normalizedRequest?.method,
         parentSampled,
       }),
     // v11 collects every category by default. Nothing here is needed for debugging: the
