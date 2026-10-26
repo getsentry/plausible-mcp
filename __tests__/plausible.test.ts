@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   PlausibleClient,
   PlausibleApiError,
   parsePlausibleErrorDetail,
+  PlausibleUnreachableError,
 } from "../src/plausible.js";
 
 const mockFetch = vi.fn();
@@ -15,10 +16,11 @@ function mockOk(data: unknown) {
   });
 }
 
-function mockError(status: number, body: string) {
+function mockError(status: number, body: string, headers: Record<string, string> = {}) {
   mockFetch.mockResolvedValueOnce({
     ok: false,
     status,
+    headers: new Headers(headers),
     text: () => Promise.resolve(body),
   });
 }
@@ -73,6 +75,18 @@ describe("PlausibleClient", () => {
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.date_range).toEqual(["2026-07-01", "2026-07-07"]);
+  });
+
+  it("wraps a rejected fetch as PlausibleUnreachableError", async () => {
+    const cause = new TypeError("fetch failed");
+    mockFetch.mockRejectedValueOnce(cause);
+
+    const error = await client
+      .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
+      .catch((e) => e);
+
+    expect(error).toBeInstanceOf(PlausibleUnreachableError);
+    expect((error as Error).cause).toBe(cause);
   });
 
   it("includes dimensions when provided", async () => {
@@ -135,6 +149,32 @@ describe("PlausibleClient", () => {
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.pagination).toEqual({ limit: 10, offset: 5 });
+  });
+
+  it("includes order_by when provided and omits it when empty", async () => {
+    mockOk({ results: [], meta: {}, query: {} });
+    await client.query({
+      site_id: "example.com",
+      metrics: ["visitors"],
+      date_range: "7d",
+      order_by: [
+        ["visitors", "desc"],
+        ["event:page", "asc"],
+      ],
+    });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).order_by).toEqual([
+      ["visitors", "desc"],
+      ["event:page", "asc"],
+    ]);
+
+    mockOk({ results: [], meta: {}, query: {} });
+    await client.query({
+      site_id: "example.com",
+      metrics: ["visitors"],
+      date_range: "7d",
+      order_by: [],
+    });
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).not.toHaveProperty("order_by");
   });
 
   it("uses self-hosted base URL", async () => {
@@ -228,6 +268,63 @@ describe("PlausibleClient", () => {
         date_range: "7d",
       })
     ).rejects.toThrow(PlausibleApiError);
+  });
+
+  it("exposes an integer Retry-After header as retryAfterSeconds", async () => {
+    mockError(429, "Rate limit exceeded", { "Retry-After": "30" });
+
+    const error = await client
+      .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
+      .catch((e) => e);
+
+    expect(error).toBeInstanceOf(PlausibleApiError);
+    expect((error as PlausibleApiError).retryAfterSeconds).toBe(30);
+  });
+
+  describe("HTTP-date Retry-After", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-21T07:00:00Z"));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function retryAfterFor(header: string) {
+      mockError(429, "Rate limit exceeded", { "Retry-After": header });
+      const error = await client
+        .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
+        .catch((e) => e);
+      return (error as PlausibleApiError).retryAfterSeconds;
+    }
+
+    it("converts a future date to seconds from now", async () => {
+      expect(await retryAfterFor("Wed, 21 Oct 2026 07:00:30 GMT")).toBe(30);
+    });
+
+    it("rounds a fractional wait up", async () => {
+      vi.setSystemTime(new Date("2026-10-21T07:00:00.500Z"));
+      expect(await retryAfterFor("Wed, 21 Oct 2026 07:00:30 GMT")).toBe(30);
+    });
+
+    it("clamps a past date to 0", async () => {
+      expect(await retryAfterFor("Wed, 21 Oct 2026 06:00:00 GMT")).toBe(0);
+    });
+
+    it("ignores an unparseable value", async () => {
+      expect(await retryAfterFor("soon")).toBeUndefined();
+    });
+  });
+
+  it("leaves retryAfterSeconds undefined without a Retry-After header", async () => {
+    mockError(429, "Rate limit exceeded");
+
+    const error = await client
+      .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
+      .catch((e) => e);
+
+    expect((error as PlausibleApiError).retryAfterSeconds).toBeUndefined();
   });
 
   it("throws PlausibleApiError on 500", async () => {

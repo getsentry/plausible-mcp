@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { PlausibleClient } from "../plausible.js";
-import { reportToolError } from "../errors.js";
+import type { PlausibleClient, PlausibleResult } from "../plausible.js";
+import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
   siteIdSchemaFor,
@@ -36,6 +36,15 @@ function defaultMetrics(dimension: string): string[] {
   return ["visitors", "pageviews", "bounce_rate"];
 }
 
+const PLAUSIBLE_MAX_ROWS = 10_000;
+
+function byFirstMetricThenName(a: PlausibleResult, b: PlausibleResult): number {
+  const byMetric = (b.metrics[0] ?? 0) - (a.metrics[0] ?? 0);
+  if (byMetric !== 0) return byMetric;
+  const [nameA, nameB] = [String(a.dimensions[0]), String(b.dimensions[0])];
+  return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
+}
+
 export function register(
   server: McpServer,
   client: PlausibleClient,
@@ -62,7 +71,15 @@ export function register(
           .min(1)
           .max(1000)
           .default(20)
-          .describe("Max results to return")
+          .describe(
+            "Max results to return per page. Use offset to fetch further pages; pagination.has_more in the result says whether more rows exist."
+          )
+          .optional(),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .describe("Number of rows to skip, for paging past the first `limit` rows")
           .optional(),
       }),
     },
@@ -72,6 +89,7 @@ export function register(
         const siteId = resolveSiteId(args.site_id, defaultSiteId);
         const metrics = args.metrics ?? defaultMetrics(args.dimension);
         const limit = args.limit ?? 20;
+        const offset = args.offset ?? 0;
 
         assertNoShortcutOverlap(args.property_filters, { page: args.page });
         const filters: unknown[][] = [];
@@ -80,25 +98,47 @@ export function register(
           filters.push(...buildPropertyFilters(args.property_filters));
         }
 
+        // Plausible orders only by the first metric; without a tiebreaker, tied rows can
+        // swap between requests and offset pages would skip or repeat them. Plausible
+        // rejects event:goal in order_by, so goals (few per site) are fetched in full and
+        // paged here over a stable order instead.
+        const isGoal = args.dimension === "event:goal";
         const result = await client.query({
           site_id: siteId,
           metrics,
           date_range: args.date_range,
           dimensions: [args.dimension],
           filters,
-          pagination: { limit },
+          // One extra row reveals whether another page exists without relying on
+          // include.total_rows, which older self-hosted versions lack.
+          pagination: isGoal ? { limit: PLAUSIBLE_MAX_ROWS } : { limit: limit + 1, offset },
+          order_by: isGoal
+            ? [[metrics[0], "desc"]]
+            : [
+                [metrics[0], "desc"],
+                [args.dimension, "asc"],
+              ],
         });
 
+        const rows = isGoal
+          ? [...result.results].sort(byFirstMetricThenName).slice(offset, offset + limit + 1)
+          : result.results;
+        const trimmed = { ...result, results: rows.slice(0, limit) };
+        const pagination = { limit, offset, has_more: rows.length > limit };
+
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: buildQueryStructuredContent(result, metrics, [args.dimension]),
+          content: [
+            { type: "text" as const, text: JSON.stringify({ ...trimmed, pagination }, null, 2) },
+          ],
+          structuredContent: buildQueryStructuredContent(
+            trimmed,
+            metrics,
+            [args.dimension],
+            pagination
+          ),
         };
       } catch (error) {
-        const message = reportToolError(error, "get_breakdown");
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          isError: true,
-        };
+        return toolErrorResult(error, "get_breakdown");
       }
     }
   );

@@ -5,6 +5,7 @@ export interface PlausibleQueryParams {
   dimensions?: string[];
   filters?: unknown[];
   pagination?: { limit: number; offset?: number };
+  order_by?: [string, "asc" | "desc"][];
 }
 
 export interface PlausibleResult {
@@ -47,12 +48,21 @@ export function parsePlausibleErrorDetail(body: string): string | undefined {
  * exception surface entirely and handed to the caller separately. `detail` is non-enumerable
  * so a serializer walking the error cannot pick it up either.
  */
+/** fetch rejected before Plausible sent a response: DNS, TLS, or a dropped connection. */
+export class PlausibleUnreachableError extends Error {
+  constructor(cause: unknown) {
+    super("Could not reach the Plausible API", { cause });
+    this.name = "PlausibleUnreachableError";
+  }
+}
+
 export class PlausibleApiError extends Error {
   readonly detail: string | undefined;
 
   constructor(
     public readonly status: number,
-    body: string
+    body: string,
+    public readonly retryAfterSeconds?: number
   ) {
     super(`Plausible API error ${status}`);
     Object.defineProperty(this, "detail", {
@@ -61,6 +71,15 @@ export class PlausibleApiError extends Error {
     });
     this.name = "PlausibleApiError";
   }
+}
+
+/** Retry-After is either delta-seconds or an HTTP-date; both are normalized to seconds from now. */
+function parseRetryAfterSeconds(header: string | null): number | undefined {
+  const value = header?.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : undefined;
 }
 
 export interface PlausibleClientConfig {
@@ -111,18 +130,31 @@ export class PlausibleClient {
       body.pagination = params.pagination;
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    if (params.order_by?.length) {
+      body.order_by = params.order_by;
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (cause) {
+      throw new PlausibleUnreachableError(cause);
+    }
 
     if (!response.ok) {
       const text = await response.text();
-      throw new PlausibleApiError(response.status, text);
+      throw new PlausibleApiError(
+        response.status,
+        text,
+        parseRetryAfterSeconds(response.headers.get("Retry-After"))
+      );
     }
 
     return (await response.json()) as PlausibleResponse;

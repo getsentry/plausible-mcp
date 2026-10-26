@@ -52,7 +52,7 @@ turning expected caller failures into exception issues:
 | Attribute | Meaning | Example values |
 | --- | --- | --- |
 | `mcp.tool.name` | Fixed registered tool name | `get_timeseries`, `compare_periods` |
-| `error.kind` | Bounded failure category | `user_input`, `plausible_api`, `unexpected` |
+| `error.kind` | Bounded failure category | `user_input`, `plausible_api`, `plausible_unreachable`, `unexpected` |
 | `http.response.status_code` | Plausible status, when applicable | `400`, `401`, `429`, `503` |
 
 Unexpected failures and Plausible 5xx responses are also captured as exceptions. User input

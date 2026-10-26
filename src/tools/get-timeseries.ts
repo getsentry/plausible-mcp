@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { PlausibleClient } from "../plausible.js";
-import { reportToolError, UserFacingError } from "../errors.js";
+import { toolErrorResult, UserFacingError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
   siteIdSchemaFor,
@@ -89,11 +89,7 @@ export function register(
           structuredContent: buildQueryStructuredContent(result, metrics, [timeKey]),
         };
       } catch (error) {
-        const message = reportToolError(error, "get_timeseries");
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          isError: true,
-        };
+        return toolErrorResult(error, "get_timeseries");
       }
     }
   );
