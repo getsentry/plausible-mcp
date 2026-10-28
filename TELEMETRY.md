@@ -133,6 +133,13 @@ Rates:
   that failure either as a wrapped `Parse error` message or, since MCP SDK 2.1, as the raw
   `SyntaxError` from `JSON.parse`, and both forms are dropped. Both HTTP responses
   are still counted by `app.server.response`. Other error events are retained.
+- **`createMcpHandler` reports through its own `onerror`**, separate from the transport
+  hook above. It passes client rejections (unsupported protocol revision, failed header or
+  envelope checks, wrong content type) together with real faults. `isMcpClientRejection`
+  skips the rejections, which already answer 4xx. Everything else is captured: faults the
+  handler answers with a 500, and `subscriptions/listen` calls refused at the subscription
+  limit, which answer HTTP 200 with a JSON-RPC error and so are not visible in the
+  response metric.
 
 ## Privacy
 

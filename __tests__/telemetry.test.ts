@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { UnsupportedProtocolVersionError } from "@modelcontextprotocol/server";
 import {
   classifyMcpMethod,
   classifyMcpRequest,
@@ -7,6 +8,7 @@ import {
   rootSampleRate,
   statusClass,
   errorDropReason,
+  isMcpClientRejection,
   HEARTBEAT_SPAN_KEEP_RATE,
   type ErrorEventLike,
 } from "../src/telemetry.js";
@@ -128,6 +130,25 @@ describe("resolveClientFamily", () => {
     expect(resolveClientFamily("healthcheck")).toBe("other");
     expect(resolveClientFamily("openclaw-bundle-mcp")).toBe("other");
     expect(resolveClientFamily("some-random-agent/9")).toBe("other");
+  });
+});
+
+describe("isMcpClientRejection", () => {
+  it.each([
+    new UnsupportedProtocolVersionError({ supported: ["2026-07-28"], requested: "1999-01-01" }),
+    new Error("Rejected inbound request (H3): MCP-Method header does not match the body"),
+    new Error("Rejected 2025-era request on a modern-only endpoint (L1): unsupported"),
+    new Error("Unsupported Media Type: Content-Type must be application/json"),
+  ])("skips the client rejection %s", (error) => {
+    expect(isMcpClientRejection(error)).toBe(true);
+  });
+
+  it.each([
+    new Error("subscriptions/listen refused: subscription limit reached (1024)"),
+    new Error("Response for request ID 7 is undeliverable: per-request stream is disconnected"),
+    new TypeError("Cannot read properties of undefined"),
+  ])("captures the server fault %s", (error) => {
+    expect(isMcpClientRejection(error)).toBe(false);
   });
 });
 
