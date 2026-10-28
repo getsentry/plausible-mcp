@@ -19,6 +19,7 @@ import {
   classifyRoute,
   errorDropReason,
   isKnownMcpMethod,
+  isMcpClientRejection,
   resolveClientFamily,
   rootSampleRate,
   statusClass,
@@ -151,7 +152,12 @@ const workerMcpHandler = createMcpHandler(
       enableFeedbackTool: true,
     });
   },
-  { legacy: "stateless" },
+  {
+    legacy: "stateless",
+    onerror: (error) => {
+      if (!isMcpClientRejection(error)) Sentry.captureException(error);
+    },
+  },
 );
 
 /** Best-effort pathname for a request URL, or null if it doesn't parse. */

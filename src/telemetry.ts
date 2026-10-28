@@ -19,6 +19,8 @@
  * unit-tested like redaction.ts; worker.ts owns the Sentry-specific wiring.
  */
 
+import { UnsupportedProtocolVersionError } from "@modelcontextprotocol/server";
+
 export type RouteGroup = "mcp" | "internal";
 export type McpRequestKind = "heartbeat" | "tool_call" | "control" | "unknown";
 
@@ -242,6 +244,21 @@ export function errorDropReason(event: ErrorEventLike): string | null {
     }
   }
   return null;
+}
+
+/**
+ * True for the client rejections that `createMcpHandler` passes to its `onerror` next to
+ * real faults: an unsupported protocol revision, a failed header or envelope check, or a
+ * wrong content type. The handler already answers each with a 4xx that
+ * `app.server.response` counts. Faults it answers with a 500, and refused
+ * `subscriptions/listen` calls, which it answers with HTTP 200, fall through to capture.
+ */
+export function isMcpClientRejection(error: Error): boolean {
+  return (
+    error instanceof UnsupportedProtocolVersionError ||
+    error.message.startsWith("Rejected ") ||
+    error.message.startsWith("Unsupported Media Type")
+  );
 }
 
 // --- Root span sampling (tracesSampler) ---------------------------------------
