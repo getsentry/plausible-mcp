@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.0
+
+### New Features ✨
+
+- Structured tool errors, breakdown paging, and inline query rules by @sergical and @claude in [#66](https://github.com/getsentry/plausible-mcp/pull/66)
+
+### Bug Fixes 🐛
+
+- Support hour ranges, datetime windows, and hourly timeseries buckets by @sergical and @claude in [#69](https://github.com/getsentry/plausible-mcp/pull/69)
+- Correct get_breakdown default metrics and Plausible metric/dimension rules in server instructions by @sergical and @claude in [#65](https://github.com/getsentry/plausible-mcp/pull/65)
+- Sample stream, listing, and GET probe spans at the heartbeat rate by @sergical and @claude in [#67](https://github.com/getsentry/plausible-mcp/pull/67)
+
+### Internal Changes 🔧
+
+#### Deps
+
+- Bump the minor-and-patch group across 1 directory with 11 updates by @claude with @dependabot in [#68](https://github.com/getsentry/plausible-mcp/pull/68)
+- Bump actions/create-github-app-token from 3.2.0 to 3.3.0 by @dependabot in [#63](https://github.com/getsentry/plausible-mcp/pull/63)
+- Bump actions/checkout from 4 to 7 by @dependabot in [#55](https://github.com/getsentry/plausible-mcp/pull/55)
+- Bump actions/setup-node from 4 to 7 by @dependabot in [#56](https://github.com/getsentry/plausible-mcp/pull/56)
+
+#### Other
+
+- (node) Bump CI Node version to 22 by @geoffg-sentry with @sentry-junior in [#70](https://github.com/getsentry/plausible-mcp/pull/70)
+
 ## 0.9.0
 
 ### New Features ✨
