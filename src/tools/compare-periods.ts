@@ -83,7 +83,8 @@ function computeDeltas(
 export function register(
   server: McpServer,
   client: PlausibleClient,
-  defaultSiteId?: string
+  defaultSiteId?: string,
+  offerFeedback = false
 ) {
   server.registerTool(
     "compare_periods",
@@ -151,7 +152,7 @@ export function register(
           structuredContent: comparison,
         };
       } catch (error) {
-        return toolErrorResult(error, "compare_periods");
+        return toolErrorResult(error, "compare_periods", offerFeedback);
       }
     }
   );

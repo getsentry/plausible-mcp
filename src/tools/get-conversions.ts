@@ -21,7 +21,8 @@ import { resolveSiteId } from "./get-timeseries.js";
 export function register(
   server: McpServer,
   client: PlausibleClient,
-  defaultSiteId?: string
+  defaultSiteId?: string,
+  offerFeedback = false
 ) {
   server.registerTool(
     "get_conversions",
@@ -78,7 +79,7 @@ export function register(
           structuredContent: buildQueryStructuredContent(result, metrics, dimensions),
         };
       } catch (error) {
-        return toolErrorResult(error, "get_conversions");
+        return toolErrorResult(error, "get_conversions", offerFeedback);
       }
     }
   );

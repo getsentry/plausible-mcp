@@ -244,4 +244,30 @@ describe("toolErrorResult", () => {
 
     expect(result.content[0].text).toBe("Error: Plausible API returned 400");
   });
+
+  it("points a rejected query at send_feedback when the tool is offered", () => {
+    const result = toolErrorResult(new PlausibleApiError(400, ""), toolName, true);
+
+    expect(result.content[0].text).toBe(
+      "Error: Plausible API returned 400\nIf this message doesn't tell you how to fix the call, report it with send_feedback.",
+    );
+    expect(JSON.parse(result.content[1].text).error.message).toBe("Plausible API returned 400");
+  });
+
+  it("points an unexpected failure at send_feedback when the tool is offered", () => {
+    const result = toolErrorResult(new Error("boom"), toolName, true);
+
+    expect(result.content[0].text).toContain("send_feedback");
+  });
+
+  it("keeps send_feedback out of errors whose message already says what to do", () => {
+    for (const error of [
+      new UserFacingError("site_id is required"),
+      new PlausibleApiError(401, ""),
+      new PlausibleApiError(429, "", 12),
+      new PlausibleApiError(503, ""),
+    ]) {
+      expect(toolErrorResult(error, toolName, true).content[0].text).not.toContain("send_feedback");
+    }
+  });
 });

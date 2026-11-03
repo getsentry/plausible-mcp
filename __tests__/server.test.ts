@@ -279,6 +279,24 @@ describe("MCP Server with feedback tool enabled", () => {
     expect(structured.feedback_id).toMatch(/^[0-9a-f]{32}$/);
   });
 
+  it("points a rejected query at send_feedback", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      headers: new Headers(),
+      text: () => Promise.resolve(JSON.stringify({ error: "Invalid metric" })),
+    });
+
+    const result = await client.callTool({
+      name: "get_timeseries",
+      arguments: { date_range: "7d" },
+    });
+
+    expect(result.isError).toBe(true);
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0].text).toContain("send_feedback");
+  });
+
   it("rejects messages that are too short to act on", async () => {
     const result = await client.callTool({
       name: "send_feedback",

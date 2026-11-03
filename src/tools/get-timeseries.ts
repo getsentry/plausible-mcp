@@ -36,7 +36,8 @@ export function resolveSiteId(
 export function register(
   server: McpServer,
   client: PlausibleClient,
-  defaultSiteId?: string
+  defaultSiteId?: string,
+  offerFeedback = false
 ) {
   server.registerTool(
     "get_timeseries",
@@ -97,7 +98,7 @@ export function register(
           structuredContent: buildQueryStructuredContent(result, metrics, [timeKey]),
         };
       } catch (error) {
-        return toolErrorResult(error, "get_timeseries");
+        return toolErrorResult(error, "get_timeseries", offerFeedback);
       }
     }
   );

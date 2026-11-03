@@ -109,13 +109,16 @@ export function reportToolError(error: unknown, toolName: ToolName): ToolErrorIn
  * success `outputSchema` even when `isError` is true, which would turn the error into a
  * protocol failure.
  */
-export function toolErrorResult(error: unknown, toolName: ToolName) {
+export function toolErrorResult(error: unknown, toolName: ToolName, offerFeedback = false) {
   const info = reportToolError(error, toolName);
   let text = `Error: ${info.message}`;
   if (info.retry_after_seconds !== undefined) {
     text += ` Retry after ${info.retry_after_seconds} seconds.`;
   } else if (info.retryable) {
     text += " This error is temporary; retry later.";
+  }
+  if (offerFeedback && (info.code === "invalid_query" || info.code === "internal")) {
+    text += "\nIf this message doesn't tell you how to fix the call, report it with send_feedback.";
   }
   return {
     content: [
