@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.0
+
+### New Features ✨
+
+- (errors) Point failed queries at send_feedback by @sergical and @claude in [#76](https://github.com/getsentry/plausible-mcp/pull/76)
+
+### Bug Fixes 🐛
+
+- (deps) Pin vite to 7.3.7 for dev-server advisories by @sergical and @claude in [#71](https://github.com/getsentry/plausible-mcp/pull/71)
+- (errors) Classify Plausible 402 as an account access error by @sergical and @claude in [#75](https://github.com/getsentry/plausible-mcp/pull/75)
+- (telemetry) Report createMcpHandler errors from the Worker by @sergical and @claude in [#72](https://github.com/getsentry/plausible-mcp/pull/72)
+
+### Documentation 📚
+
+- (readme) Add setup snippets for each MCP client by @sergical and @claude in [#77](https://github.com/getsentry/plausible-mcp/pull/77)
+
 ## 0.10.0
 
 ### New Features ✨
