@@ -28,13 +28,25 @@ A hosted instance is available at **`https://plausible-mcp.sentry.dev`**.
 
 **With your own Plausible API key** (any user):
 
+The `/mcp` endpoint authenticates with a [Plausible Stats API key](https://plausible.io/docs/stats-api), sent as `Authorization: Bearer <key>`. Plausible has no OAuth sign-in, so the client must send that header. Without it, the server returns 401.
+
+**Claude Code:**
+
 ```bash
 claude mcp add --transport http plausible https://plausible-mcp.sentry.dev/mcp --header "Authorization: Bearer YOUR_PLAUSIBLE_API_KEY"
 ```
 
 > Keep the URL **before** `--header`. `--header` is variadic, so if it comes last it swallows the URL and the CLI fails with `error: missing required argument 'commandOrUrl'`.
 
-Or add manually to your MCP client config (Claude Desktop, Cursor, etc.):
+**Codex:**
+
+```bash
+codex mcp add plausible --url https://plausible-mcp.sentry.dev/mcp --bearer-token-env-var PLAUSIBLE_API_KEY
+```
+
+Codex reads the key from `PLAUSIBLE_API_KEY` when it starts, so export that variable in your shell profile, not only in the current shell.
+
+**Cursor** (`~/.cursor/mcp.json`) and other clients that accept custom headers:
 
 ```json
 {
@@ -48,6 +60,40 @@ Or add manually to your MCP client config (Claude Desktop, Cursor, etc.):
   }
 }
 ```
+
+**Claude** (claude.ai and Claude Desktop):
+
+Add a custom connector under Customize → Connectors with:
+
+- **MCP server URL:** `https://plausible-mcp.sentry.dev/mcp`
+- **Authentication:** No sign-in
+- **Request headers:** `authorization` with the value `Bearer YOUR_PLAUSIBLE_API_KEY`. Include `Bearer ` in the value, because Claude sends it exactly as entered.
+
+> Request headers are in beta for a limited set of organizations. On Team and Enterprise plans, an Owner adds the connector and everyone in the organization queries with that one key. See [Claude's connector docs](https://claude.com/docs/connectors/custom/add-unlisted#authenticate-with-request-headers).
+
+If the dialog has no **Request headers** section, Claude cannot send the key, so claude.ai cannot use `/mcp`. In Claude Desktop, bridge to the hosted server with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) in `claude_desktop_config.json` instead, or run the server [locally](#local-stdio):
+
+```json
+{
+  "mcpServers": {
+    "plausible": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://plausible-mcp.sentry.dev/mcp",
+        "--header",
+        "Authorization:${PLAUSIBLE_AUTH}"
+      ],
+      "env": {
+        "PLAUSIBLE_AUTH": "Bearer YOUR_PLAUSIBLE_API_KEY"
+      }
+    }
+  }
+}
+```
+
+> Keep `Authorization:${PLAUSIBLE_AUTH}` without spaces. Some clients do not escape spaces inside `args`, so the space goes in the environment variable instead.
 
 **Sentry employees** (via OAuth 2.1 + Cloudflare Access):
 
