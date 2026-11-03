@@ -92,6 +92,21 @@ describe("reportToolError", () => {
     );
   });
 
+  it("classifies a Plausible 402 as an account problem, not a bad query", () => {
+    const error = new PlausibleApiError(
+      402,
+      JSON.stringify({ error: "The account that owns this API key does not have access to Stats API" })
+    );
+
+    expect(reportToolError(error, toolName)).toEqual({
+      code: "unauthorized",
+      message:
+        "The Plausible account behind this API key has no Stats API access (402): The account that owns this API key does not have access to Stats API",
+      retryable: false,
+    });
+    expect(captureException).not.toHaveBeenCalled();
+  });
+
   it("falls back to the status-only message for a non-JSON body", () => {
     const error = new PlausibleApiError(502, "<html>Bad Gateway</html>");
 
