@@ -47,7 +47,8 @@ function byFirstMetricThenName(a: PlausibleResult, b: PlausibleResult): number {
 export function register(
   server: McpServer,
   client: PlausibleClient,
-  defaultSiteId?: string
+  defaultSiteId?: string,
+  offerFeedback = false
 ) {
   server.registerTool(
     "get_breakdown",
@@ -137,7 +138,7 @@ export function register(
           ),
         };
       } catch (error) {
-        return toolErrorResult(error, "get_breakdown");
+        return toolErrorResult(error, "get_breakdown", offerFeedback);
       }
     }
   );

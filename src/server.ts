@@ -91,11 +91,12 @@ export function createServer(config: ServerConfig): McpServer {
     baseUrl: config.baseUrl,
   });
 
-  registerTimeseries(server, client, config.defaultSiteId);
-  registerBreakdown(server, client, config.defaultSiteId);
-  registerConversions(server, client, config.defaultSiteId);
-  registerComparePeriods(server, client, config.defaultSiteId);
-  if (config.enableFeedbackTool) {
+  const offerFeedback = config.enableFeedbackTool ?? false;
+  registerTimeseries(server, client, config.defaultSiteId, offerFeedback);
+  registerBreakdown(server, client, config.defaultSiteId, offerFeedback);
+  registerConversions(server, client, config.defaultSiteId, offerFeedback);
+  registerComparePeriods(server, client, config.defaultSiteId, offerFeedback);
+  if (offerFeedback) {
     registerSendFeedback(server);
   }
 
