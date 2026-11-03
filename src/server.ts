@@ -68,7 +68,7 @@ export function createServer(config: ServerConfig): McpServer {
     new McpServer(
       {
         name: "plausible-mcp",
-        version: "0.10.0",
+        version: "0.11.0",
       },
       {
         instructions: config.enableFeedbackTool
