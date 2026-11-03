@@ -28,13 +28,25 @@ A hosted instance is available at **`https://plausible-mcp.sentry.dev`**.
 
 **With your own Plausible API key** (any user):
 
+The `/mcp` endpoint authenticates with a [Plausible Stats API key](https://plausible.io/docs/stats-api), sent as `Authorization: Bearer <key>`. Plausible has no OAuth sign-in, so a client must be able to send that header. Without it, the server returns 401.
+
+**Claude Code:**
+
 ```bash
 claude mcp add --transport http plausible https://plausible-mcp.sentry.dev/mcp --header "Authorization: Bearer YOUR_PLAUSIBLE_API_KEY"
 ```
 
 > Keep the URL **before** `--header`. `--header` is variadic, so if it comes last it swallows the URL and the CLI fails with `error: missing required argument 'commandOrUrl'`.
 
-Or add manually to your MCP client config (Claude Desktop, Cursor, etc.):
+**Codex:**
+
+```bash
+codex mcp add plausible --url https://plausible-mcp.sentry.dev/mcp --bearer-token-env-var PLAUSIBLE_API_KEY
+```
+
+Codex reads the key from `PLAUSIBLE_API_KEY` when it starts, so export that variable in your shell profile, not only in the current shell.
+
+**Cursor** (`~/.cursor/mcp.json`) and other clients that accept custom headers:
 
 ```json
 {
@@ -48,6 +60,34 @@ Or add manually to your MCP client config (Claude Desktop, Cursor, etc.):
   }
 }
 ```
+
+**Claude Desktop** (`claude_desktop_config.json`):
+
+Connectors added under Settings → Connectors sign in with OAuth and cannot send an API key, and the config file does not take a remote URL. Bridge to the hosted server with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) instead, or run the server [locally](#local-stdio):
+
+```json
+{
+  "mcpServers": {
+    "plausible": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://plausible-mcp.sentry.dev/mcp",
+        "--header",
+        "Authorization:${PLAUSIBLE_AUTH}"
+      ],
+      "env": {
+        "PLAUSIBLE_AUTH": "Bearer YOUR_PLAUSIBLE_API_KEY"
+      }
+    }
+  }
+}
+```
+
+> Keep `Authorization:${PLAUSIBLE_AUTH}` without spaces. Some clients do not escape spaces inside `args`, so the space goes in the environment variable instead.
+
+**Claude.ai** custom connectors also sign in only with OAuth, so they cannot use `/mcp`.
 
 **Sentry employees** (via OAuth 2.1 + Cloudflare Access):
 
