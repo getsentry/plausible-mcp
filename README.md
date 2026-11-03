@@ -28,7 +28,7 @@ A hosted instance is available at **`https://plausible-mcp.sentry.dev`**.
 
 **With your own Plausible API key** (any user):
 
-The `/mcp` endpoint authenticates with a [Plausible Stats API key](https://plausible.io/docs/stats-api), sent as `Authorization: Bearer <key>`. Plausible has no OAuth sign-in, so a client must be able to send that header. Without it, the server returns 401.
+The `/mcp` endpoint authenticates with a [Plausible Stats API key](https://plausible.io/docs/stats-api), sent as `Authorization: Bearer <key>`. Plausible has no OAuth sign-in, so the client must send that header. Without it, the server returns 401.
 
 **Claude Code:**
 
@@ -61,9 +61,17 @@ Codex reads the key from `PLAUSIBLE_API_KEY` when it starts, so export that vari
 }
 ```
 
-**Claude Desktop** (`claude_desktop_config.json`):
+**Claude** (claude.ai and Claude Desktop):
 
-Connectors added under Settings → Connectors sign in with OAuth and cannot send an API key, and the config file does not take a remote URL. Bridge to the hosted server with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) instead, or run the server [locally](#local-stdio):
+Add a custom connector under Customize → Connectors with:
+
+- **MCP server URL:** `https://plausible-mcp.sentry.dev/mcp`
+- **Authentication:** No sign-in
+- **Request headers:** `authorization` with the value `Bearer YOUR_PLAUSIBLE_API_KEY`. Include `Bearer ` in the value, because Claude sends it exactly as entered.
+
+> Request headers are in beta for a limited set of organizations. On Team and Enterprise plans, an Owner adds the connector and everyone in the organization queries with that one key. See [Claude's connector docs](https://claude.com/docs/connectors/custom/add-unlisted#authenticate-with-request-headers).
+
+If the dialog has no **Request headers** section, Claude cannot send the key, so claude.ai cannot use `/mcp`. In Claude Desktop, bridge to the hosted server with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) in `claude_desktop_config.json` instead, or run the server [locally](#local-stdio):
 
 ```json
 {
@@ -86,8 +94,6 @@ Connectors added under Settings → Connectors sign in with OAuth and cannot sen
 ```
 
 > Keep `Authorization:${PLAUSIBLE_AUTH}` without spaces. Some clients do not escape spaces inside `args`, so the space goes in the environment variable instead.
-
-**Claude.ai** custom connectors also sign in only with OAuth, so they cannot use `/mcp`.
 
 **Sentry employees** (via OAuth 2.1 + Cloudflare Access):
 
