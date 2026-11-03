@@ -59,6 +59,8 @@ export function reportToolError(error: unknown, toolName: ToolName): ToolErrorIn
     let summary: string;
     if (error.status === 401) {
       summary = "Plausible rejected the API key or site_id (401)";
+    } else if (error.status === 402) {
+      summary = "The Plausible account behind this API key has no Stats API access (402)";
     } else if (error.status === 429) {
       summary = "Plausible rate limit exceeded (429)";
     } else {
@@ -66,7 +68,7 @@ export function reportToolError(error: unknown, toolName: ToolName): ToolErrorIn
     }
     const message = error.detail ? `${summary}: ${error.detail}` : summary;
 
-    if (error.status === 401 || error.status === 403) {
+    if (error.status === 401 || error.status === 402 || error.status === 403) {
       return { code: "unauthorized", message, retryable: false };
     }
     if (error.status === 429 || error.status >= 500) {
