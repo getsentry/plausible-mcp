@@ -1,82 +1,90 @@
 import { z } from "zod";
 import * as Sentry from "@sentry/cloudflare";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { TOOL_NAMES } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
-import { anonymizeEventWithoutEmail, type RedactableEvent } from "../redaction.js";
+import {
+  anonymizeEventWithoutEmail,
+  scrubFeedbackText,
+  type RedactableEvent,
+} from "../redaction.js";
 
-export const FEEDBACK_CATEGORIES = [
-  "bug",
-  "confusing_error",
-  "unexpected_results",
-  "feature_request",
-  "praise",
-] as const;
+// Sentry truncates User Feedback messages beyond this length.
+const FEEDBACK_MAX_LENGTH = 4096;
 
 /**
- * Lets the calling agent (or its user) file feedback about this MCP server into
- * Sentry User Feedback, linked to the active trace. Registered only when the
- * hosting entry point runs with Sentry (`ServerConfig.enableFeedbackTool`) —
- * without an initialized SDK the feedback would go nowhere, so the tool is
- * hidden rather than silently dropping submissions.
+ * Lets the calling agent file feedback about this MCP server into Sentry User Feedback,
+ * linked to the active trace. Registered only when the hosting entry point runs with Sentry
+ * (`ServerConfig.enableFeedbackTool`) — without an initialized SDK the feedback would go
+ * nowhere, so the tool is hidden rather than silently dropping submissions.
  *
- * The message is untrusted caller input: it is bounded by the schema and passed
- * to Sentry as data, never interpreted. `Sentry.captureFeedback` produces `type:
- * "feedback"` events, which never reach `beforeSend` — so the privacy guardrail
- * is attached directly to this call's scope instead.
+ * Keep the kind/impact values and the `mcp_agent` source in step with getsentry/sentry-mcp's
+ * `submit_feedback_to_sentry_team`, so reports from both servers triage the same way.
+ *
+ * The text is untrusted caller input: it is bounded by the schema, scrubbed, and passed to
+ * Sentry as data, never interpreted. `Sentry.captureFeedback` produces `type: "feedback"`
+ * events, which never reach `beforeSend` — so the privacy guardrail is attached directly to
+ * this call's scope instead.
  */
-export function register(server: McpServer) {
+export function register(server: McpServer, apiKey: string) {
   server.registerTool(
     "send_feedback",
     {
       title: "Send Feedback",
       description:
-        "Report feedback about this MCP server to its maintainers: a confusing error, a query you could not express, results that did not match expectations, or something that worked well. Use this after hitting friction with the other tools so the server can improve.",
-      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
-      outputSchema: z.object({
-        recorded: z.boolean(),
-        feedback_id: z.string().optional(),
-      }),
+        "Send feedback about this server to its maintainers, not to Plausible. Use it at most once per task, after you finish or give up, when a tool was missing, broken, or confusing.",
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      outputSchema: z.object({ feedback_id: z.string() }),
       inputSchema: z.object({
-        message: z
+        task: z.string().min(1).max(200).describe("What the user asked you to do"),
+        kind: z
+          .enum(["missing", "broken", "confusing", "idea"])
+          .describe(
+            "missing: no tool or argument for it; broken: an error or wrong data; confusing: an unclear description, error, or result; idea: an improvement"
+          ),
+        impact: z.enum(["blocked", "worked_around", "friction"]),
+        description: z
           .string()
           .min(10)
-          .max(4000)
-          .describe(
-            "What happened and what you expected. Name the tool and the arguments that caused friction; never include API keys or secrets."
-          ),
-        category: z
-          .enum(FEEDBACK_CATEGORIES)
-          .default("bug")
-          .describe("The kind of feedback"),
-        tool_name: z
-          .string()
-          .max(64)
-          .optional()
-          .describe("Which tool the feedback is about, if any (e.g. get_breakdown)"),
+          .max(FEEDBACK_MAX_LENGTH)
+          .describe("The call you made, what happened, and what you expected"),
+        tool_name: z.enum(TOOL_NAMES).optional(),
       }),
     },
     async (args, ctx) => {
       recordMcpClientInfo(ctx);
+      const header = args.tool_name
+        ? `Task: ${args.task}\nTool: ${args.tool_name}`
+        : `Task: ${args.task}`;
+      const message = scrubFeedbackText(`${header}\n\n${args.description}`, apiKey).slice(
+        0,
+        FEEDBACK_MAX_LENGTH
+      );
       const feedbackId = Sentry.withScope((scope) => {
-        scope.setTag("feedback.category", args.category ?? "bug");
-        if (args.tool_name) {
-          scope.setTag("feedback.tool", args.tool_name);
-        }
         scope.addEventProcessor((event) => {
           anonymizeEventWithoutEmail(event as RedactableEvent);
           return event;
         });
-        return Sentry.captureFeedback({ message: args.message });
+        return Sentry.captureFeedback({
+          message,
+          source: "mcp_agent",
+          tags: {
+            "feedback.kind": args.kind,
+            "feedback.impact": args.impact,
+            ...(args.tool_name && { "feedback.tool": args.tool_name }),
+          },
+        });
       });
 
+      const result = { feedback_id: feedbackId };
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: "Feedback recorded — thank you. The maintainers review submissions in Sentry User Feedback.",
-          },
-        ],
-        structuredContent: { recorded: true, feedback_id: feedbackId },
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+        structuredContent: result,
       };
     }
   );

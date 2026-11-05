@@ -1,11 +1,14 @@
 import * as Sentry from "@sentry/cloudflare";
 import { PlausibleApiError, PlausibleUnreachableError } from "./plausible.js";
 
-export type ToolName =
-  | "get_timeseries"
-  | "get_breakdown"
-  | "get_conversions"
-  | "compare_periods";
+export const TOOL_NAMES = [
+  "get_timeseries",
+  "get_breakdown",
+  "get_conversions",
+  "compare_periods",
+] as const;
+
+export type ToolName = (typeof TOOL_NAMES)[number];
 
 export class UserFacingError extends Error {
   constructor(message: string) {

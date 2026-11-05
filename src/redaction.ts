@@ -82,6 +82,21 @@ export function sanitizeClientAttribute(value: string): string | undefined {
     : trimmed;
 }
 
+const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi;
+const EMAIL_ADDRESS = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+
+/**
+ * Remove secrets and contact details from free text an agent writes as feedback. The agent
+ * holds the caller's Plausible key, so that exact string is the most likely leak; bearer
+ * tokens and email addresses catch pasted request headers and site data.
+ */
+export function scrubFeedbackText(text: string, apiKey: string): string {
+  const withoutKey = apiKey ? text.replaceAll(apiKey, "[REDACTED_API_KEY]") : text;
+  return withoutKey
+    .replace(BEARER_TOKEN, "Bearer [REDACTED]")
+    .replace(EMAIL_ADDRESS, "[REDACTED_EMAIL]");
+}
+
 /**
  * Neither endpoint reads the query string or the fragment, so anything there is caller
  * noise the SDK would otherwise store verbatim in the URL attributes.

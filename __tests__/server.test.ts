@@ -255,25 +255,19 @@ describe("MCP Server with feedback tool enabled", () => {
     expect(tools.map((t) => t.name)).toContain("send_feedback");
   });
 
-  it("mentions send_feedback in the server instructions", () => {
-    expect(client.getInstructions()).toContain("send_feedback");
-  });
-
   it("records feedback and returns structured confirmation", async () => {
     const result = await client.callTool({
       name: "send_feedback",
       arguments: {
-        message: "The combination-rules error message could name the offending metric",
-        category: "confusing_error",
+        task: "Break down revenue by plan",
+        kind: "confusing",
+        impact: "friction",
+        description: "The combination-rules error message could name the offending metric",
       },
     });
 
     expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as {
-      recorded: boolean;
-      feedback_id?: string;
-    };
-    expect(structured.recorded).toBe(true);
+    const structured = result.structuredContent as { feedback_id: string };
     // Uses the real (unmocked) Sentry withScope/captureFeedback: proves withScope
     // propagates the callback's return value, so the feedback id is not lost.
     expect(structured.feedback_id).toMatch(/^[0-9a-f]{32}$/);
@@ -300,7 +294,7 @@ describe("MCP Server with feedback tool enabled", () => {
   it("rejects messages that are too short to act on", async () => {
     const result = await client.callTool({
       name: "send_feedback",
-      arguments: { message: "bad" },
+      arguments: { task: "t", kind: "broken", impact: "blocked", description: "bad" },
     });
 
     expect(result.isError).toBe(true);

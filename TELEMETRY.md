@@ -183,6 +183,8 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
 - **Feedback events bypass `beforeSend`.** `Sentry.captureFeedback` produces `type: "feedback"`
   events, which `beforeSend` never sees, so `send_feedback` (`src/tools/send-feedback.ts`)
   attaches `anonymizeEventWithoutEmail` directly as a scope event processor around the call.
+  The agent writes the feedback text, so `scrubFeedbackText` removes the caller's Plausible
+  key, bearer tokens and email addresses from it before capture.
 - **`mcp.client.name` and `mcp.client.version` are recorded on both endpoints, sanitized.** A
   client library name and version identify software, not a person, so they're deliberately
   exempt from anonymization — unlike `mcp.client.title`, a free-form display string a client

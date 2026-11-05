@@ -32,7 +32,7 @@ export interface ServerConfig {
  * (date formats, illegal metric/dimension combinations) to cut the resulting 400s
  * at the source.
  */
-const SERVER_INSTRUCTIONS = `This server queries Plausible Analytics (Stats API v2) for a site's traffic and conversions. All tools are read-only.
+const SERVER_INSTRUCTIONS = `This server queries Plausible Analytics (Stats API v2) for a site's traffic and conversions. The query tools are read-only.
 
 DATE RANGES (date_range, period_a, period_b):
 - Relative: "7d", "30d", "12mo" (N days/months back), "1h", "24h" (last N hours, ending now), or "day", "month", "year", "all".
@@ -59,10 +59,6 @@ ERRORS: a failed call returns isError. The first text block is a readable messag
 
 SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's default site is used; if there is no default, the call fails — ask the user which site to query.`;
 
-const FEEDBACK_INSTRUCTIONS = `
-
-FEEDBACK: If a tool result confuses you, an error message doesn't help you fix the call, or you cannot express the query you need, report it with send_feedback — it goes straight to the server's maintainers.`;
-
 export function createServer(config: ServerConfig): McpServer {
   const server = Sentry.wrapMcpServerWithSentry(
     new McpServer(
@@ -71,9 +67,7 @@ export function createServer(config: ServerConfig): McpServer {
         version: "0.11.3",
       },
       {
-        instructions: config.enableFeedbackTool
-          ? SERVER_INSTRUCTIONS + FEEDBACK_INSTRUCTIONS
-          : SERVER_INSTRUCTIONS,
+        instructions: SERVER_INSTRUCTIONS,
         cacheHints: {
           "server/discover": { ttlMs: 60 * 60 * 1000, cacheScope: "public" },
           "tools/list": { ttlMs: 60 * 60 * 1000, cacheScope: "public" },
@@ -97,7 +91,7 @@ export function createServer(config: ServerConfig): McpServer {
   registerConversions(server, client, config.defaultSiteId, offerFeedback);
   registerComparePeriods(server, client, config.defaultSiteId, offerFeedback);
   if (offerFeedback) {
-    registerSendFeedback(server);
+    registerSendFeedback(server, config.apiKey);
   }
 
   return server;
