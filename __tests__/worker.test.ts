@@ -687,7 +687,12 @@ describe("MCP Worker entry", () => {
       // redaction path than the tool call above.
       await byokClient.callTool({
         name: "send_feedback",
-        arguments: { message: "The error message was not specific enough." },
+        arguments: {
+          task: "Check weekly traffic",
+          kind: "confusing",
+          impact: "friction",
+          description: "The error for key private-test-key was not specific enough.",
+        },
       });
     } finally {
       await byokClient.close();

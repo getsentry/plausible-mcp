@@ -3,74 +3,107 @@ import { McpServer } from "@modelcontextprotocol/server";
 
 const sentry = vi.hoisted(() => ({
   captureFeedback: vi.fn(() => "feedback-event-id"),
-  withScope: vi.fn(),
-  setTag: vi.fn(),
   addEventProcessor: vi.fn(),
 }));
 
 vi.mock("@sentry/cloudflare", () => ({
   captureFeedback: sentry.captureFeedback,
-  withScope: (
-    cb: (scope: {
-      setTag: typeof sentry.setTag;
-      addEventProcessor: typeof sentry.addEventProcessor;
-    }) => unknown
-  ) => cb({ setTag: sentry.setTag, addEventProcessor: sentry.addEventProcessor }),
+  withScope: (cb: (scope: { addEventProcessor: typeof sentry.addEventProcessor }) => unknown) =>
+    cb({ addEventProcessor: sentry.addEventProcessor }),
 }));
 
 import { register } from "../../src/tools/send-feedback.js";
 
-function getToolHandler(server: McpServer, toolName: string) {
-  const tools = (server as any)._registeredTools as Record<string, any>;
-  const tool = tools?.[toolName];
-  if (!tool) throw new Error(`Tool ${toolName} not registered`);
-  return async (args: Record<string, unknown>) => tool.handler(args, {} as any);
+const API_KEY = "plausible-key-abc123";
+
+function getTool(server: McpServer) {
+  return ((server as any)._registeredTools as Record<string, any>)["send_feedback"];
 }
+
+function callTool(server: McpServer, args: Record<string, unknown>) {
+  return getTool(server).handler(args, {} as any);
+}
+
+const baseArgs = {
+  task: "Compare signups month over month",
+  kind: "broken",
+  impact: "worked_around",
+  description: "compare_periods returned deltas with the wrong sign",
+};
 
 describe("send_feedback tool", () => {
   let server: McpServer;
 
   beforeEach(() => {
     sentry.captureFeedback.mockClear();
-    sentry.setTag.mockClear();
     sentry.addEventProcessor.mockClear();
     server = new McpServer({ name: "test", version: "0.0.1" });
-    register(server);
+    register(server, API_KEY);
   });
 
-  it("captures the message as Sentry feedback and returns the feedback id", async () => {
-    const handler = getToolHandler(server, "send_feedback");
-    const result = await handler({
-      message: "get_breakdown rejected my dimension and the error did not say which values are valid",
-      category: "confusing_error",
-      tool_name: "get_breakdown",
-    });
+  it("sends the task, tool and description as agent feedback", async () => {
+    const result = await callTool(server, { ...baseArgs, tool_name: "compare_periods" });
 
     expect(sentry.captureFeedback).toHaveBeenCalledWith({
       message:
-        "get_breakdown rejected my dimension and the error did not say which values are valid",
+        "Task: Compare signups month over month\nTool: compare_periods\n\ncompare_periods returned deltas with the wrong sign",
+      source: "mcp_agent",
+      tags: {
+        "feedback.kind": "broken",
+        "feedback.impact": "worked_around",
+        "feedback.tool": "compare_periods",
+      },
     });
-    expect(sentry.setTag).toHaveBeenCalledWith("feedback.category", "confusing_error");
-    expect(sentry.setTag).toHaveBeenCalledWith("feedback.tool", "get_breakdown");
-    expect(result.structuredContent).toEqual({
-      recorded: true,
-      feedback_id: "feedback-event-id",
-    });
-    expect(result.isError).toBeUndefined();
     expect(sentry.addEventProcessor).toHaveBeenCalledWith(expect.any(Function));
+    expect(result.structuredContent).toEqual({ feedback_id: "feedback-event-id" });
+    expect(JSON.parse(result.content[0].text)).toEqual({ feedback_id: "feedback-event-id" });
+    expect(result.isError).toBeUndefined();
   });
 
-  it("defaults the category tag when none is given", async () => {
-    const handler = getToolHandler(server, "send_feedback");
-    await handler({ message: "something long enough to pass validation" });
+  it("leaves out the tool line and tag when no tool is named", async () => {
+    await callTool(server, baseArgs);
 
-    expect(sentry.setTag).toHaveBeenCalledWith("feedback.category", "bug");
-    expect(sentry.setTag).not.toHaveBeenCalledWith("feedback.tool", expect.anything());
+    const params = sentry.captureFeedback.mock.calls[0][0] as any;
+    expect(params.message).toBe(
+      "Task: Compare signups month over month\n\ncompare_periods returned deltas with the wrong sign"
+    );
+    expect(params.tags).not.toHaveProperty("feedback.tool");
   });
 
-  it("is not registered as read-only", () => {
-    const tool = ((server as any)._registeredTools as Record<string, any>)["send_feedback"];
-    expect(tool.annotations.readOnlyHint).toBe(false);
-    expect(tool.annotations.idempotentHint).toBe(false);
+  it("scrubs the caller's API key, bearer tokens and emails", async () => {
+    await callTool(server, {
+      ...baseArgs,
+      task: "Report for josé@exämple.com",
+      description: `Sent Authorization: Bearer abc.def-123 with key ${API_KEY} for ops@example.com`,
+    });
+
+    const { message } = sentry.captureFeedback.mock.calls[0][0] as any;
+    expect(message).not.toContain(API_KEY);
+    expect(message).not.toContain("abc.def-123");
+    expect(message).not.toContain("ops@example.com");
+    expect(message).not.toContain("josé");
+    expect(message).toContain("Task: Report for [REDACTED_EMAIL]");
+    expect(message).toContain("[REDACTED_API_KEY]");
+  });
+
+  it("caps the message at Sentry's feedback length", async () => {
+    await callTool(server, { ...baseArgs, description: "x".repeat(4096) });
+
+    const { message } = sentry.captureFeedback.mock.calls[0][0] as any;
+    expect(message).toHaveLength(4096);
+  });
+
+  it("only accepts this server's query tools as tool_name", () => {
+    const schema = getTool(server).inputSchema;
+    expect(schema.safeParse({ ...baseArgs, tool_name: "get_breakdown" }).success).toBe(true);
+    expect(schema.safeParse({ ...baseArgs, tool_name: "search_issues" }).success).toBe(false);
+  });
+
+  it("declares a non-destructive write", () => {
+    expect(getTool(server).annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+    });
   });
 });
