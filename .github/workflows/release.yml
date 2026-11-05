@@ -18,6 +18,10 @@ on:
         type: boolean
         default: false
 
+# Every step uses the release bot's app token, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: ubuntu-latest
