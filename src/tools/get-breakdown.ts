@@ -8,11 +8,13 @@ import {
   siteIdSchemaFor,
   dateRangeSchema,
   pageSchema,
+  goalSchema,
   metricsSchema,
   dimensionSchema,
   propertyFiltersSchema,
   isCustomPropertyDimension,
   buildPageFilter,
+  buildGoalFilter,
   buildPropertyFilters,
   assertNoShortcutOverlap,
   queryResultOutputSchema,
@@ -63,6 +65,7 @@ export function register(
         date_range: dateRangeSchema,
         dimension: dimensionSchema,
         page: pageSchema,
+        goal: goalSchema,
         property_filters: propertyFiltersSchema,
         metrics: metricsSchema,
         limit: z
@@ -91,9 +94,13 @@ export function register(
         const limit = args.limit ?? 20;
         const offset = args.offset ?? 0;
 
-        assertNoShortcutOverlap(args.property_filters, { page: args.page });
+        assertNoShortcutOverlap(args.property_filters, {
+          page: args.page,
+          goal: args.goal,
+        });
         const filters: unknown[][] = [];
         if (args.page) filters.push(buildPageFilter(args.page));
+        if (args.goal) filters.push(buildGoalFilter(args.goal));
         if (args.property_filters?.length) {
           filters.push(...buildPropertyFilters(args.property_filters));
         }
