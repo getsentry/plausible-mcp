@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.2
+
+### Internal Changes 🔧
+
+- Deploy the Worker when a release is published by @sergical and @claude in [#79](https://github.com/getsentry/plausible-mcp/pull/79)
+- Limit the Release workflow's token to read access by @sergical and @claude in [#80](https://github.com/getsentry/plausible-mcp/pull/80)
+
 ## 0.11.1
 
 ### Bug Fixes 🐛
