@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.0
+
+### New Features ✨
+
+- (feedback) Structure send_feedback like sentry-mcp's agent feedback by @sergical and @claude in [#86](https://github.com/getsentry/plausible-mcp/pull/86)
+
 ## 0.11.3
 
 ### Bug Fixes 🐛
