@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.3
+
+### Bug Fixes 🐛
+
+- (deploy) Pass the Sentry project when creating the release by @sergical and @claude in [#81](https://github.com/getsentry/plausible-mcp/pull/81)
+
 ## 0.11.2
 
 ### Internal Changes 🔧
