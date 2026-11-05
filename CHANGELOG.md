@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1
+
+### Bug Fixes 🐛
+
+- (tools) Add goal to get_breakdown and name the compare_periods baseline by @sergical and @claude in [#78](https://github.com/getsentry/plausible-mcp/pull/78)
+
+### Internal Changes 🔧
+
+- (deps) Bump the minor-and-patch group with 7 updates by @dependabot in [#73](https://github.com/getsentry/plausible-mcp/pull/73)
+- (deps-dev) Bump vite from 7.3.7 to 8.3.5 by @dependabot in [#74](https://github.com/getsentry/plausible-mcp/pull/74)
+
 ## 0.11.0
 
 ### New Features ✨
