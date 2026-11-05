@@ -83,7 +83,7 @@ export function sanitizeClientAttribute(value: string): string | undefined {
 }
 
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi;
-const EMAIL_ADDRESS = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+const EMAIL_ADDRESS = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.\p{L}{2,}/gu;
 
 /**
  * Remove secrets and contact details from free text an agent writes as feedback. The agent

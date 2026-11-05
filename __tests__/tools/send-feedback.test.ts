@@ -73,6 +73,7 @@ describe("send_feedback tool", () => {
   it("scrubs the caller's API key, bearer tokens and emails", async () => {
     await callTool(server, {
       ...baseArgs,
+      task: "Report for josé@exämple.com",
       description: `Sent Authorization: Bearer abc.def-123 with key ${API_KEY} for ops@example.com`,
     });
 
@@ -80,6 +81,8 @@ describe("send_feedback tool", () => {
     expect(message).not.toContain(API_KEY);
     expect(message).not.toContain("abc.def-123");
     expect(message).not.toContain("ops@example.com");
+    expect(message).not.toContain("josé");
+    expect(message).toContain("Task: Report for [REDACTED_EMAIL]");
     expect(message).toContain("[REDACTED_API_KEY]");
   });
 
