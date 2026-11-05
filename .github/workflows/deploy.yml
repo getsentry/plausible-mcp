@@ -33,6 +33,13 @@ jobs:
         with:
           ref: refs/tags/${{ env.TAG }}
 
+      - name: Check that the tag has the deploy script
+        run: |
+          test -f bin/deploy-worker.sh || {
+            echo "::error::$TAG predates this workflow. Deploy it by hand with wrangler."
+            exit 1
+          }
+
       - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7

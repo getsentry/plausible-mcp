@@ -71,4 +71,4 @@ Releases are automated with [craft](https://github.com/getsentry/craft). **Don't
 3. craft cuts a `release/X.Y.Z` branch, then publishes a git tag and GitHub release once CI is green.
 4. The published GitHub release starts the **Deploy** workflow. It deploys the Worker from the tag and uploads its sourcemaps to Sentry, using the `CLOUDFLARE_API_TOKEN` and `SENTRY_AUTH_TOKEN` secrets of the `production` environment.
 
-To redeploy or roll back, run the **Deploy** workflow by hand with a release tag. `pnpm run deploy:worker` does the same deploy from a local checkout. Use `pnpm run`: `pnpm deploy` is a built-in pnpm command, not this script.
+To redeploy or roll back, run the **Deploy** workflow by hand with a release tag. This works only for tags that contain `bin/deploy-worker.sh`. `pnpm run deploy:worker` does the same deploy from a local checkout. Use `pnpm run`: `pnpm deploy` is a built-in pnpm command, not this script.
