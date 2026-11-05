@@ -69,5 +69,6 @@ Releases are automated with [craft](https://github.com/getsentry/craft). **Don't
 1. Merge your PR to `main`. The changelog is auto-generated from merged PR titles since the last tag (`.craft.yml` → `changelog.policy: auto`).
 2. A maintainer runs the **Release** workflow (Actions → Release → *Run workflow*) and selects the bump type (`patch` / `minor` / `major`).
 3. craft cuts a `release/X.Y.Z` branch, then publishes a git tag and GitHub release once CI is green.
+4. The published GitHub release starts the **Deploy** workflow. It deploys the Worker from the tag and uploads its sourcemaps to Sentry, using the `CLOUDFLARE_API_TOKEN` and `SENTRY_AUTH_TOKEN` secrets of the `production` environment.
 
-Deploying the Cloudflare Worker (`pnpm deploy`) is separate from cutting a release.
+To redeploy or roll back, run the **Deploy** workflow by hand with a release tag. This works only for tags that contain `bin/deploy-worker.sh`. `pnpm run deploy:worker` does the same deploy from a local checkout. Use `pnpm run`: `pnpm deploy` is a built-in pnpm command, not this script.
