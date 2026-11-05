@@ -16,7 +16,7 @@ pnpm exec wrangler deploy --dry-run --outdir "$OUT_DIR" --var "SENTRY_RELEASE:$V
 
 # --no-rewrite: the deployed bundle has no debug IDs, so the upload must not add
 # them either; Sentry matches frames to these sourcemaps by release and file name.
-pnpm exec sentry release create "$VERSION"
+pnpm exec sentry release create "$VERSION" --project "$SENTRY_PROJECT"
 pnpm exec sentry sourcemap upload "$OUT_DIR" --release "$VERSION" --no-rewrite
 
 # --no-bundle deploys the exact bundle whose sourcemaps were uploaded.
