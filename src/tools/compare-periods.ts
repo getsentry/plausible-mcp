@@ -41,7 +41,9 @@ const comparePeriodsOutputSchema = z.object({
       z.string(),
       z.object({ absolute: nullableNumber, percent: nullableNumber })
     )
-    .describe("Per-metric change from period_a to period_b (absolute and percent)"),
+    .describe(
+      "Per-metric change from period_a (baseline) to period_b: absolute is period_b - period_a, percent is that change relative to period_a. A positive value means period_b is higher."
+    ),
 });
 
 function extractAggregateMetrics(
@@ -91,16 +93,16 @@ export function register(
     {
       title: "Compare Periods",
       description:
-        "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. Returns aggregate values for each period plus the delta (absolute and %).",
+        "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To see how the current period changed from a prior one, pass the prior range as period_a and the current range as period_b.",
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: comparePeriodsOutputSchema,
       inputSchema: z.object({
         site_id: siteIdSchemaFor(defaultSiteId),
         period_a: dateRangeSchema.describe(
-          'First date range, e.g. "2024-01-01,2024-01-07" or "7d"'
+          'Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". For a current-vs-prior comparison, this is the prior range.'
         ),
         period_b: dateRangeSchema.describe(
-          'Second date range, e.g. "2024-01-08,2024-01-14" or "7d"'
+          'Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range.'
         ),
         page: pageSchema,
         metrics: metricsSchema,

@@ -14,7 +14,7 @@ Built for teams that want to ask questions like:
 | `get_timeseries` | Traffic and conversion metrics over time (daily/weekly/monthly) |
 | `get_breakdown` | Break down by page, source, country, device, browser, OS, UTM params |
 | `get_conversions` | Goal conversion rates, optionally per-page |
-| `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas |
+| `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas, measured from `period_a` (the baseline) to `period_b` |
 
 All query tools are **read-only** and annotated with `readOnlyHint: true`.
 
