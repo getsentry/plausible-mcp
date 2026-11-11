@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plausible MCP Apps review</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font: 14px system-ui;
+    }
+    body {
+      max-width: 850px;
+      margin: 24px auto;
+      padding: 0 12px;
+    }
+    header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    select,
+    button {
+      font: inherit;
+    }
+    iframe {
+      border: 0;
+      display: block;
+      width: 100%;
+      min-height: 120px;
+    }
+    output {
+      font-size: 12px;
+    }
+  </style>
+  <header>
+    <label>Sample result <select id="sample"></select></label>
+    <label
+      >Theme
+      <select id="theme">
+        <option>light</option>
+        <option>dark</option>
+      </select></label
+    >
+    <label
+      >Width
+      <select id="width">
+        <option value="100%">Full</option>
+        <option value="320px">320 px</option>
+      </select></label
+    >
+  </header>
+  <main></main>
+  <output aria-live="polite"></output>
+  <!--fixtures-->
+  <!--bridge-->
+</html>

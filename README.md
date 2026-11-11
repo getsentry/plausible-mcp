@@ -20,6 +20,12 @@ All query tools are **read-only** and annotated with `readOnlyHint: true`.
 
 Hosted deployments additionally expose `send_feedback`, which files feedback about the server itself (confusing errors, missing capabilities) into the maintainers' Sentry User Feedback inbox. It is only registered when the server runs with Sentry (`enableFeedbackTool`). On those deployments, a rejected query or an unexpected failure ends with a pointer to `send_feedback`, so the agent can report an error message that did not help it.
 
+### Interactive results
+
+MCP Apps clients show traffic as a line chart, breakdowns and conversions as bars, and period comparisons side by side. Select a metric or open **Data** to inspect the rows. Hosted feedback calls show a receipt with the feedback ID. Text-only clients receive the usual tool output.
+
+To try all five views with sample data, follow the [local preview instructions](CONTRIBUTING.md#reviewing-mcp-apps-results).
+
 ## Quick Start
 
 ### Remote (Hosted)

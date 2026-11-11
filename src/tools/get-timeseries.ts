@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { appToolMeta } from "../ui/resource.js";
 import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient } from "../plausible.js";
 import { toolErrorResult, UserFacingError } from "../errors.js";
@@ -45,6 +46,7 @@ export function register(
       title: "Get Timeseries",
       description:
         "Get traffic and conversion metrics over time for a site or specific page. Use to spot trends and changes around deploys.",
+      _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,
       inputSchema: z.object({

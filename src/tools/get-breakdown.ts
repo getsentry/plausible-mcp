@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { appToolMeta } from "../ui/resource.js";
 import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient, PlausibleResult } from "../plausible.js";
 import { toolErrorResult } from "../errors.js";
@@ -58,6 +59,7 @@ export function register(
       title: "Get Breakdown",
       description:
         "Break down metrics by a dimension: page, traffic source, country, device, etc. Use to find top pages, sources, or segment traffic.",
+      _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,
       inputSchema: z.object({

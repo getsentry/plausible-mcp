@@ -560,7 +560,21 @@ describe("MCP Worker entry", () => {
     try {
       await modern.connect(makeTransport());
       expect(modern.getProtocolEra()).toBe("modern");
-      expect((await modern.listTools()).tools).toHaveLength(5);
+      const { tools } = await modern.listTools();
+      expect(tools).toHaveLength(5);
+      const list = await modern.listResources();
+      expect(list).toMatchObject({ ttlMs: 3_600_000, cacheScope: "public" });
+      const { resources } = list;
+      expect(resources).toHaveLength(1);
+      const { uri, mimeType } = resources[0];
+      expect(mimeType).toBe("text/html;profile=mcp-app");
+      for (const tool of tools) expect(tool._meta?.ui).toEqual({ resourceUri: uri });
+      const resource = await modern.readResource({ uri });
+      expect(resource).toMatchObject({
+        ttlMs: 3_600_000,
+        cacheScope: "public",
+        contents: [{ uri, mimeType, _meta: { ui: { prefersBorder: true } }, text: expect.stringContaining("ui/initialize") }],
+      });
 
       await legacy.connect(makeTransport());
       expect(legacy.getProtocolEra()).toBe("legacy");

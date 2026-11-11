@@ -337,6 +337,7 @@ describe("MCP HTTP protocol eras", () => {
         ttlMs: number;
         cacheScope: string;
       };
+      expect(discover).toMatchObject({ capabilities: { extensions: { "io.modelcontextprotocol/ui": {} } } });
       expect(discover.ttlMs).toBe(60 * 60 * 1000);
       expect(discover.cacheScope).toBe("public");
 

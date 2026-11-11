@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/server";
+import { registerAnalyticsView } from "./ui/resource.js";
 import { PlausibleClient } from "./plausible.js";
 import { register as registerTimeseries } from "./tools/get-timeseries.js";
 import { register as registerBreakdown } from "./tools/get-breakdown.js";
@@ -68,7 +69,9 @@ export function createServer(config: ServerConfig): McpServer {
       },
       {
         instructions: SERVER_INSTRUCTIONS,
+        capabilities: { extensions: { "io.modelcontextprotocol/ui": {} } },
         cacheHints: {
+          "resources/list": { ttlMs: 60 * 60 * 1000, cacheScope: "public" },
           "server/discover": { ttlMs: 60 * 60 * 1000, cacheScope: "public" },
           "tools/list": { ttlMs: 60 * 60 * 1000, cacheScope: "public" },
         },
@@ -85,6 +88,7 @@ export function createServer(config: ServerConfig): McpServer {
     baseUrl: config.baseUrl,
   });
 
+  registerAnalyticsView(server);
   const offerFeedback = config.enableFeedbackTool ?? false;
   registerTimeseries(server, client, config.defaultSiteId, offerFeedback);
   registerBreakdown(server, client, config.defaultSiteId, offerFeedback);

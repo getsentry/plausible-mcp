@@ -1,6 +1,7 @@
 import { z } from "zod";
 import * as Sentry from "@sentry/cloudflare";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { appToolMeta } from "../ui/resource.js";
 import { TOOL_NAMES } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
@@ -33,6 +34,7 @@ export function register(server: McpServer, apiKey: string) {
       title: "Send Feedback",
       description:
         "Send feedback about this server to its maintainers, not to Plausible. Use it at most once per task, after you finish or give up, when a tool was missing, broken, or confusing.",
+      _meta: appToolMeta,
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

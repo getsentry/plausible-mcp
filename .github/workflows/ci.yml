@@ -33,3 +33,15 @@ jobs:
       - run: pnpm build
 
       - run: pnpm test
+
+      - name: Exercise the built MCP Apps resource and review scenarios
+        run: node evals/ui-review.mjs
+
+      - run: pnpm exec playwright install --with-deps chromium --only-shell
+
+      - run: pnpm exec playwright test --config evals/playwright.config.mjs
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcp-apps-preview
+          path: coverage/ui-review/index.html
