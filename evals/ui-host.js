@@ -1,38 +1,61 @@
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 
 const { html, scenarios } = JSON.parse(document.getElementById("fixtures").textContent);
+const tool = document.getElementById("tool");
 const sample = document.getElementById("sample");
 const theme = document.getElementById("theme");
 const width = document.getElementById("width");
 const main = document.querySelector("main");
-const status = document.querySelector("output");
 let bridge;
 
-for (const { label } of scenarios) sample.add(new Option(label));
+const names = {
+  get_timeseries: "Traffic",
+  get_breakdown: "Top pages",
+  get_conversions: "Conversions",
+  compare_periods: "Compare periods",
+  send_feedback: "Feedback",
+};
+for (const name of new Set(scenarios.map((s) => s.tool.name))) {
+  tool.add(new Option(names[name], name));
+}
+
+function selectTool() {
+  const choices = scenarios.filter((s) => s.tool.name === tool.value);
+  sample.replaceChildren(...choices.map((s, i) => new Option(i === 0 ? "Result" : s.label, s.label)));
+  sample.add(new Option("Loading", "loading"));
+  sample.add(new Option("Cancelled", "cancelled"));
+  openSample();
+}
 async function openSample() {
-  if (bridge) await bridge.close();
-  const { args, result, tool } = scenarios[sample.selectedIndex];
+  const previous = bridge;
+  const choices = scenarios.filter((s) => s.tool.name === tool.value);
+  const state = sample.value;
+  const scenario = choices.find((s) => s.label === state) ?? choices[0];
   const frame = document.createElement("iframe");
   frame.title = "Plausible Analytics";
   frame.sandbox = "allow-scripts";
   frame.setAttribute("csp", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
-  main.replaceChildren(frame);
-  status.textContent = "Connecting…";
-  bridge = new AppBridge(null, { name: "Review host", version: "1" }, {}, {
-    hostContext: { theme: theme.value, toolInfo: { tool } },
+  const active = new AppBridge(null, { name: "Review host", version: "1" }, {}, {
+    hostContext: { theme: theme.value, toolInfo: { tool: scenario.tool } },
   });
-  bridge.oninitialized = async () => {
-    await bridge.sendToolInput({ arguments: args });
-    await bridge.sendToolResult(result);
-    status.textContent = "Connected to the review host";
+  bridge = active;
+  main.replaceChildren(frame);
+  if (previous) await previous.close();
+  if (bridge !== active) return;
+  active.oninitialized = async () => {
+    await active.sendToolInput({ arguments: scenario.args });
+    if (bridge !== active || state === "loading") return;
+    if (state === "cancelled") await active.sendToolCancelled({ reason: "Cancelled in preview" });
+    else await active.sendToolResult(scenario.result);
   };
-  bridge.onsizechange = ({ height }) => {
+  active.onsizechange = ({ height }) => {
     if (Number.isFinite(height)) frame.style.height = height + "px";
   };
-  await bridge.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
-  frame.srcdoc = html;
+  await active.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
+  if (bridge === active) frame.srcdoc = html;
 }
+tool.onchange = selectTool;
 sample.onchange = openSample;
-theme.onchange = () => bridge.setHostContext({ theme: theme.value });
+theme.onchange = () => bridge?.setHostContext({ theme: theme.value });
 width.onchange = () => { main.style.maxWidth = width.value; };
-openSample();
+selectTool();

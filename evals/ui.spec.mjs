@@ -65,14 +65,14 @@ test("host theme and width changes update the same chart and keep the table insi
 });
 
 test("breakdown and conversion bars retain their dimension labels and metric units", async ({ page, app }) => {
-  const sample = page.getByLabel("Sample result");
-  await sample.selectOption({ label: "Pages" });
-  await expect(app.getByRole("heading")).toHaveText("Breakdown by page");
+  const tool = page.getByRole("combobox", { name: "Tool", exact: true });
+  await tool.selectOption("get_breakdown");
+  await expect(app.getByRole("heading")).toHaveText("Top pages");
   await expect(app.locator(".rank")).toHaveCount(5);
   await expect(app.locator(".rank").first()).toHaveText("/804");
   await app.getByRole("button", { name: "Data", exact: true }).click();
   await expect(app.getByText(/more rows are available/i)).toContainText("offset 5");
-  await sample.selectOption({ label: "Conversions" });
+  await tool.selectOption("get_conversions");
   await expect(app.getByRole("heading")).toHaveText("Goal conversions");
   await expect(app.locator(".rank").first()).toHaveText("Signup · /pricing7.8%");
   await app.getByLabel("Metric").selectOption("events");
@@ -82,7 +82,7 @@ test("breakdown and conversion bars retain their dimension labels and metric uni
 for (const width of ["100%", "320px"]) {
   test("Top pages keeps its toolbar and results in place at " + width, async ({ page, app }) => {
     await page.getByLabel("Width").selectOption(width);
-    await page.getByLabel("Sample result").selectOption({ label: "Pages" });
+    await page.getByRole("combobox", { name: "Tool", exact: true }).selectOption("get_breakdown");
     await expect(app.locator(".rank")).toHaveCount(5);
     const buttons = app.getByRole("group", { name: "Result view" });
     const initialButtons = await buttons.boundingBox();
@@ -98,8 +98,8 @@ for (const width of ["100%", "320px"]) {
 }
 
 test("period comparison distinguishes percentage points, relative change and missing baselines", async ({ page, app }) => {
-  const sample = page.getByLabel("Sample result");
-  await sample.selectOption({ label: "Compare periods" });
+  const tool = page.getByRole("combobox", { name: "Tool", exact: true });
+  await tool.selectOption("compare_periods");
   await expect(app.getByRole("heading")).toHaveText("Period comparison");
   await expect(app.locator(".value")).toHaveText(["2,710", "3,124"]);
   await expect(app.locator(".result")).toContainText("+414 (15.28%)");
@@ -107,13 +107,13 @@ test("period comparison distinguishes percentage points, relative change and mis
   await expect(app.locator(".result")).toContainText("-5.3 pp (-10.93%)");
   await app.getByRole("button", { name: "Data", exact: true }).click();
   await expect(app.getByRole("row", { name: /Bounce rate/ })).toContainText("48.5%43.2%-5.3 pp-10.93%");
-  await sample.selectOption({ label: "Empty baseline" });
+  await page.getByLabel("State").selectOption("Empty baseline");
   await expect(app.locator(".value")).toHaveText(["—", "24"]);
   await expect(app.locator(".result")).toContainText("Relative change unavailable");
 });
 
 test("hourly traffic places omitted buckets, nulls and zeroes correctly", async ({ page, app }) => {
-  await page.getByLabel("Sample result").selectOption({ label: "Hourly traffic" });
+  await page.getByLabel("State").selectOption({ label: "Hourly traffic" });
   const plot = app.locator(".plot");
   await expect(plot).toHaveAccessibleName(/08:00, 12/);
   await hoverTimeAxis(plot, 1 / 4);
@@ -128,7 +128,7 @@ test("hourly traffic places omitted buckets, nulls and zeroes correctly", async 
 
 for (const [label, middle] of [["Weekly traffic", /Oct 5, 2/], ["Monthly traffic", /Jan 1, 2/]]) {
   test(label + " uses calendar buckets for partial periods and gaps", async ({ page, app }) => {
-    await page.getByLabel("Sample result").selectOption({ label });
+    await page.getByLabel("State").selectOption({ label });
     const plot = app.locator(".plot");
     await hoverTimeAxis(plot, 1 / 3);
     await expect(plot).toHaveAccessibleName(middle);
@@ -137,17 +137,37 @@ for (const [label, middle] of [["Weekly traffic", /Oct 5, 2/], ["Monthly traffic
 }
 
 test("feedback, empty and failed calls each show the corresponding result", async ({ page, app }) => {
-  const sample = page.getByLabel("Sample result");
-  await sample.selectOption({ label: "Feedback receipt" });
+  const tool = page.getByRole("combobox", { name: "Tool", exact: true });
+  await tool.selectOption("send_feedback");
   await expect(app.getByRole("heading")).toHaveText("Feedback received");
   const id = await page.locator("#fixtures").evaluate((el) =>
     JSON.parse(el.textContent).scenarios.find((s) => s.tool.name === "send_feedback").result.structuredContent.feedback_id
   );
   await expect(app.locator("code")).toHaveText(id);
-  await sample.selectOption({ label: "Empty result" });
+  await tool.selectOption("get_timeseries");
+  await page.getByLabel("State").selectOption("Empty result");
   await expect(app.locator(".result")).toHaveText("No results for this query.");
   await expect(app.getByLabel("Metric")).toBeHidden();
-  await sample.selectOption({ label: "Query error" });
+  await page.getByLabel("State").selectOption("Query error");
   await expect(app.getByRole("heading")).toHaveText("Query failed");
   await expect(app.locator(".result")).toContainText("This fixture site is unavailable.");
+});
+
+
+test("each tool can show its pending, cancelled and failed states", async ({ page, app }) => {
+  const tool = page.getByRole("combobox", { name: "Tool", exact: true });
+  const state = page.getByLabel("State");
+  for (const name of ["get_timeseries", "get_breakdown", "get_conversions", "compare_periods", "send_feedback"]) {
+    await tool.selectOption(name);
+    await state.selectOption("loading");
+    await expect(app.locator('.result[aria-busy="true"]')).toHaveText(name === "send_feedback" ? "Sending feedback…" : "Loading results…");
+    await state.selectOption("cancelled");
+    await expect(app.getByRole("heading")).toHaveText(name === "send_feedback" ? "Feedback cancelled" : "Query cancelled");
+    if (name !== "send_feedback") {
+      await state.selectOption("Empty result");
+      await expect(app.locator(".result")).toHaveText("No results for this query.");
+    }
+    await state.selectOption(name === "send_feedback" ? "Feedback error" : "Query error");
+    await expect(app.getByRole("heading")).toHaveText(name === "send_feedback" ? "Feedback failed" : "Query failed");
+  }
 });

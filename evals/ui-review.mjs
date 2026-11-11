@@ -14,7 +14,7 @@ const period = { site_id: "example.com", date_range: "2026-10-01,2026-10-14" };
 const row = (dimensions, metrics) => ({ dimensions, metrics });
 const dates = days.map((_, i) => "2026-10-" + String(i + 1).padStart(2, "0"));
 const pages = ["/", "/docs", "/pricing", "/blog", "/changelog", "/guides"];
-const cases = [
+const standardCases = [
   [
     "Traffic",
     "get_timeseries",
@@ -56,6 +56,9 @@ const cases = [
     { task: "Review the chart", kind: "idea", impact: "friction", description: "Show the date for each observation." },
     [],
   ],
+];
+const cases = [
+  ...standardCases,
   [
     "Hourly traffic", "get_timeseries", { ...period, granularity: "hour", metrics: ["visitors"] },
     [[0, 0], [1, null], [2, 7], [8, 12]].map(([hour, value]) => row(["2026-10-01T0" + hour + ":00:00"], [value])),
@@ -75,9 +78,11 @@ const cases = [
     { site_id: period.site_id, period_a: "7d", period_b: "30d", metrics: ["visitors"] },
     (q) => q.date_range === "7d" ? [] : [row([], [24])],
   ],
-  ["Empty result", "get_timeseries", period, []],
-  ["Query error", "get_timeseries", period, null],
 ];
+for (const [, name, args] of standardCases) {
+  if (name === "send_feedback") continue;
+  cases.push(["Empty result", name, args, []], ["Query error", name, args, null]);
+}
 let fixture;
 globalThis.fetch = async (url, init) => {
   assert.equal(String(url), "https://fixture.invalid/api/v2/query");
@@ -140,6 +145,12 @@ try {
     assert.ok(result.content.some((block) => block.type === "text" && block.text.length), label);
     scenarios.push({ label, tool: tools.find((tool) => tool.name === name), args, result });
   }
+  const feedback = scenarios.find((s) => s.tool.name === "send_feedback");
+  scenarios.push({
+    ...feedback,
+    label: "Feedback error",
+    result: { isError: true, content: [{ type: "text", text: "The feedback service could not save this report." }] },
+  });
   const directory = new URL("../coverage/ui-review/", import.meta.url);
   const hostScript = await build({
     entryPoints: [fileURLToPath(new URL("ui-host.js", import.meta.url))],
@@ -155,7 +166,7 @@ try {
     .replace("<!--bridge-->", () => "<script>" + hostScript.outputFiles[0].text + "</script>");
   await mkdir(directory, { recursive: true });
   await writeFile(new URL("index.html", directory), document);
-  console.log(`Verified ${tools.length} tools and ${scenarios.length} calls. Open coverage/ui-review/index.html.`);
+  console.log(`Verified ${tools.length} tools and ${cases.length} calls. Open coverage/ui-review/index.html.`);
 } finally {
   await client.close();
   await server.close();

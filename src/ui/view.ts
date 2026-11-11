@@ -11,7 +11,7 @@ export const analyticsHtml = String.raw`<!doctype html>
   --soft: var(--color-background-secondary, light-dark(#f3f5fa,#222b39));
   --accent: light-dark(#4a54c8,#a6acff);
   box-sizing:border-box; overflow:auto; max-width:100%; background:var(--paper); color:var(--ink);
-  padding:clamp(14px,3vw,28px); border-radius:12px;
+  padding:clamp(14px,2.5vw,22px); border-radius:12px;
   font:14px/1.45 var(--font-sans,system-ui,sans-serif); font-variant-numeric:tabular-nums;
 }
 #plausible-app * {box-sizing:border-box}
@@ -22,13 +22,19 @@ export const analyticsHtml = String.raw`<!doctype html>
 #plausible-app .mark i {width:4px;background:var(--accent);border-radius:2px}
 #plausible-app .mark i:nth-child(1){height:7px} #plausible-app .mark i:nth-child(2){height:11px} #plausible-app .mark i:nth-child(3){height:15px}
 #plausible-app .heading,#plausible-app .controls,#plausible-app .pager {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
-#plausible-app .heading {margin:10px 0 14px}
-#plausible-app h2 {font-size:clamp(21px,3.8vw,30px);letter-spacing:-.045em;line-height:1.15}
+#plausible-app .heading {margin:6px 0 12px}
+#plausible-app h2 {font-size:clamp(20px,3vw,25px);letter-spacing:-.025em;line-height:1.15}
 #plausible-app .context,#plausible-app .detail {color:var(--sub);overflow-wrap:anywhere}
 #plausible-app .context {font-size:13px;margin-top:5px}
-#plausible-app .controls {padding:12px 0;border-top:1px solid var(--line)}
+#plausible-app .controls {padding:0 0 12px}
 #plausible-app .result {display:flow-root}
 #plausible-app :is(select,button) {font:inherit;color:var(--ink);font-size:13px;border:1px solid var(--line);border-radius:6px;background:var(--paper);padding:5px 9px;cursor:pointer}
+#plausible-app .metric-picker {position:relative;display:inline-grid;max-width:100%}
+#plausible-app .metric-picker select {appearance:none;width:100%;padding-inline:10px 32px}
+#plausible-app .metric-picker::after {content:"";position:absolute;inset-inline-end:12px;top:50%;width:6px;height:6px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-70%) rotate(45deg);pointer-events:none}
+@media(forced-colors:active){#plausible-app .metric-picker select {appearance:auto;padding-inline-end:8px} #plausible-app .metric-picker::after {display:none}}
+@media(pointer:coarse){#plausible-app :is(select,button) {min-height:44px} #plausible-app .metric-picker select {font-size:16px}}
+#plausible-app button:enabled:hover {background:var(--soft)}
 #plausible-app button:disabled {opacity:.45;cursor:default}
 #plausible-app :focus-visible {outline:2px solid var(--accent);outline-offset:2px}
 #plausible-app .modes {display:flex;gap:2px;padding:2px;background:var(--soft);border-radius:7px}
@@ -38,9 +44,11 @@ export const analyticsHtml = String.raw`<!doctype html>
 #plausible-app .detail {font-size:12px}
 #plausible-app .plot {display:block;width:100%;height:176px;touch-action:pan-y;color:var(--sub);overflow:visible}
 #plausible-app .plot text {font:11px system-ui,sans-serif;fill:currentColor}
-#plausible-app .rank {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;margin:9px 0;align-items:baseline}
-#plausible-app .rank span {overflow-wrap:anywhere} #plausible-app .track {grid-column:1/-1;height:4px;background:var(--soft);border-radius:4px}
-#plausible-app .bar {display:block;height:100%;border-radius:inherit;background:var(--accent)}
+#plausible-app .ranking {display:grid;grid-template-columns:minmax(0,1fr) max-content;gap:3px 12px;margin:0;padding:0;list-style:none}
+#plausible-app .rank {display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:center;min-height:30px}
+#plausible-app .rank strong {text-align:end;font-weight:550}
+#plausible-app .rank-label {position:relative;isolation:isolate;overflow-wrap:anywhere;padding:5px 9px}
+#plausible-app .rank-label::before {content:"";position:absolute;z-index:-1;inset-block:0;inset-inline-start:0;width:var(--share);border-radius:3px;background:color-mix(in srgb,var(--accent) 17%,transparent)}
 #plausible-app .table-wrap {overflow-x:auto}
 #plausible-app table {border-collapse:collapse;width:100%} #plausible-app :is(th,td) {padding:8px 9px;text-align:right;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap}
 #plausible-app th {font-weight:550;color:var(--sub)}
@@ -50,13 +58,14 @@ export const analyticsHtml = String.raw`<!doctype html>
 #plausible-app .pair>div:last-child {border-color:var(--accent)}
 #plausible-app .pager {margin:10px 0} #plausible-app .pager div {display:flex;gap:5px}
 #plausible-app .note {margin-top:12px;color:var(--sub);font-size:13px}
+#plausible-app .state-message {padding-block:12px;color:var(--sub)}
 #plausible-app code {overflow-wrap:anywhere}
 </style></head><body style="margin:0">
 <section id="plausible-app" aria-label="Plausible Analytics">
   <div class="identity"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Plausible Analytics</div>
   <div class="heading"><div><h2>Analytics</h2><p class="context"></p></div></div>
   <div class="controls" hidden>
-    <select aria-label="Metric"></select>
+    <span class="metric-picker"><select aria-label="Metric"></select></span>
     <div class="modes" aria-label="Result view" role="group"><button type="button" data-mode="chart">Chart</button><button type="button" data-mode="data">Data</button></div>
   </div>
   <div class="result" aria-busy="true">Waiting for a tool result…</div>
@@ -126,7 +135,8 @@ export const analyticsHtml = String.raw`<!doctype html>
       if (Number.isFinite(+start) && Number.isFinite(+end) && start <= end)
         return formatter.formatRange(start, end);
     }
-    return range;
+    const days = /^(\d+)d$/.exec(range);
+    return days ? "Last " + days[1] + (days[1] === "1" ? " day" : " days") : range;
   }
   function setTitle(title) {
     find("h2").textContent = title;
@@ -144,7 +154,23 @@ export const analyticsHtml = String.raw`<!doctype html>
     setTitle(title);
     controls.hidden = true;
     output.setAttribute("aria-busy", String(busy));
-    output.replaceChildren(node("p", message, "detail"));
+    output.replaceChildren(node("p", message, "state-message"));
+  }
+  function pending(args) {
+    input = args ?? {};
+    const titles = {
+      get_timeseries: "Traffic over time",
+      get_breakdown: input.dimension === "event:page" ? "Top pages" : "Breakdown",
+      get_conversions: "Goal conversions",
+      compare_periods: "Period comparison",
+      send_feedback: "Feedback",
+    };
+    showMessage(titles[toolName] ?? "Analytics",
+      toolName === "send_feedback" ? "Sending feedback…" : "Loading results…", true);
+  }
+  function cancelled() {
+    showMessage(toolName === "send_feedback" ? "Feedback cancelled" : "Query cancelled",
+      "The tool stopped before a result arrived.");
   }
   function dimensionLabel(value, key) {
     if (value === "" && ["visit:entry_page", "visit:exit_page"].includes(key))
@@ -241,22 +267,22 @@ export const analyticsHtml = String.raw`<!doctype html>
       0,
       ...rows.map((r) => (number(r.metrics[select.selectedIndex]) ? r.metrics[select.selectedIndex] : 0)),
     );
+    const list = node("ol", undefined, "ranking");
     for (const row of rows) {
-      const item = node("div", undefined, "rank"),
+      const item = node("li", undefined, "rank"),
         value = row.metrics[select.selectedIndex];
-      item.append(node("span", rowLabel(row)), node("strong", format(value, key)));
-      const track = node("div", undefined, "track"),
-        bar = node("span", undefined, "bar");
-      bar.style.width = (max && number(value) ? (Math.max(0, value) / max) * 100 : 0) + "%";
-      track.append(bar);
-      item.append(track);
-      output.append(item);
+      const label = node("span", rowLabel(row), "rank-label");
+      const share = max && number(value) ? Math.max(0, value) / max : 0;
+      label.style.setProperty("--share", share * 100 + "%");
+      item.append(label, node("strong", format(value, key)));
+      list.append(item);
     }
-    if (data.results.length > 10 || data.pagination?.has_more)
+    output.append(list);
+    if (data.results.length > rows.length)
       output.append(
         node(
           "p",
-          "Showing the first " + rows.length + " returned rows. Open Data for row details.",
+          rows.length + " of " + data.results.length + " rows",
           "note",
         ),
       );
@@ -497,7 +523,7 @@ export const analyticsHtml = String.raw`<!doctype html>
     if (!data) return;
     output.replaceChildren();
     const key = select.value;
-    select.style.visibility = mode === "data" ? "hidden" : "visible";
+    select.parentElement.style.visibility = mode === "data" ? "hidden" : "visible";
     for (const b of controls.querySelectorAll("button"))
       b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
     if (data.period_a) comparison(key);
@@ -522,7 +548,7 @@ export const analyticsHtml = String.raw`<!doctype html>
     }
     if (typeof d?.feedback_id === "string") {
       showMessage("Feedback received", "The maintainers can review your submission.");
-      output.append(node("code", d.feedback_id));
+      output.append(node("p", "Receipt ID", "detail"), node("code", d.feedback_id));
       return;
     }
     const compare = d?.period_a?.metrics && d?.period_b?.metrics && d?.deltas;
@@ -540,6 +566,7 @@ export const analyticsHtml = String.raw`<!doctype html>
     if (compare) title = "Period comparison";
     else if (dimension?.startsWith("time:")) title = "Traffic over time";
     else if (conversions) title = "Goal conversions";
+    else if (dimension === "event:page") title = "Top pages";
     else title = "Breakdown by " + nice(dimension ?? "category").toLowerCase();
     const metrics = metricNames(d);
     if ((!compare && !d.results.length) || !metrics.length) {
@@ -617,14 +644,13 @@ export const analyticsHtml = String.raw`<!doctype html>
     if (!ready) return;
     switch (m.method) {
       case "ui/notifications/tool-input":
-        input = m.params?.arguments ?? {};
-        showMessage("Analytics", "Waiting for a tool result…", true);
+        pending(m.params?.arguments);
         break;
       case "ui/notifications/tool-result":
         result(m.params);
         break;
       case "ui/notifications/tool-cancelled":
-        showMessage("Query cancelled", "This query was cancelled.");
+        cancelled();
         break;
       case "ui/notifications/host-context-changed":
         context(m.params);

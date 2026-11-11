@@ -22,7 +22,7 @@ Tests use [Vitest](https://vitest.dev) with mocked `fetch` — no Plausible acco
 
 ## Reviewing MCP Apps results
 
-Run `pnpm review:ui` and open `coverage/ui-review/index.html` in a browser. The preview loads the same HTML that clients read from the MCP server. Select a sample result, theme, and width. It works offline with fixture analytics and feedback data.
+Run `pnpm review:ui` and open `coverage/ui-review/index.html` in a browser. The preview loads the same HTML that clients read from the MCP server. Choose a tool, then a result or lifecycle state. Switch the theme and width to check the same view at 320 px or full width. It works offline with fixture analytics and feedback data.
 
 To run the browser checks, install Chromium once with `pnpm exec playwright install chromium --only-shell`. Run `pnpm test:ui` to build the preview and test it with the MCP Apps SDK host bridge. The checks cover all five tools, error and empty results, keyboard inspection, table paging, and host theme and size changes. CI also publishes the preview as the **mcp-apps-preview** artifact.
 
