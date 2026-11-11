@@ -27,6 +27,7 @@ export const analyticsHtml = String.raw`<!doctype html>
 #plausible-app .context,#plausible-app .detail {color:var(--sub);overflow-wrap:anywhere}
 #plausible-app .context {font-size:13px;margin-top:5px}
 #plausible-app .controls {padding:12px 0;border-top:1px solid var(--line)}
+#plausible-app .result {display:flow-root}
 #plausible-app :is(select,button) {font:inherit;color:var(--ink);font-size:13px;border:1px solid var(--line);border-radius:6px;background:var(--paper);padding:5px 9px;cursor:pointer}
 #plausible-app button:disabled {opacity:.45;cursor:default}
 #plausible-app :focus-visible {outline:2px solid var(--accent);outline-offset:2px}
@@ -496,7 +497,7 @@ export const analyticsHtml = String.raw`<!doctype html>
     if (!data) return;
     output.replaceChildren();
     const key = select.value;
-    select.hidden = mode === "data";
+    select.style.visibility = mode === "data" ? "hidden" : "visible";
     for (const b of controls.querySelectorAll("button"))
       b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
     if (data.period_a) comparison(key);

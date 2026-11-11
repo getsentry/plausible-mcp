@@ -79,6 +79,24 @@ test("breakdown and conversion bars retain their dimension labels and metric uni
   await expect(app.locator(".rank").first()).toHaveText("Signup · /pricing52");
 });
 
+for (const width of ["100%", "320px"]) {
+  test("Top pages keeps its toolbar and results in place at " + width, async ({ page, app }) => {
+    await page.getByLabel("Width").selectOption(width);
+    await page.getByLabel("Sample result").selectOption({ label: "Pages" });
+    await expect(app.locator(".rank")).toHaveCount(5);
+    const buttons = app.getByRole("group", { name: "Result view" });
+    const initialButtons = await buttons.boundingBox();
+    const resultTop = (await app.locator(".result").boundingBox()).y;
+    for (const mode of ["Data", "Chart"]) {
+      const button = buttons.getByRole("button", { name: mode });
+      await button.click();
+      await expect(button).toHaveAttribute("aria-pressed", "true");
+      expect(await buttons.boundingBox()).toEqual(initialButtons);
+      expect((await app.locator(".result").boundingBox()).y).toBe(resultTop);
+    }
+  });
+}
+
 test("period comparison distinguishes percentage points, relative change and missing baselines", async ({ page, app }) => {
   const sample = page.getByLabel("Sample result");
   await sample.selectOption({ label: "Compare periods" });
