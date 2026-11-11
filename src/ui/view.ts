@@ -266,7 +266,8 @@ export const analyticsHtml = String.raw`<!doctype html>
     const date = new Date(text.slice(0, 10) + "T00:00:00Z");
     const day = date.getTime() / 86_400_000;
     if (dimension === "time:month") return date.getUTCFullYear() * 12 + date.getUTCMonth();
-    if (dimension === "time:week") return Math.floor(day / 7);
+    // The Unix epoch was a Thursday. Plausible weeks start on Monday.
+    if (dimension === "time:week") return Math.floor((day + 3) / 7);
     if (dimension === "time:hour") return day * 24 + Number(text.slice(11, 13));
     return day;
   }

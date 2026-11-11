@@ -61,6 +61,16 @@ const cases = [
     [[0, 0], [1, null], [2, 7], [8, 12]].map(([hour, value]) => row(["2026-10-01T0" + hour + ":00:00"], [value])),
   ],
   [
+    "Weekly traffic", "get_timeseries",
+    { ...period, date_range: "2026-10-01,2026-10-25", granularity: "week", metrics: ["visitors"] },
+    ["2026-10-01", "2026-10-05", "2026-10-19"].map((date, i) => row([date], [i + 1])),
+  ],
+  [
+    "Monthly traffic", "get_timeseries",
+    { ...period, date_range: "2025-12-01,2026-03-31", granularity: "month", metrics: ["visitors"] },
+    ["2025-12-01", "2026-01-01", "2026-03-01"].map((date, i) => row([date], [i + 1])),
+  ],
+  [
     "Empty baseline", "compare_periods",
     { site_id: period.site_id, period_a: "7d", period_b: "30d", metrics: ["visitors"] },
     (q) => q.date_range === "7d" ? [] : [row([], [24])],

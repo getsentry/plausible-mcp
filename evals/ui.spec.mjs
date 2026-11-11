@@ -21,6 +21,14 @@ const test = base.extend({
   },
 });
 
+async function hoverTimeAxis(plot, fraction) {
+  const x = await plot.locator("line").first().evaluate((line, fraction) => {
+    const left = line.x1.baseVal.value;
+    return left + (line.x2.baseVal.value - left) * fraction;
+  }, fraction);
+  await plot.hover({ position: { x, y: 70 } });
+}
+
 test("timeseries accepts keyboard and pointer input and pages all returned rows", async ({ app }) => {
   await app.getByLabel("Metric").selectOption("bounce_rate");
   const plot = app.locator(".plot");
@@ -90,11 +98,7 @@ test("hourly traffic places omitted buckets, nulls and zeroes correctly", async 
   await page.getByLabel("Sample result").selectOption({ label: "Hourly traffic" });
   const plot = app.locator(".plot");
   await expect(plot).toHaveAccessibleName(/08:00, 12/);
-  const { left, right } = await plot.locator("line").first().evaluate((line) => ({
-    left: line.x1.baseVal.value,
-    right: line.x2.baseVal.value,
-  }));
-  await plot.hover({ position: { x: left + (right - left) / 4, y: 70 } });
+  await hoverTimeAxis(plot, 1 / 4);
   await expect(plot).toHaveAccessibleName(/02:00, 7/);
   const line = await plot.locator('path[fill="none"]').getAttribute("d");
   expect(line.match(/M/g)).toHaveLength(3);
@@ -103,6 +107,16 @@ test("hourly traffic places omitted buckets, nulls and zeroes correctly", async 
   await plot.press("ArrowRight");
   await expect(plot).toHaveAccessibleName(/01:00, —/);
 });
+
+for (const [label, middle] of [["Weekly traffic", /Oct 5, 2/], ["Monthly traffic", /Jan 1, 2/]]) {
+  test(label + " uses calendar buckets for partial periods and gaps", async ({ page, app }) => {
+    await page.getByLabel("Sample result").selectOption({ label });
+    const plot = app.locator(".plot");
+    await hoverTimeAxis(plot, 1 / 3);
+    await expect(plot).toHaveAccessibleName(middle);
+    expect((await plot.locator('path[fill="none"]').getAttribute("d")).match(/M/g)).toHaveLength(2);
+  });
+}
 
 test("feedback, empty and failed calls each show the corresponding result", async ({ page, app }) => {
   const sample = page.getByLabel("Sample result");
