@@ -459,7 +459,7 @@ const handler = {
       if (limited) return limited;
       if (request.method !== "GET" && request.method !== "HEAD")
         return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
-      return new Response(request.method === "HEAD" ? null : landingHtml, {
+      return new Response(request.method === "HEAD" ? null : landingHtml(url.origin + "/mcp"), {
         headers: {
           ...SECURITY_HEADERS,
           "Content-Type": "text/html; charset=utf-8",

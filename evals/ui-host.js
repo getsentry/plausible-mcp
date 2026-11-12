@@ -43,8 +43,10 @@ async function openSample() {
   });
   active.onsandboxready = () => active.sendSandboxResourceReady({html});
   active.oncalltool = ({ name, arguments: args }) => {
-    if (name !== "get_timeseries" || !dailyReadings[args.date_range]) throw Error("No matching daily sample");
-    return dailyReadings[args.date_range];
+    const sample = dailyReadings[args?.date_range];
+    if (name !== "get_timeseries" || !sample || JSON.stringify(args) !== JSON.stringify(sample.args))
+      throw Error("No matching daily sample");
+    return sample.result;
   };
   const selection = document.getElementById("selection"), message = document.getElementById("message");
   selection.value = message.value = "";
@@ -73,7 +75,7 @@ async function openSample() {
   if (bridge !== active) return;
   main.replaceChildren(frame);
   active.oninitialized = async () => {
-    await active.sendToolInput({ arguments: scenario.args });
+    if (!params.has("no-input")) await active.sendToolInput({ arguments: scenario.args });
     if (bridge !== active || state === "loading") return;
     if (state === "cancelled") await active.sendToolCancelled({ reason: "Cancelled in preview" });
     else await active.sendToolResult(scenario.result);

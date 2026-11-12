@@ -25,7 +25,7 @@ await check(baseline ? "root challenges before launch" : "root serves the built 
   } else {
     assert.equal(r.status, 200);
     assert.match(r.headers.get("content-type") ?? "", /^text\/html/i);
-    assert.ok((await r.text()) === landingHtml, "Response differs from this build's landing HTML");
+    assert.ok((await r.text()) === landingHtml(origin + "/mcp"), "Response differs from this build's landing HTML");
   }
 });
 

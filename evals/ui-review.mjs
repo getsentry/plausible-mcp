@@ -172,11 +172,11 @@ try {
     const start = Date.parse(range.split(",")[0]);
     fixture = [0, 2, 3, 4].map((day, i) => row([new Date(start + day * 86400000).toISOString().slice(0, 10)],
       range === comparison.period_a ? [[19, 40], [29, null], [0, 35], [44, 49]][i] : [[23, 44], [34, 39], [41, 37], [40, 42]][i]));
-    const result = await client.callTool({name: "get_timeseries", arguments: {
-      site_id: comparison.site_id, date_range: range, granularity: "day", metrics: comparison.metrics,
-    }});
+    const {site_id, goal, page, property_filters, metrics} = comparison;
+    const args = {site_id, goal, page, property_filters, metrics, date_range: range, granularity: "day"};
+    const result = await client.callTool({name: "get_timeseries", arguments: args});
     assert.ok(!result.isError && result.structuredContent);
-    dailyReadings[range] = result;
+    dailyReadings[range] = {args, result};
   }
   const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings }).replaceAll("<", "\\u003c");
   const document = template
@@ -184,7 +184,7 @@ try {
     .replace("<!--bridge-->", () => "<script>" + hostScript.outputFiles[0].text + "</script>");
   await mkdir(directory, { recursive: true });
   await writeFile(new URL("index.html", directory), document);
-  await writeFile(new URL("landing.html", directory), landingHtml);
+  await writeFile(new URL("landing.html", directory), landingHtml("https://plausible-mcp.sentry.dev/mcp"));
   console.log(`Verified ${tools.length} tools and ${cases.length + Object.keys(dailyReadings).length} calls. Open coverage/ui-review/index.html or landing.html.`);
 } finally {
   await client.close();

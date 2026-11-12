@@ -34,7 +34,7 @@ export function register(server: McpServer, apiKey: string) {
       title: "Send Feedback",
       description:
         "Send feedback about this server to its maintainers, not to Plausible. Use it at most once per task, after you finish or give up, when a tool was missing, broken, or confusing.",
-      _meta: { ui: { ...appToolMeta.ui, visibility: ["model"] } },
+      _meta: { ...appToolMeta, ui: { ...appToolMeta.ui, visibility: ["model"] } },
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

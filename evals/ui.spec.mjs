@@ -259,6 +259,15 @@ test("a host without tool-call support still shows the comparison summary and ta
   await expect(app.getByRole("row", {name: /Bounce rate/})).toContainText("48.5%43.2%");
 });
 
+test("a comparison without its tool input offers no daily reads", async ({page}) => {
+  await page.goto(preview + "?no-input");
+  await page.getByRole("combobox", {name: "Tool", exact: true}).selectOption("compare_periods");
+  const app = view(page);
+  await expect(app.getByRole("heading")).toHaveText("Period comparison");
+  await expect(app.locator(".value")).toHaveText(["2,710", "3,124"]);
+  await expect(app.getByRole("button", {name: "Daily trend"})).toBeHidden();
+});
+
 test.describe("touch inspection", () => {
   test.use({hasTouch: true});
   test("a tap selects a comparison day directly on the plot", async ({page, app}) => {
@@ -280,7 +289,7 @@ test("landing page renders the shipped app and switches installation instruction
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("https://landing.example.test/", route => route.fulfill({
-    body: landingHtml, headers: {"content-type":"text/html", "content-security-policy":landingSecurityPolicy},
+    body: landingHtml("https://landing.example.test/mcp"), headers: {"content-type":"text/html", "content-security-policy":landingSecurityPolicy},
   }));
   await page.setViewportSize({width: 375, height: 812});
   await page.goto("https://landing.example.test/");
@@ -288,7 +297,8 @@ test("landing page renders the shipped app and switches installation instruction
   const proxyFrame = page.frameLocator("iframe");
   const viewElement = proxyFrame.locator("iframe");
   await expect(viewElement).toHaveAttribute("sandbox", "allow-scripts");
-  await expect(page.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
+  await expect(page.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts");
+  await expect(page.locator("code")).toContainText("https://landing.example.test/mcp");
   expect(await page.evaluate(() => self.origin)).toBe("https://landing.example.test");
   expect(await viewElement.evaluate(() => self.origin)).toBe("null");
   expect(await app.locator("body").evaluate(() => self.origin)).toBe("null");

@@ -531,7 +531,8 @@ export const analyticsHtml = String.raw`<!doctype html>
     data = d;
     trend = undefined;
     selectedDay = 0;
-    find("[data-mode=trend]").hidden = !(compare && canCallTools && dailyWindow(d.period_a.range) && dailyWindow(d.period_b.range));
+    const inputMatches = compare && input.period_a === d.period_a.range && input.period_b === d.period_b.range;
+    find("[data-mode=trend]").hidden = !(inputMatches && canCallTools && dailyWindow(d.period_a.range) && dailyWindow(d.period_b.range));
     find("[data-mode=chart]").textContent = compare ? "Summary" : "Chart";
     mode = "chart";
     page = 0;

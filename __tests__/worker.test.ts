@@ -876,7 +876,10 @@ describe("public landing hostname", () => {
     const read = (url: string, method = "GET") => workerFetch(new Request(url, { method }), env);
     const page = await read("https://test.local/");
     expect(page.headers.get("content-type")).toContain("text/html");
-    expect(await page.text()).toContain("Connect your client");
+    const html = await page.text();
+    expect(html).toContain("Connect your client");
+    expect(html).toContain("https://test.local/mcp");
+    expect(html).not.toContain("plausible-mcp.sentry.dev");
     expect(await (await read("https://test.local/", "HEAD")).text()).toBe("");
     expect((await read("https://test.local/", "POST")).headers.get("Allow")).toBe("GET, HEAD");
     expect((await read("https://test.local/mcp")).status).toBe(401);

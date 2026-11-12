@@ -4,17 +4,11 @@ import { analyticsHtml } from "./ui/view.js";
 export const landingSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 const repo = "https://github.com/getsentry/plausible-mcp";
-const endpoint = "https://plausible-mcp.sentry.dev/mcp";
 const demo = {
   metrics: ["visitors", "pageviews"],
   dimensions: ["time:day"],
   results: [[284, 431], [318, 507], [296, 476], [405, 648], [379, 581], [458, 722], [512, 803]]
     .map((metrics, index) => ({ dimensions: ["2026-10-0" + (index + 1)], metrics })),
-};
-const commands = {
-  Codex: 'codex mcp add plausible --url ' + endpoint + ' --bearer-token-env-var PLAUSIBLE_API_KEY',
-  "Claude Code": 'claude mcp add --transport http plausible ' + endpoint + ' --header "Authorization: Bearer ${PLAUSIBLE_API_KEY}"',
-  Cursor: JSON.stringify({ mcpServers: { plausible: { url: endpoint, headers: { Authorization: "Bearer YOUR_PLAUSIBLE_API_KEY" } } } }, null, 2),
 };
 const scriptValue = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c");
 const css = `
@@ -35,13 +29,19 @@ h2{font:normal clamp(30px,3vw,44px)/1.1 Georgia,serif;letter-spacing:-.04em}.ins
 .trust{padding-top:28px;max-width:72ch}.trust h2{font:600 16px system-ui,sans-serif;letter-spacing:0;margin-bottom:8px}.trust a,footer a{color:var(--ink)}footer{border-top:1px solid var(--line);border-bottom:0;font-size:13px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:3px}@media(max-width:760px){.wrap{width:calc(100% - 36px)}.hero,.install{grid-template-columns:minmax(0,1fr)}.hero{gap:32px}.install{gap:20px}header,footer{flex-wrap:wrap}}
 `;
-export const landingHtml = `<!doctype html>
+export function landingHtml(endpoint: string) {
+  const commands = {
+    Codex: 'codex mcp add plausible --url ' + endpoint + ' --bearer-token-env-var PLAUSIBLE_API_KEY',
+    "Claude Code": 'claude mcp add --transport http plausible ' + endpoint + ' --header "Authorization: Bearer ${PLAUSIBLE_API_KEY}"',
+    Cursor: JSON.stringify({ mcpServers: { plausible: { url: endpoint, headers: { Authorization: "Bearer YOUR_PLAUSIBLE_API_KEY" } } } }, null, 2),
+  };
+  return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Connect Plausible Analytics to your MCP client to explore traffic, pages and conversions in conversation.">
 <title>Plausible MCP · Analytics in your chat</title><style>${css}</style></head><body>
 <div class="wrap"><header><a class="brand" href="#top"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Plausible MCP</a><a href="${repo}">GitHub ↗</a></header>
 <main id="top"><div class="hero"><div><h1>Your analytics,<br><em>in your chat.</em></h1><p class="intro">Ask what brought visitors to your site, which pages they read, and how this week compares. Explore the answer in your MCP client.</p><a class="cta" href="#install">Connect Plausible ↓</a></div>
-<figure><figcaption><strong>Try the traffic chart</strong><span>Example data</span></figcaption><div class="frame"><iframe title="Interactive Plausible traffic chart" sandbox="allow-scripts allow-same-origin"></iframe></div></figure></div>
+<figure><figcaption><strong>Try the traffic chart</strong><span>Example data</span></figcaption><div class="frame"><iframe title="Interactive Plausible traffic chart" sandbox="allow-scripts"></iframe></div></figure></div>
 <section class="install" id="install"><div><h2>Connect your client.</h2><p>You’ll need a <a href="https://plausible.io/docs/stats-api">Plausible Stats API key</a>.</p></div><div>
 <div class="tabs" role="group" aria-label="Client">${Object.keys(commands).map((name,i) => `<button type="button" aria-pressed="${i===0}">${name}</button>`).join("")}</div>
 <p id="setup">Set PLAUSIBLE_API_KEY in the environment where you start Codex, then run this command.</p>
@@ -86,3 +86,4 @@ scheme.addEventListener("change",()=>{if(initialized) send({method:"ui/notificat
 addEventListener("pagehide", event=>{if(initialized && !event.persisted) send({id:"close",method:"ui/resource-teardown",params:{}});});
 frame.src = ${scriptValue(reviewSandboxUrl)};
 </script></body></html>`;
+}

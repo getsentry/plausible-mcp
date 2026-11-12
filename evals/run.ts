@@ -20,39 +20,35 @@ const openrouter = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
 });
 
-async function getEvalContext() {
+// Get tool schemas from our MCP server
+async function getToolSchemas() {
   const server = createServer({
     apiKey: "eval-key",
     defaultSiteId: "example.com",
   });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+
   const client = new Client({ name: "eval-client", version: "0.0.1" });
-  try {
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
-    const instructions = client.getInstructions();
-    if (!instructions) throw new Error("Missing server instructions during MCP initialization");
-    const { tools } = await client.listTools();
-    return {
-      instructions,
-      tools: tools.map(tool => ({
-        type: "function" as const,
-        function: {
-          name: tool.name,
-          description: tool.description ?? "",
-          parameters: tool.inputSchema as Record<string, unknown>,
-        },
-      })),
-    };
-  } finally {
-    await client.close();
-    await server.close();
-  }
+  await client.connect(clientTransport);
+
+  const { tools } = await client.listTools();
+  await client.close();
+
+  // Convert MCP tool schemas to OpenAI function-tool format
+  return tools.map((tool) => ({
+    type: "function" as const,
+    function: {
+      name: tool.name,
+      description: tool.description ?? "",
+      parameters: tool.inputSchema as Record<string, unknown>,
+    },
+  }));
 }
 
 async function runEval(
-  context: Awaited<ReturnType<typeof getEvalContext>>,
+  tools: OpenAI.ChatCompletionTool[],
   evalCase: (typeof cases)[0]
 ): Promise<{ pass: boolean; errors: string[] }> {
   const response = await openrouter.chat.completions.create({
@@ -62,11 +58,12 @@ async function runEval(
       {
         role: "system",
         content:
-          "You are a marketing analytics assistant. Use example.com unless the user names another site.\n\n" + context.instructions,
+          "You are a marketing analytics assistant. When the user asks about website analytics, use the available tools. Always specify the site_id as 'example.com' unless told otherwise.",
       },
       { role: "user", content: evalCase.prompt },
     ],
-    tools: context.tools,
+    tools,
+    tool_choice: "required",
   });
 
   const toolCall = response.choices[0]?.message.tool_calls?.[0];
@@ -105,8 +102,7 @@ async function runEval(
 // Main
 async function main() {
   console.log("Loading tool schemas from MCP server...\n");
-  const context = await getEvalContext();
-  const { tools } = context;
+  const tools = await getToolSchemas();
   console.log(
     `Found ${tools.length} tools: ${tools.map((t) => t.function.name).join(", ")}`
   );
@@ -119,7 +115,7 @@ async function main() {
     process.stdout.write(`  ${evalCase.name}... `);
 
     try {
-      const result = await runEval(context, evalCase);
+      const result = await runEval(tools, evalCase);
 
       if (result.pass) {
         console.log("PASS");

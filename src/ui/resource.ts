@@ -3,7 +3,7 @@ import { analyticsHtml } from "./view.js";
 
 const uri = "ui://plausible/analytics-v1.html";
 const appMimeType = "text/html;profile=mcp-app";
-export const appToolMeta = { ui: { resourceUri: uri } };
+export const appToolMeta = { ui: { resourceUri: uri }, "ui/resourceUri": uri };
 
 export function registerAnalyticsView(server: McpServer) {
   const metadata = { mimeType: appMimeType, _meta: { ui: { prefersBorder: true } } };
