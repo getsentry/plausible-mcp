@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createServer } from "../dist/server.js";
 import { build } from "esbuild";
+import { landingHtml } from "../dist/landing.js";
 
 const days = [188, 215, 193, 254, 231, 205, 262, 279, 238, 246, 305, 277, 314, 327];
 const scores = [52, 45, 49, 43, 46, 47, 44, 43, 45, 48, 42, 44, 41, 38];
@@ -160,13 +161,26 @@ try {
     write: false,
   });
   const template = await readFile(new URL("ui-host.html", import.meta.url), "utf8");
-  const fixtures = JSON.stringify({ html: resource.text, scenarios }).replaceAll("<", "\\u003c");
+  const comparison = scenarios.find(s => s.label === "Compare periods").args;
+  const dailyReadings = {};
+  for (const range of [comparison.period_a, comparison.period_b]) {
+    const start = Date.parse(range.split(",")[0]);
+    fixture = [0, 2, 3].map((day, i) => row([new Date(start + day * 86400000).toISOString().slice(0, 10)],
+      range === comparison.period_a ? [[19, 40], [29, null], [0, 35]][i] : [[23, 44], [34, 39], [41, 37]][i]));
+    const result = await client.callTool({name: "get_timeseries", arguments: {
+      site_id: comparison.site_id, date_range: range, granularity: "day", metrics: comparison.metrics,
+    }});
+    assert.ok(!result.isError && result.structuredContent);
+    dailyReadings[range] = result;
+  }
+  const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings }).replaceAll("<", "\\u003c");
   const document = template
     .replace("<!--fixtures-->", () => '<script type="application/json" id="fixtures">' + fixtures + "</script>")
     .replace("<!--bridge-->", () => "<script>" + hostScript.outputFiles[0].text + "</script>");
   await mkdir(directory, { recursive: true });
   await writeFile(new URL("index.html", directory), document);
-  console.log(`Verified ${tools.length} tools and ${cases.length} calls. Open coverage/ui-review/index.html.`);
+  await writeFile(new URL("landing.html", directory), landingHtml);
+  console.log(`Verified ${tools.length} tools and ${cases.length + Object.keys(dailyReadings).length} calls. Open coverage/ui-review/index.html or landing.html.`);
 } finally {
   await client.close();
   await server.close();

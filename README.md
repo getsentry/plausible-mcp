@@ -22,7 +22,7 @@ Hosted deployments additionally expose `send_feedback`, which files feedback abo
 
 ### Interactive results
 
-MCP Apps clients show traffic as a line chart, breakdowns and conversions as bars, and period comparisons side by side. Select a metric or open **Data** to inspect the rows. Hosted feedback calls show a receipt with the feedback ID. Text-only clients receive the usual tool output.
+MCP Apps clients show traffic as a line chart, breakdowns and conversions as bars, and period comparisons side by side. Select a metric or open **Data** to inspect the rows. For comparisons of explicit calendar ranges up to 366 days each, hosts that support app-initiated tool calls also offer **Daily trend**. Selecting it reads both ranges using the same site, metrics and filters and plots them by day of period. Hosted feedback calls show a receipt with the feedback ID. Text-only clients receive the usual tool output.
 
 To try all five views with sample data, follow the [local preview instructions](CONTRIBUTING.md#reviewing-mcp-apps-results).
 
@@ -147,6 +147,8 @@ Or Claude Desktop (`claude_desktop_config.json`):
 ```
 
 ### Self-Hosting (Cloudflare Workers)
+
+The Worker can also serve a public installation page on a separate custom domain. Set `LANDING_HOSTNAME` and add that domain to the Worker routes. Only its root serves the page. The embedded traffic chart uses the same MCP Apps resource with labeled example data and needs no key. In this deployment the configured landing hostname is `plausible-mcp.sentry.cool`.
 
 Deploy your own instance:
 

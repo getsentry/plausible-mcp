@@ -171,3 +171,54 @@ test("each tool can show its pending, cancelled and failed states", async ({ pag
     await expect(app.getByRole("heading")).toHaveText(name === "send_feedback" ? "Feedback failed" : "Query failed");
   }
 });
+
+test("daily comparison preserves missing days and reads both periods through the host", async ({ page, app }) => {
+  await page.getByRole("combobox", {name: "Tool", exact: true}).selectOption("compare_periods");
+  await app.getByRole("button", {name: "Daily trend"}).click();
+  const range = app.getByRole("slider", {name: "Inspect day of period"});
+  await expect(range).toHaveAttribute("aria-valuetext", "Day 1 · Baseline 19 · Comparison 23");
+  await range.press("ArrowRight");
+  await expect(range).toHaveAttribute("aria-valuetext", "Day 2 · Baseline — · Comparison —");
+  await range.press("ArrowRight");
+  await app.getByLabel("Metric").selectOption("bounce_rate");
+  await expect(range).toHaveAttribute("aria-valuetext", "Day 3 · Baseline — · Comparison 39%");
+  await page.getByLabel("Width").selectOption("320px");
+  await expect(app.getByRole("img", {name: /Baseline dashed/})).toBeVisible();
+  await app.getByRole("button", {name: "Summary"}).click();
+  await expect(app.locator(".value")).toHaveText(["48.5%", "43.2%"]);
+});
+
+test("landing page renders the shipped app and switches installation instructions", async ({page}) => {
+  const {landingHtml, landingSecurityPolicy} = await import("../dist/landing.js");
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.route("https://landing.example.test/", route => route.fulfill({
+    body: landingHtml, headers: {"content-type":"text/html", "content-security-policy":landingSecurityPolicy},
+  }));
+  await page.setViewportSize({width: 375, height: 812});
+  await page.goto("https://landing.example.test/");
+  const app = page.frameLocator("iframe");
+  await expect(app.getByRole("heading")).toHaveText("Traffic over time");
+  await app.getByRole("button", {name:"Data",exact:true}).click();
+  await expect(app.locator("tbody tr")).toHaveCount(7);
+  await page.getByRole("button", {name:"Cursor",exact:true}).click();
+  await expect(page.locator("code")).toContainText("mcpServers");
+  await expect(page.getByRole("button", {name:"Copy configuration"})).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("the app adopts the host's visual tokens and safe area without resetting the selected metric", async ({page, app}) => {
+  await app.getByLabel("Metric").selectOption("bounce_rate");
+  await page.evaluate(() => document.querySelector("iframe").contentWindow.postMessage({
+    jsonrpc: "2.0", method: "ui/notifications/host-context-changed",
+    params: {safeAreaInsets:{top:0,right:0,bottom:0,left:36}, styles:{variables:{
+      "--color-text-info":"#086c62", "--border-radius-sm":"13px", "--font-heading-md-size":"27px",
+    }}},
+  }, "*"));
+  await expect(app.locator("h2")).toHaveCSS("font-size", "27px");
+  await expect(app.getByLabel("Metric")).toHaveCSS("border-top-right-radius", "13px");
+  await expect(app.locator(".mark i").first()).toHaveCSS("background-color","rgb(8, 108, 98)");
+  await expect(app.locator("#plausible-app")).toHaveCSS("padding-left", "36px");
+  await expect(app.getByLabel("Metric")).toHaveValue("bounce_rate");
+});

@@ -864,3 +864,24 @@ describe("MCP Worker entry", () => {
     }
   });
 });
+
+describe("public landing hostname", () => {
+  const env = { ...WORKER_ENV, LANDING_HOSTNAME: "landing.example.com" };
+  it("serves the page only on the configured hostname", async () => {
+    const read = (url: string, method = "GET") => workerFetch(new Request(url, { method }), env);
+    const page = await read("https://landing.example.com/");
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(await page.text()).toContain("Connect your client");
+    expect(await (await read("https://landing.example.com/", "HEAD")).text()).toBe("");
+    expect((await read("https://landing.example.com/", "POST")).headers.get("Allow")).toBe("GET, HEAD");
+    for (const path of ["/mcp", "/internal"])
+      expect((await read("https://landing.example.com" + path)).status).toBe(404);
+    expect((await read("https://test.local/")).status).toBe(404);
+  });
+  it("applies the existing rate limiter to the public page", async () => {
+    const response = await workerFetch(new Request("https://landing.example.com/"), {
+      ...env, RATE_LIMITER: {limit: async () => ({success: false})},
+    });
+    expect(response.status).toBe(429);
+  });
+});

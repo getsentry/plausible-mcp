@@ -13,6 +13,7 @@ interface RateLimiter {
  * `aud`. See README for the dashboard setup and secret mapping.
  */
 export interface Env {
+  LANDING_HOSTNAME?: string;
   // Plausible
   PLAUSIBLE_BASE_URL?: string;
   PLAUSIBLE_DEFAULT_SITE_ID?: string;

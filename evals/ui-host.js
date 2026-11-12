@@ -1,6 +1,6 @@
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 
-const { html, scenarios } = JSON.parse(document.getElementById("fixtures").textContent);
+const { html, scenarios, dailyReadings } = JSON.parse(document.getElementById("fixtures").textContent);
 const tool = document.getElementById("tool");
 const sample = document.getElementById("sample");
 const theme = document.getElementById("theme");
@@ -35,9 +35,13 @@ async function openSample() {
   frame.title = "Plausible Analytics";
   frame.sandbox = "allow-scripts";
   frame.setAttribute("csp", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'");
-  const active = new AppBridge(null, { name: "Review host", version: "1" }, {}, {
+  const active = new AppBridge(null, { name: "Review host", version: "1" }, {serverTools: {}}, {
     hostContext: { theme: theme.value, toolInfo: { tool: scenario.tool } },
   });
+  active.oncalltool = ({ name, arguments: args }) => {
+    if (name !== "get_timeseries" || !dailyReadings[args.date_range]) throw Error("No matching daily sample");
+    return dailyReadings[args.date_range];
+  };
   bridge = active;
   main.replaceChildren(frame);
   if (previous) await previous.close();
