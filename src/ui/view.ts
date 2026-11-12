@@ -1,4 +1,5 @@
 import { analyticsStyles } from "./styles.js";
+import { comparisonFollowup } from "./comparison-followup.js";
 import { comparisonTrend } from "./comparison-trend.js";
 
 export const analyticsHtml = String.raw`<!doctype html>
@@ -94,6 +95,7 @@ export const analyticsHtml = String.raw`<!doctype html>
       .join(" · ");
   }
   function showMessage(title, message, busy = false) {
+    clearSelection();
     data = undefined;
     setTitle(title);
     controls.hidden = true;
@@ -413,6 +415,7 @@ export const analyticsHtml = String.raw`<!doctype html>
     if (!result.period_a) return result.metrics;
     return [...new Set([...Object.keys(result.period_a.metrics), ...Object.keys(result.period_b.metrics)])];
   }
+  ${comparisonFollowup}
   ${comparisonTrend}
   function comparison(key) {
     if (mode === "trend") { drawTrend(key); return; }
@@ -479,9 +482,10 @@ export const analyticsHtml = String.raw`<!doctype html>
       find(".trend-tooltip").hidden = !inspecting;
     }
   }
-  select.onchange = render;
+  select.onchange = () => { clearSelection(); render(); };
   for (const b of controls.querySelectorAll("button"))
     b.onclick = () => {
+      if (mode === "trend" && b.dataset.mode !== mode) clearSelection();
       mode = b.dataset.mode;
       if (mode === "trend" && !trend) loadTrend();
       else render();
@@ -523,6 +527,7 @@ export const analyticsHtml = String.raw`<!doctype html>
       return;
     }
     setTitle(title);
+    clearSelection();
     data = d;
     trend = undefined;
     selectedDay = 0;
@@ -601,7 +606,8 @@ export const analyticsHtml = String.raw`<!doctype html>
         return;
       }
       ready = true;
-      canCallTools = Boolean(m.result.hostCapabilities?.serverTools);
+      hostCapabilities = m.result.hostCapabilities ?? {};
+      canCallTools = Boolean(hostCapabilities.serverTools);
       context(m.result.hostContext);
       send({ method: "ui/notifications/initialized" });
       size();

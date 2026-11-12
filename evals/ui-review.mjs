@@ -45,6 +45,7 @@ const standardCases = [
     "compare_periods",
     {
       site_id: period.site_id,
+      page: "/docs*", goal: "Signup", property_filters: [{property:"plan", values:["trial"]}],
       period_a: "2026-09-17,2026-09-30",
       period_b: period.date_range,
       metrics: ["visitors", "bounce_rate"],
@@ -169,8 +170,8 @@ try {
   const dailyReadings = {};
   for (const range of [comparison.period_a, comparison.period_b]) {
     const start = Date.parse(range.split(",")[0]);
-    fixture = [0, 2, 3].map((day, i) => row([new Date(start + day * 86400000).toISOString().slice(0, 10)],
-      range === comparison.period_a ? [[19, 40], [29, null], [0, 35]][i] : [[23, 44], [34, 39], [41, 37]][i]));
+    fixture = [0, 2, 3, 4].map((day, i) => row([new Date(start + day * 86400000).toISOString().slice(0, 10)],
+      range === comparison.period_a ? [[19, 40], [29, null], [0, 35], [44, 49]][i] : [[23, 44], [34, 39], [41, 37], [40, 42]][i]));
     const result = await client.callTool({name: "get_timeseries", arguments: {
       site_id: comparison.site_id, date_range: range, granularity: "day", metrics: comparison.metrics,
     }});

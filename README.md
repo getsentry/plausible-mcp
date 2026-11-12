@@ -22,7 +22,7 @@ Hosted deployments additionally expose `send_feedback`, which files feedback abo
 
 ### Interactive results
 
-MCP Apps clients show traffic as a line chart, breakdowns and conversions as bars, and period comparisons side by side. Select a metric or open **Data** to inspect the rows. For comparisons of explicit calendar ranges up to 366 days each, hosts that support app-initiated tool calls also offer **Daily trend**. Selecting it reads both ranges using the same site, metrics and filters and plots them by day of period. Hosted feedback calls show a receipt with the feedback ID. Text-only clients receive the usual tool output.
+MCP Apps clients show traffic as a line chart, breakdowns and conversions as bars, and period comparisons side by side. Select a metric or open **Data** to inspect the rows. For comparisons of explicit calendar ranges up to 366 days each, hosts that support app-initiated tool calls also offer **Daily trend**. Selecting it reads both ranges using the same site, metrics and filters and plots them by day of period. Select a day by clicking, tapping, or using the arrow keys. Ask the chart which pages changed, or type your own question if the host supports sharing selections. The question keeps the metric, both calendar dates, and any filters. If the host cannot send the message, the chart provides the question to paste into chat. Hosted feedback calls show a receipt with the feedback ID. Text-only clients receive the usual tool output.
 
 To try all five views with sample data, follow the [local preview instructions](CONTRIBUTING.md#reviewing-mcp-apps-results).
 

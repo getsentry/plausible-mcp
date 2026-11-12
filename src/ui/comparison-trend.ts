@@ -2,7 +2,7 @@
 export const comparisonTrend = String.raw`
   const dayMs = 86_400_000;
   let canCallTools = false;
-  let trendRequest = 0;
+  let hostRequestId = 0;
   let trend;
   let selectedDay = 0;
   const requests = new Map();
@@ -21,23 +21,25 @@ export const comparisonTrend = String.raw`
     const days = (end - start) / dayMs + 1;
     if (days >= 1 && days <= 366) return {start, days};
   }
-  function requestDays(range, metrics) {
+  async function requestDays(range, metrics) {
     const {site_id, goal, page, property_filters} = input;
     const args = {site_id, goal, page, property_filters, metrics, date_range: range, granularity: "day"};
-    const id = "daily-" + ++trendRequest;
+    const reply = await hostRequest("tools/call", {name: "get_timeseries", arguments: args});
+    const value = reply?.structuredContent;
+    if (value?.dimensions?.[0] !== "time:day" || !Array.isArray(value.results) || !Array.isArray(value.metrics))
+      throw Error("Invalid daily readings");
+    return value;
+  }
+  function hostRequest(method, params) {
+    const id = "view-" + ++hostRequestId;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        requests.delete(id);
-        reject();
-      }, 30000);
-      requests.set(id, (message) => {
+      const timer = setTimeout(() => { requests.delete(id); reject(); }, 30000);
+      requests.set(id, message => {
         clearTimeout(timer);
-        const value = message.result?.structuredContent;
-        if (message.error || message.result?.isError || value?.dimensions?.[0] !== "time:day" ||
-            !Array.isArray(value.results) || !Array.isArray(value.metrics)) reject();
-        else resolve(value);
+        if (message.error || message.result?.isError || !message.result) reject();
+        else resolve(message.result);
       });
-      send({method: "tools/call", id, params: {name: "get_timeseries", arguments: args}});
+      send({id, method, params});
     });
   }
   async function loadTrend() {
@@ -156,6 +158,7 @@ export const comparisonTrend = String.raw`
     tip.append(change);
     plot.append(tip);
 
+    const pin = dayAction(key, periods, values);
     const years = [data.period_a.range, data.period_b.range].flatMap(range => range.split(",").map(date => date.slice(0, 4)));
     const dateLabel = new Intl.DateTimeFormat(undefined, {month:"short", day:"numeric", timeZone:"UTC",
       year:new Set(years).size > 1 ? "numeric" : undefined});
@@ -212,17 +215,20 @@ export const comparisonTrend = String.raw`
       svg.focus({preventScroll:true});
       inspectPointer(event);
     };
+    plot.onclick = () => pin(selectedDay);
     plot.onpointerleave = event => {
-      if (event.pointerType === "mouse" && !svg.matches(":focus-visible")) tip.hidden = true;
+      if (event.pointerType === "mouse") inspect(pinnedDay ?? selectedDay, svg.matches(":focus-visible"));
     };
     svg.onfocus = () => inspect(selectedDay);
     svg.onblur = plot.onpointercancel = () => { tip.hidden = true; };
     svg.onkeydown = event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pin(selectedDay); return; }
       const next = {ArrowLeft: selectedDay - 1, ArrowDown: selectedDay - 1,
         ArrowRight: selectedDay + 1, ArrowUp: selectedDay + 1, Home: 0, End: days - 1}[event.key];
       if (next === undefined) return;
       event.preventDefault();
       inspect(next);
+      pin(selectedDay);
     };
     inspect(selectedDay, false);
   }

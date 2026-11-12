@@ -58,6 +58,8 @@ export const analyticsStyles = String.raw`
 #plausible-app .note {margin-top:12px;color:var(--sub);font-size:var(--font-text-sm-size,13px)}
 #plausible-app .state-message {padding-block:12px;color:var(--sub)}
 #plausible-app code {overflow-wrap:anywhere}
+#plausible-app .day-action {display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:36px}
+#plausible-app .day-action textarea {width:100%;box-sizing:border-box;min-height:4em;font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line)}
 #plausible-app .trend-legend {display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--sub);font-size:var(--font-text-xs-size,12px)}
 #plausible-app .trend-swatch::before {content:"";display:inline-block;width:15px;margin-inline-end:6px;vertical-align:middle;border-top:2px solid var(--accent)}
 #plausible-app .trend-swatch.dashed::before {border-top:2px dashed var(--sub)}

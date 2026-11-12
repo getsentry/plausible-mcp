@@ -35,7 +35,9 @@ async function openSample() {
   const frame = document.createElement("iframe");
   frame.title = "Plausible Analytics";
   frame.sandbox = "allow-scripts allow-same-origin";
-  const capabilities = new URLSearchParams(location.search).has("display-only") ? {} : {serverTools: {}};
+  const params = new URLSearchParams(location.search);
+  const capabilities = params.has("display-only") ? {} : {serverTools: {},
+    ...(!params.has("no-chat") && {message: {text: {}}, updateModelContext: {structuredContent: {}}})};
   const active = new AppBridge(null, { name: "Review host", version: "1" }, capabilities, {
     hostContext: { theme: theme.value, toolInfo: { tool: scenario.tool } },
   });
@@ -44,6 +46,20 @@ async function openSample() {
     if (name !== "get_timeseries" || !dailyReadings[args.date_range]) throw Error("No matching daily sample");
     return dailyReadings[args.date_range];
   };
+  const selection = document.getElementById("selection"), message = document.getElementById("message");
+  selection.value = message.value = "";
+  document.getElementById("chat").hidden = !capabilities.message || scenario.tool.name !== "compare_periods";
+  if (capabilities.message) {
+    active.onupdatemodelcontext = async ({structuredContent}) => {
+      selection.value = JSON.stringify(structuredContent);
+      return {};
+    };
+    active.onmessage = async ({content}) => {
+      if (params.has("decline")) return {isError: true};
+      message.value = content[0].text;
+      return {};
+    };
+  }
   bridge = active;
   if (previous) {
     try {
