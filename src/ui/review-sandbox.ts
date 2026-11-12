@@ -23,7 +23,11 @@ addEventListener("message", event => {
     return;
   }
   if (!view || message.method?.startsWith("ui/notifications/sandbox-")) return;
-  if (event.source === parent) view.contentWindow.postMessage(message, "*");
+  if (event.source === parent) {
+    const theme = message.result?.hostContext?.theme ?? (message.method === "ui/notifications/host-context-changed" ? message.params?.theme : undefined);
+    if (theme === "light" || theme === "dark") document.documentElement.style.colorScheme = theme;
+    view.contentWindow.postMessage(message, "*");
+  }
   else if (event.source === view.contentWindow) parent.postMessage(message, "*");
 });
 parent.postMessage({jsonrpc:"2.0",method:"ui/notifications/sandbox-proxy-ready",params:{}}, "*");
