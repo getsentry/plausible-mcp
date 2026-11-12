@@ -206,6 +206,26 @@ describe("MCP Server Integration", () => {
     expect(body.site_id).toBe("example.com");
   });
 
+  it.each([
+    ["get_timeseries", { date_range: "30d" }],
+    ["get_breakdown", { date_range: "30d", dimension: "event:page" }],
+    ["get_conversions", { date_range: "30d" }],
+    ["compare_periods", { period_a: "2024-01-01,2024-01-07", period_b: "2024-01-08,2024-01-14" }],
+  ])("%s rejects an argument it does not know, without a Plausible request", async (name, args) => {
+    mockFetch.mockClear();
+    const result = await client.callTool({ name, arguments: { ...args, goals: "Signup" } });
+
+    expect(result.isError).toBe(true);
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content.map((block) => block.text).join("\n")).toContain("goals");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("declares in each input schema that other arguments are not allowed", async () => {
+    const { tools } = await client.listTools();
+    for (const tool of tools) expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
+  });
+
   it("does not register send_feedback by default", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).not.toContain("send_feedback");
@@ -290,6 +310,21 @@ describe("MCP Server with feedback tool enabled", () => {
     expect(result.isError).toBe(true);
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content[0].text).toContain("send_feedback");
+  });
+
+  it("rejects an argument it does not know", async () => {
+    const result = await client.callTool({
+      name: "send_feedback",
+      arguments: {
+        task: "Break down revenue by plan",
+        kind: "confusing",
+        impact: "friction",
+        description: "The combination-rules error message could name the offending metric",
+        severity: "high",
+      },
+    });
+
+    expect(result.isError).toBe(true);
   });
 
   it("rejects messages that are too short to act on", async () => {

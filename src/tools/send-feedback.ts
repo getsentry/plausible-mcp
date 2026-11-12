@@ -42,7 +42,7 @@ export function register(server: McpServer, apiKey: string) {
         openWorldHint: true,
       },
       outputSchema: z.object({ feedback_id: z.string() }),
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         task: z.string().min(1).max(200).describe("What the user asked you to do"),
         kind: z
           .enum(["missing", "broken", "confusing", "idea"])

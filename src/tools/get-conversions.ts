@@ -34,7 +34,7 @@ export function register(
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         site_id: siteIdSchemaFor(defaultSiteId),
         date_range: dateRangeSchema,
         goal: goalSchema,
