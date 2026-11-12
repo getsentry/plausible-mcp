@@ -37,7 +37,7 @@ describe("reportToolError", () => {
   ])("records only the error code on the tool span for %s", (error, code) => {
     reportToolError(error, toolName);
 
-    expect(setAttribute.mock.calls).toEqual([["error.type", code]]);
+    expect(setAttribute.mock.calls).toEqual([["app.tool.error.code", code]]);
   });
 
   it("records user-facing failures without creating an exception issue", () => {

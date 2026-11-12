@@ -58,12 +58,13 @@ turning expected caller failures into exception issues:
 Unexpected failures and Plausible 5xx responses are also captured as exceptions. User input
 failures and Plausible 4xx responses remain visible through this metric only.
 
-The `mcp.server` span of a failed tool call also gets `error.type`, set to the `code` that the
-client receives: `invalid_input`, `unauthorized`, `rate_limited`, `upstream_unavailable`,
-`invalid_query`, or `internal`. Use it to filter traces by cause. The error message is not
-recorded on the span, because it can contain user input. Arguments that the input schema
-rejects fail before the tool runs, so their spans have `mcp.tool.result.is_error` but no
-`error.type`.
+The `mcp.server` span of a failed tool call also gets `app.tool.error.code`, set to the `code`
+that the client receives: `invalid_input`, `unauthorized`, `rate_limited`,
+`upstream_unavailable`, `invalid_query`, or `internal`. Use it to filter traces by cause. Do not
+use `error.type` for this: the Sentry SDK sets it to `tool_error` on every failed tool call. The
+error message is not recorded on the span, because it can contain user input. Arguments that
+the input schema rejects fail before the tool runs, so their spans have
+`mcp.tool.result.is_error` but no `app.tool.error.code`.
 
 ### Span attributes (stamped on the root `http.server` span, tracked routes only)
 

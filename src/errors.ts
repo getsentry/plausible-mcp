@@ -41,7 +41,7 @@ export interface ToolErrorInfo {
 export function reportToolError(error: unknown, toolName: ToolName): ToolErrorInfo {
   const info = classifyToolError(error, toolName);
   // Only the code: the message can echo user input, which must not reach /mcp spans.
-  Sentry.getActiveSpan()?.setAttribute("error.type", info.code);
+  Sentry.getActiveSpan()?.setAttribute("app.tool.error.code", info.code);
   return info;
 }
 
