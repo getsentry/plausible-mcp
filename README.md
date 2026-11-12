@@ -148,7 +148,7 @@ Or Claude Desktop (`claude_desktop_config.json`):
 
 ### Self-Hosting (Cloudflare Workers)
 
-The Worker can also serve a public installation page on a separate custom domain. Set `LANDING_HOSTNAME` and add that domain to the Worker routes. Only its root serves the page. The embedded traffic chart uses the same MCP Apps resource with labeled example data and needs no key. In this deployment the configured landing hostname is `plausible-mcp.sentry.cool`.
+The Worker serves the installation page at the root of `LANDING_HOSTNAME`. Set this to the same hostname that serves `/mcp`, such as `plausible-mcp.sentry.dev`. The embedded demo uses example data and needs no key.
 
 Deploy your own instance:
 
@@ -164,7 +164,7 @@ The worker exposes two endpoints:
 - **`/mcp`** — bring-your-own-key. Each user passes their own Plausible API key via the `Authorization: Bearer` header. No shared secrets needed on the server. Works with any header-capable MCP client (Claude Code, Cursor, MCP Inspector).
 - **`/internal`** — Access-protected MCP endpoint for managed connectors (Cowork, Claude.ai). A Cloudflare Access application with **Managed OAuth** fronts the **whole Worker hostname** (see the constraint below): Access runs the OAuth 2.1 handshake with the client and forwards each request to the Worker with a `Cf-Access-Jwt-Assertion` header. The Worker verifies that header and queries a shared, server-side Plausible API key. Access is gated to the email domain(s) in `ALLOWED_EMAIL_DOMAIN` (defaults to `sentry.io`) — **not** tied to Sentry when you self-host; set it to your own domain.
 
-Because the Managed OAuth application must cover the **bare hostname with no path** (Cloudflare rejects a path when OAuth is enabled — `domain can not have a path if oauth is configured`), it also gates `/mcp`. To keep the bring-your-own-key `/mcp` endpoint public you add a **second, more-specific Access application scoped to the `/mcp` path with a `Bypass` policy**. Cloudflare matches the most specific hostname+path first, so `/mcp` requests bypass Access entirely while everything else goes through OAuth. Both apps live on one hostname; no separate subdomain is required.
+Because the Managed OAuth application must cover the **bare hostname with no path** (Cloudflare rejects a path when OAuth is enabled — `domain can not have a path if oauth is configured`), it also gates `/mcp`. To keep the bring-your-own-key `/mcp` endpoint public you add a **second, more-specific Access application scoped to the `/mcp` path with a `Bypass` policy**. Cloudflare matches the most specific hostname+path first, so `/mcp` requests bypass Access entirely while the Managed OAuth application protects the other paths except for explicit public overrides. Both apps live on one hostname; no separate subdomain is required.
 
 > **Beta / client requirement.** Cloudflare Access [Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/) is in Beta and **requires an MCP client that supports [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)** (resource indicators). Confirm your connector supports it before relying on this path.
 
@@ -177,6 +177,8 @@ The Worker runs **no OAuth server** — Cloudflare Access is the authorization s
    - Add an Access **policy** (Action `Allow`) restricting to your email domain (e.g. `@acme.com`) and identity provider.
    - **Enable Managed OAuth** (Advanced settings → **Managed OAuth**) and set **Allowed redirect URIs** to your connector's actual callback — for Claude/Cowork that is `https://claude.ai/api/mcp/auth_callback`. Public HTTPS callbacks **must** be listed or Dynamic Client Registration fails with `invalid_client_metadata: redirect_uri is not allowed by the account configuration`; loopback (`http://localhost:*`) callbacks are allowed by default.
    - Copy the application's **AUD tag** → this becomes `CF_ACCESS_AUD`.
+   - To publish the landing page, add `{"path_pattern":"/","behavior":"public"}` to the existing hostname destination’s `overrides` after deploying the Worker. Keep its other settings. Cloudflare matches this override to the root only. `/internal` and OAuth discovery retain their existing configuration. See [Access application destinations](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/applications/methods/update/).
+   - Verify from a signed-out client: `GET /` returns the landing HTML, `GET /internal` returns the OAuth challenge, and `GET /mcp` without a key returns the Plausible bearer challenge.
 2. **Carve `/mcp` back out with a second, path-scoped Bypass application.** Because step 1 covers the whole host, `/mcp` (bring-your-own-key) is now gated too. Create another self-hosted app, domain `plausible-mcp.sentry.dev` **path `mcp`**, with **Managed OAuth OFF**, and a policy whose **Action is `Bypass`** with the selector **`Everyone`**.
    - `Bypass` ≠ `Allow`: an `Allow` policy still forces an interactive login (the client gets an HTML `302` to the login page and fails with `Unexpected content type: text/html`). Only `Bypass` lets the request through with no authentication, so the Worker's own Bearer-key check applies.
 3. **Set the worker secrets**:

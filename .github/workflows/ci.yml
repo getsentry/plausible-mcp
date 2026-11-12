@@ -37,7 +37,7 @@ jobs:
       - name: Exercise the built MCP Apps resource and review scenarios
         run: node evals/ui-review.mjs
 
-      - run: pnpm exec playwright install --with-deps chromium --only-shell
+      - run: pnpm exec playwright install --with-deps --only-shell chromium webkit
 
       - run: pnpm exec playwright test --config evals/playwright.config.mjs
 

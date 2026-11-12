@@ -1,6 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 
 const preview = new URL("../coverage/ui-review/index.html", import.meta.url).href;
+const view = page => page.frameLocator('iframe[title="Plausible Analytics"]').frameLocator('iframe[title="Analytics result"]');
 const test = base.extend({
   app: async ({ page }, use) => {
     const errors = [];
@@ -13,7 +14,7 @@ const test = base.extend({
       if (/^https?:/.test(request.url())) network.push(request.url());
     });
     await page.goto(preview);
-    const app = page.frameLocator('iframe[title="Plausible Analytics"]');
+    const app = view(page);
     await expect(app.getByRole("heading", { name: "Traffic over time" })).toBeVisible();
     await use(app);
     expect(errors).toEqual([]);
@@ -37,12 +38,11 @@ test("timeseries accepts keyboard and pointer input and pages all returned rows"
   await expect(plot).toHaveAccessibleName(/Oct 1, 52%/);
   await plot.press("ArrowRight");
   await expect(plot).toHaveAccessibleName(/Oct 2, 45%/);
-  const box = await plot.boundingBox();
-  await plot.hover({ position: { x: box.width - 10, y: 80 } });
+  await hoverTimeAxis(plot, 1);
   await expect(plot).toHaveAccessibleName(/Oct 14, 38%/);
   await app.getByRole("button", { name: "Data", exact: true }).click();
   await expect(app.locator("tbody tr")).toHaveCount(12);
-  await app.getByRole("button", { name: "Next" }).click();
+  await app.getByRole("button", { name: "Next" }).press("Enter");
   await expect(app.locator("tbody tr")).toHaveCount(2);
   await expect(app.getByRole("row").last()).toHaveText("2026-10-1432767138%");
   await expect(app.getByRole("button", { name: "Previous" })).toBeFocused();
@@ -175,17 +175,48 @@ test("each tool can show its pending, cancelled and failed states", async ({ pag
 test("daily comparison preserves missing days and reads both periods through the host", async ({ page, app }) => {
   await page.getByRole("combobox", {name: "Tool", exact: true}).selectOption("compare_periods");
   await app.getByRole("button", {name: "Daily trend"}).click();
-  const range = app.getByRole("slider", {name: "Inspect day of period"});
-  await expect(range).toHaveAttribute("aria-valuetext", "Day 1 · Baseline 19 · Comparison 23");
-  await range.press("ArrowRight");
-  await expect(range).toHaveAttribute("aria-valuetext", "Day 2 · Baseline — · Comparison —");
-  await range.press("ArrowRight");
+  const plot = app.getByRole("slider", {name: /by day of period/});
+  await expect(app.locator("input[type=range]")).toHaveCount(0);
+  await expect(plot).toHaveAttribute("aria-valuetext", "Day 1 · Baseline Sep 17: 19 · Comparison Oct 1: 23");
+  await hoverTimeAxis(plot, 1);
+  await expect(plot).toHaveAttribute("aria-valuenow", "14");
+  await plot.press("Home");
+  await plot.press("ArrowRight");
+  await expect(plot).toHaveAttribute("aria-valuetext", "Day 2 · Baseline Sep 18: — · Comparison Oct 2: —");
+  await plot.press("ArrowRight");
   await app.getByLabel("Metric").selectOption("bounce_rate");
-  await expect(range).toHaveAttribute("aria-valuetext", "Day 3 · Baseline — · Comparison 39%");
+  await expect(plot).toHaveAttribute("aria-valuetext", "Day 3 · Baseline Sep 19: — · Comparison Oct 3: 39%");
   await page.getByLabel("Width").selectOption("320px");
-  await expect(app.getByRole("img", {name: /Baseline dashed/})).toBeVisible();
+  await expect(plot).toBeVisible();
+  await plot.press("End");
+  await expect(plot).toHaveAttribute("aria-valuenow", "14");
   await app.getByRole("button", {name: "Summary"}).click();
   await expect(app.locator(".value")).toHaveText(["48.5%", "43.2%"]);
+});
+
+test("a host without tool-call support still shows the comparison summary and table", async ({page}) => {
+  await page.goto(preview + "?display-only");
+  await page.getByRole("combobox", {name: "Tool", exact: true}).selectOption("compare_periods");
+  const app = view(page);
+  await expect(app.getByRole("heading")).toHaveText("Period comparison");
+  await expect(app.getByRole("button", {name: "Daily trend"})).toBeHidden();
+  await expect(app.locator(".value")).toHaveText(["2,710", "3,124"]);
+  await app.getByRole("button", {name: "Data", exact: true}).click();
+  await expect(app.getByRole("row", {name: /Bounce rate/})).toContainText("48.5%43.2%");
+});
+
+test.describe("touch inspection", () => {
+  test.use({hasTouch: true});
+  test("a tap selects a comparison day directly on the plot", async ({page, app}) => {
+    await page.getByRole("combobox", {name:"Tool", exact:true}).selectOption("compare_periods");
+    await app.getByRole("button", {name:"Daily trend"}).tap();
+    const plot = app.getByRole("slider", {name:/by day of period/});
+    const bounds = await plot.boundingBox();
+    await plot.tap({position:{x: Math.floor(bounds.width - 12), y: 55}});
+    await expect(plot).toHaveAttribute("aria-valuenow", "14");
+    await plot.tap({position:{x: 8, y: 55}});
+    await expect(plot).toHaveAttribute("aria-valuenow", "1");
+  });
 });
 
 test("landing page renders the shipped app and switches installation instructions", async ({page}) => {
@@ -197,7 +228,15 @@ test("landing page renders the shipped app and switches installation instruction
   }));
   await page.setViewportSize({width: 375, height: 812});
   await page.goto("https://landing.example.test/");
-  const app = page.frameLocator("iframe");
+  const app = page.frameLocator("iframe").frameLocator('iframe[title="Analytics result"]');
+  const proxyFrame = page.frameLocator("iframe");
+  const viewElement = proxyFrame.locator("iframe");
+  await expect(viewElement).toHaveAttribute("sandbox", "allow-scripts");
+  await expect(page.locator("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
+  expect(await page.evaluate(() => self.origin)).toBe("https://landing.example.test");
+  expect(await viewElement.evaluate(() => self.origin)).toBe("null");
+  expect(await app.locator("body").evaluate(() => self.origin)).toBe("null");
+  await expect(app.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute("content", /frame-src 'none'/);
   await expect(app.getByRole("heading")).toHaveText("Traffic over time");
   await app.getByRole("button", {name:"Data",exact:true}).click();
   await expect(app.locator("tbody tr")).toHaveCount(7);

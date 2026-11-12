@@ -80,7 +80,11 @@ export const comparisonTrend = String.raw`
     const x = i => days === 1 ? (left + right) / 2 : left + i * (right - left) / (days - 1);
     const y = v => bottom - (v - low) / (high - low || 1) * 128;
     const legend = node("div", undefined, "trend-legend");
-    const svg = elSvg("svg", {class: "plot", viewBox: "0 0 " + width + " 176", role: "img", "aria-label": nice(key) + " by day of period. Baseline dashed, comparison solid."});
+    const svg = elSvg("svg", {
+      class: "plot", viewBox: "0 0 " + width + " 176", role: "slider", tabindex: 0,
+      "aria-label": nice(key) + " by day of period. Baseline dashed, comparison solid.",
+      "aria-valuemin": 1, "aria-valuemax": days,
+    });
     for (const v of new Set([low, high])) {
       svg.append(elSvg("line", {x1:left, x2:right, y1:y(v), y2:y(v), stroke:"var(--line)"}),
         elSvg("text", {x:left-6, y:y(v)+4, "text-anchor":"end"}, format(v,key)));
@@ -100,26 +104,39 @@ export const comparisonTrend = String.raw`
     });
     svg.append(elSvg("text",{x:left,y:166},"Day 1"));
     if (days > 1) svg.append(elSvg("text",{x:right,y:166,"text-anchor":"end"},"Day " + days));
-    const slider = node("input");
-    slider.type = "range";
-    slider.min = 1;
-    slider.max = days;
-    slider.setAttribute("aria-label", "Inspect day of period");
     const readout = node("p", undefined, "detail");
     const guide = elSvg("line",{y1:10,y2:bottom,stroke:"var(--sub)","stroke-opacity":0.45});
     svg.append(guide);
+    const dateLabel = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
     function inspect(i) {
       selectedDay = Math.max(0, Math.min(days - 1, i));
-      slider.value = selectedDay + 1;
-      const label = "Day " + slider.value + " · Baseline " + format(values[0][selectedDay], key) + " · Comparison " + format(values[1][selectedDay], key);
+      const readings = periods.map((period, index) => {
+        const name = index === 0 ? "Baseline" : "Comparison";
+        if (selectedDay >= period.days) return name + ": outside period";
+        const date = dateLabel.format(period.start + selectedDay * dayMs);
+        return name + " " + date + ": " + format(values[index][selectedDay], key);
+      });
+      const label = ["Day " + (selectedDay + 1), ...readings].join(" · ");
       readout.textContent = label;
-      slider.setAttribute("aria-valuetext", label);
+      svg.setAttribute("aria-valuenow", selectedDay + 1);
+      svg.setAttribute("aria-valuetext", label);
       guide.setAttribute("x1", x(selectedDay));
       guide.setAttribute("x2", x(selectedDay));
     }
-    slider.oninput = () => inspect(Number(slider.value) - 1);
-    svg.onpointermove = e => inspect(Math.round((e.clientX - svg.getBoundingClientRect().left - left) / (right-left) * (days-1)));
+    function inspectPointer(event) {
+      const bounds = svg.getBoundingClientRect();
+      const position = (event.clientX - bounds.left) * width / bounds.width;
+      inspect(Math.round((position - left) / (right - left) * (days - 1)));
+    }
+    svg.onpointermove = svg.onpointerdown = inspectPointer;
+    svg.onkeydown = event => {
+      const next = {ArrowLeft: selectedDay - 1, ArrowDown: selectedDay - 1,
+        ArrowRight: selectedDay + 1, ArrowUp: selectedDay + 1, Home: 0, End: days - 1}[event.key];
+      if (next === undefined) return;
+      event.preventDefault();
+      inspect(next);
+    };
     inspect(selectedDay);
-    output.append(legend, svg, slider, readout);
+    output.append(legend, svg, readout);
   }
 `;

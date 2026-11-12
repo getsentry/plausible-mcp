@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createServer } from "../dist/server.js";
 import { build } from "esbuild";
+import { reviewSandboxUrl } from "../dist/ui/review-sandbox.js";
 import { landingHtml } from "../dist/landing.js";
 
 const days = [188, 215, 193, 254, 231, 205, 262, 279, 238, 246, 305, 277, 314, 327];
@@ -101,13 +102,17 @@ const server = createServer({
   baseUrl: "https://fixture.invalid",
   enableFeedbackTool: true,
 });
-const client = new Client({ name: "ui-review", version: "1" });
+const appClientOptions = {
+  capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } },
+};
+const client = new Client({ name: "ui-review", version: "1" }, appClientOptions);
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 await server.connect(serverTransport);
 await client.connect(clientTransport);
 try {
   const { tools } = await client.listTools();
   assert.deepEqual(new Set(tools.map((tool) => tool.name)), new Set(cases.map((c) => c[1])));
+  assert.deepEqual(tools.find(tool => tool.name === "send_feedback")._meta.ui.visibility, ["model"]);
   const resources = await client.listResources();
   const uri = resources.resources[0]?.uri;
   assert.ok(uri?.startsWith("ui://"));
@@ -116,7 +121,7 @@ try {
     contents: [resource],
   } = await client.readResource({ uri });
   assert.equal(resource.mimeType, "text/html;profile=mcp-app");
-  const stdio = new Client({ name: "stdio-ui-review", version: "1" });
+  const stdio = new Client({ name: "stdio-ui-review", version: "1" }, appClientOptions);
   try {
     await stdio.connect(
       new StdioClientTransport({
@@ -173,7 +178,7 @@ try {
     assert.ok(!result.isError && result.structuredContent);
     dailyReadings[range] = result;
   }
-  const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings }).replaceAll("<", "\\u003c");
+  const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings, reviewSandboxUrl }).replaceAll("<", "\\u003c");
   const document = template
     .replace("<!--fixtures-->", () => '<script type="application/json" id="fixtures">' + fixtures + "</script>")
     .replace("<!--bridge-->", () => "<script>" + hostScript.outputFiles[0].text + "</script>");

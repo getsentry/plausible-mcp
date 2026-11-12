@@ -8,12 +8,11 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat_v2", "global_fetch_strictly_public"]
 
 routes = [
-  { pattern = "plausible-mcp.sentry.dev", custom_domain = true },
-  { pattern = "plausible-mcp.sentry.cool", custom_domain = true }
+  { pattern = "plausible-mcp.sentry.dev", custom_domain = true }
 ]
 
 [vars]
-LANDING_HOSTNAME = "plausible-mcp.sentry.cool"
+LANDING_HOSTNAME = "plausible-mcp.sentry.dev"
 # Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
 # Enforced in code in ADDITION to the upstream Access policy. Self-hosting? Set your own.
 ALLOWED_EMAIL_DOMAIN = "sentry.io"

@@ -66,7 +66,6 @@ export const analyticsHtml = String.raw`<!doctype html>
 #plausible-app .trend-legend {display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--sub);font-size:var(--font-text-xs-size,12px)}
 #plausible-app .trend-legend span::before {content:"";display:inline-block;width:15px;margin-inline-end:5px;vertical-align:middle;border-top:2px solid var(--accent)}
 #plausible-app .trend-legend .dashed::before {border-top:2px dashed var(--sub)}
-#plausible-app input[type=range] {width:100%;accent-color:var(--accent)}
 </style></head><body style="margin:0">
 <section id="plausible-app" aria-label="Plausible Analytics">
   <div class="identity"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Plausible Analytics</div>

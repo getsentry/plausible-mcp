@@ -1,6 +1,7 @@
+import { reviewSandboxUrl } from "./ui/review-sandbox.js";
 import { analyticsHtml } from "./ui/view.js";
 
-export const landingSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+export const landingSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 const repo = "https://github.com/getsentry/plausible-mcp";
 const endpoint = "https://plausible-mcp.sentry.dev/mcp";
@@ -40,7 +41,7 @@ export const landingHtml = `<!doctype html>
 <title>Plausible MCP · Analytics in your chat</title><style>${css}</style></head><body>
 <div class="wrap"><header><a class="brand" href="#top"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Plausible MCP</a><a href="${repo}">GitHub ↗</a></header>
 <main id="top"><div class="hero"><div><h1>Your analytics,<br><em>in your chat.</em></h1><p class="intro">Ask what brought visitors to your site, which pages they read, and how this week compares. Explore the answer in your MCP client.</p><a class="cta" href="#install">Connect Plausible ↓</a></div>
-<figure><figcaption><strong>Try the traffic chart</strong><span>Example data</span></figcaption><div class="frame"><iframe title="Interactive Plausible traffic chart" sandbox="allow-scripts"></iframe></div></figure></div>
+<figure><figcaption><strong>Try the traffic chart</strong><span>Example data</span></figcaption><div class="frame"><iframe title="Interactive Plausible traffic chart" sandbox="allow-scripts allow-same-origin"></iframe></div></figure></div>
 <section class="install" id="install"><div><h2>Connect your client.</h2><p>You’ll need a <a href="https://plausible.io/docs/stats-api">Plausible Stats API key</a>.</p></div><div>
 <div class="tabs" role="group" aria-label="Client">${Object.keys(commands).map((name,i) => `<button type="button" aria-pressed="${i===0}">${name}</button>`).join("")}</div>
 <p id="setup">Set PLAUSIBLE_API_KEY in the environment where you start Codex, then run this command.</p>
@@ -65,19 +66,23 @@ copy.onclick = async () => {
   catch { const range = document.createRange(); range.selectNodeContents(document.querySelector("pre")); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); copy.textContent = "Selected for copying"; }
 };
 const frame = document.querySelector("iframe");
+let initialized = false;
 const scheme = matchMedia("(prefers-color-scheme: dark)");
 const context = () => ({theme:scheme.matches?"dark":"light",toolInfo:{tool:{name:"get_timeseries"}}});
 const send = message => frame.contentWindow.postMessage({jsonrpc:"2.0",...message},"*");
 addEventListener("message", event => {
   if (event.source !== frame.contentWindow || event.data?.jsonrpc !== "2.0") return;
   const {method,id,params} = event.data;
+  if (method === "ui/notifications/sandbox-proxy-ready") send({method:"ui/notifications/sandbox-resource-ready",params:{html:${scriptValue(analyticsHtml)}}});
   if (method === "ui/initialize") send({id,result:{protocolVersion:"2026-01-26",hostInfo:{name:"Plausible MCP demo",version:"1"},hostCapabilities:{},hostContext:context()}});
   if (method === "ui/notifications/initialized") {
+    initialized = true;
     send({method:"ui/notifications/tool-input",params:{arguments:{site_id:"example.com",date_range:"2026-10-01,2026-10-07"}}});
     send({method:"ui/notifications/tool-result",params:{content:[],structuredContent:${scriptValue(demo)}}});
   }
   if(method === "ui/notifications/size-changed" && Number.isFinite(params?.height)) frame.style.height = Math.min(1200,Math.max(100,params.height)) + "px";
 });
-scheme.addEventListener("change",()=>send({method:"ui/notifications/host-context-changed",params:context()}));
-frame.srcdoc = ${scriptValue(analyticsHtml)};
+scheme.addEventListener("change",()=>{if(initialized) send({method:"ui/notifications/host-context-changed",params:context()});});
+addEventListener("pagehide", event=>{if(initialized && !event.persisted) send({id:"close",method:"ui/resource-teardown",params:{}});});
+frame.src = ${scriptValue(reviewSandboxUrl)};
 </script></body></html>`;

@@ -454,10 +454,9 @@ const handler = {
     _ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(request.url);
-    if (url.hostname === env.LANDING_HOSTNAME) {
+    if (url.pathname === "/" && url.hostname === env.LANDING_HOSTNAME) {
       const limited = await rateLimited(request, env);
       if (limited) return limited;
-      if (url.pathname !== "/") return jsonError("Not found.", 404);
       if (request.method !== "GET" && request.method !== "HEAD")
         return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
       return new Response(request.method === "HEAD" ? null : landingHtml, {

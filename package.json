@@ -19,6 +19,7 @@
     "inspect": "pnpm build && npx @modelcontextprotocol/inspector --config mcp.json --server plausible-mcp",
     "inspect:cli": "pnpm build && npx @modelcontextprotocol/inspector --cli --config mcp.json --server plausible-mcp --method tools/list",
     "test": "vitest run",
+    "verify:hosted": "pnpm build && node evals/check-hosted.mjs",
     "review:ui": "pnpm build && node evals/ui-review.mjs",
     "test:ui": "pnpm review:ui && playwright test --config evals/playwright.config.mjs",
     "test:watch": "vitest",
@@ -41,7 +42,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261030.1",
     "@modelcontextprotocol/client": "2.4.0",
-    "@modelcontextprotocol/ext-apps": "2.0.4",
+    "@modelcontextprotocol/ext-apps": "2.1.0",
     "@playwright/test": "1.65.0",
     "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^5.0.5",
