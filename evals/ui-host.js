@@ -1,4 +1,4 @@
-import { reviewSandboxUrl } from "../dist/ui/review-sandbox.js";
+import { sandboxProxyUrl } from "../dist/ui/review-sandbox.js";
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 
 const { html, scenarios, dailyReadings } = JSON.parse(document.getElementById("fixtures").textContent);
@@ -97,7 +97,7 @@ async function openSample() {
     if (Number.isFinite(height)) frame.style.height = height + "px";
   };
   await active.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
-  if (bridge === active) frame.src = reviewSandboxUrl;
+  if (bridge === active) frame.src = sandboxProxyUrl(!params.has("plain-proxy"));
 }
 tool.onchange = selectTool;
 sample.onchange = openSample;

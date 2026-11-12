@@ -373,30 +373,8 @@ for (const host of ["no-chat", "decline"]) {
 
 const screens = new URL("../coverage/ui-review/screens/", import.meta.url);
 const toolNames = ["get_timeseries", "get_breakdown", "get_conversions", "compare_periods", "send_feedback"];
-
-async function paintedBackground(page, frame, path) {
-  const png = await frame.screenshot({ path });
-  const decoder = await page.context().newPage();
-  try {
-    return await decoder.evaluate(async (data) => {
-      const image = new Image();
-      image.src = "data:image/png;base64," + data;
-      await image.decode();
-      const canvas = Object.assign(document.createElement("canvas"), { width: image.width, height: image.height });
-      const context = canvas.getContext("2d");
-      context.drawImage(image, 0, 0);
-      const pixels = context.getImageData(0, 0, image.width, image.height).data;
-      const counts = new Map();
-      for (let i = 0; i < pixels.length; i += 4) {
-        const key = pixels[i] + "," + pixels[i + 1] + "," + pixels[i + 2];
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-      }
-      return [...counts].sort((a, b) => b[1] - a[1])[0][0].split(",").map(Number);
-    }, png.toString("base64"));
-  } finally {
-    await decoder.close();
-  }
-}
+const textSelectors = ["h2", ".identity", ".context", ".value", ".detail", ".note", ".state-message", ".plot text",
+  ".metric-picker select", ".modes button", ".rank-label", ".rank strong", ".pair > div", "th", "td"];
 
 const rgb = (css) => css.match(/[\d.]+/g).slice(0, 3).map(Number);
 const luminance = (color) => {
@@ -408,32 +386,66 @@ const contrast = (a, b) => {
   return (light + 0.05) / (dark + 0.05);
 };
 
-async function expectReadableOnHost(page, frame, app, surface, path) {
+async function dominantColor(decoder, png) {
+  return decoder.evaluate(async (data) => {
+    const image = new Image();
+    image.src = "data:image/png;base64," + data;
+    await image.decode();
+    const canvas = Object.assign(document.createElement("canvas"), { width: image.width, height: image.height });
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    const counts = new Map();
+    for (let i = 0; i < pixels.length; i += 4) {
+      const key = pixels[i] + "," + pixels[i + 1] + "," + pixels[i + 2];
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts].sort((a, b) => b[1] - a[1])[0][0].split(",").map(Number);
+  }, png.toString("base64"));
+}
+
+async function expectReadableText(decoder, app, label) {
+  for (const selector of textSelectors) {
+    const element = app.locator(selector).filter({ visible: true }).first();
+    if (!(await element.count()) || await element.evaluate((node) => node.disabled)) continue;
+    const surface = await dominantColor(decoder, await element.screenshot());
+    const text = rgb(await element.evaluate((node) => getComputedStyle(node)[node instanceof SVGElement ? "fill" : "color"]));
+    expect(contrast(text, surface), `${label}: ${selector} rgb(${text}) on rgb(${surface})`).toBeGreaterThanOrEqual(4.5);
+  }
+}
+
+async function expectHostBackground(page, decoder, frame, surface, path, exact) {
   const host = rgb(await surface.evaluate((element) => getComputedStyle(element).backgroundColor));
-  const painted = await paintedBackground(page, frame, path);
-  for (const [i, channel] of painted.entries()) {
-    expect(Math.abs(channel - host[i]), `painted background rgb(${painted}) differs from the host surface rgb(${host})`).toBeLessThanOrEqual(3);
-  }
-  for (const selector of ["h2", ".identity"]) {
-    const text = rgb(await app.locator(selector).evaluate((element) => getComputedStyle(element).color));
-    expect(contrast(text, painted), `${selector} rgb(${text}) on rgb(${painted})`).toBeGreaterThanOrEqual(4.5);
-  }
+  const painted = await dominantColor(decoder, await frame.screenshot({ path }));
+  const message = `painted background rgb(${painted}) does not match the host surface rgb(${host})`;
+  if (exact) for (const [i, channel] of painted.entries()) expect(Math.abs(channel - host[i]), message).toBeLessThanOrEqual(3);
+  else expect(Math.abs(luminance(painted) - luminance(host)), message).toBeLessThan(0.1);
 }
 
 for (const colorScheme of ["light", "dark"]) {
   test.describe(`on a ${colorScheme} device`, () => {
     test.use({ colorScheme });
-    for (const [theme, query] of [["light", ""], ["dark", ""], [colorScheme === "light" ? "dark" : "light", "?no-host-styles"]]) {
-      test(`every tool is readable on a ${theme} host${query && " without host styles"}`, async ({ page, browserName }) => {
-        await page.goto(preview + query);
+    const opposite = colorScheme === "light" ? "dark" : "light";
+    for (const [theme, host] of [["light", ""], ["dark", ""], [opposite, "no-host-styles"], ["light", "plain-proxy"], ["dark", "plain-proxy"]]) {
+      test(`every tool is readable on a ${theme} host${host && " with " + host}`, async ({ page, browserName }) => {
+        await page.goto(preview + (host && "?" + host));
         await page.getByLabel("Theme").selectOption(theme);
         const app = view(page);
+        const decoder = await page.context().newPage();
         for (const name of toolNames) {
           await page.getByRole("combobox", { name: "Tool", exact: true }).selectOption(name);
           await expect(app.locator("h2")).not.toHaveText("Analytics");
-          const file = [browserName, colorScheme + "-device", theme + "-host", query ? "no-styles" : "styles", name].join("-") + ".png";
-          await expectReadableOnHost(page, page.locator('iframe[title="Plausible Analytics"]'), app, page.locator("body"), new URL(file, screens).pathname);
+          const file = [browserName, colorScheme + "-device", theme + "-host", host || "default", name].join("-") + ".png";
+          await expectHostBackground(page, decoder, page.locator('iframe[title="Plausible Analytics"]'), page.locator("body"),
+            new URL(file, screens).pathname, host !== "plain-proxy");
+          await expectReadableText(decoder, app, name);
+          const data = app.getByRole("button", { name: "Data", exact: true });
+          if (await data.count()) {
+            await data.click();
+            await expectReadableText(decoder, app, name + " data");
+          }
         }
+        await decoder.close();
       });
     }
 
@@ -445,7 +457,11 @@ for (const colorScheme of ["light", "dark"]) {
       await page.goto("https://landing.example.test/");
       const app = page.frameLocator("iframe").frameLocator('iframe[title="Analytics result"]');
       await expect(app.locator("h2")).toHaveText("Traffic over time");
-      await expectReadableOnHost(page, page.locator(".frame iframe"), app, page.locator(".frame"), new URL(`${browserName}-${colorScheme}-device-landing.png`, screens).pathname);
+      const decoder = await page.context().newPage();
+      await expectHostBackground(page, decoder, page.locator(".frame iframe"), page.locator(".frame"),
+        new URL(`${browserName}-${colorScheme}-device-landing.png`, screens).pathname, true);
+      await expectReadableText(decoder, app, "landing");
+      await decoder.close();
     });
   });
 }
