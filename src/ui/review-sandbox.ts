@@ -1,6 +1,6 @@
 // A data URL gives this fixed demo proxy an opaque origin, including when the review page is opened from disk.
 const proxyHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">
-<style>html,body,iframe{width:100%;height:100%;margin:0;border:0;display:block}iframe{color-scheme:inherit}</style></head>
+<style>html,body,iframe{width:100%;height:100%;margin:0;border:0;display:block}</style></head>
 <body><script>
 const resourceReady = "ui/notifications/sandbox-resource-ready";
 let view;

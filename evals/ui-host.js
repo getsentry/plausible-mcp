@@ -17,11 +17,8 @@ const hostVariables = {
   "--font-sans": "system-ui, sans-serif",
 };
 for (const [name, value] of Object.entries(hostVariables)) document.documentElement.style.setProperty(name, value);
-function applyHostTheme() {
-  document.documentElement.dataset.theme = theme.value;
-}
 theme.value = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-applyHostTheme();
+document.documentElement.dataset.theme = theme.value;
 
 const names = {
   get_timeseries: "Traffic",
@@ -105,7 +102,7 @@ async function openSample() {
 tool.onchange = selectTool;
 sample.onchange = openSample;
 theme.onchange = () => {
-  applyHostTheme();
+  document.documentElement.dataset.theme = theme.value;
   if (bridge?.getAppCapabilities()) bridge.setHostContext({ theme: theme.value });
 };
 width.onchange = () => { main.style.maxWidth = width.value; };
