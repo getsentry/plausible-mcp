@@ -3,14 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const sentry = vi.hoisted(() => ({
   captureException: vi.fn(),
   count: vi.fn(),
+  setAttribute: vi.fn(),
 }));
 
 vi.mock("@sentry/cloudflare", () => ({
   captureException: sentry.captureException,
   metrics: { count: sentry.count },
+  getActiveSpan: () => ({ setAttribute: sentry.setAttribute }),
 }));
 
-const { captureException, count } = sentry;
+const { captureException, count, setAttribute } = sentry;
 
 import { PlausibleApiError, PlausibleUnreachableError } from "../src/plausible.js";
 import { reportToolError, toolErrorResult, UserFacingError } from "../src/errors.js";
@@ -21,6 +23,21 @@ describe("reportToolError", () => {
   beforeEach(() => {
     captureException.mockReset();
     count.mockReset();
+    setAttribute.mockReset();
+  });
+
+  it.each([
+    [new UserFacingError("pick one goal"), "invalid_input"],
+    [new PlausibleApiError(401, "Invalid API key"), "unauthorized"],
+    [new PlausibleApiError(429, "Too many requests"), "rate_limited"],
+    [new PlausibleApiError(503, "Unavailable"), "upstream_unavailable"],
+    [new PlausibleApiError(400, "Invalid filter"), "invalid_query"],
+    [new PlausibleUnreachableError(new Error("socket hang up")), "upstream_unavailable"],
+    [new Error("boom"), "internal"],
+  ])("records only the error code on the tool span for %s", (error, code) => {
+    reportToolError(error, toolName);
+
+    expect(setAttribute.mock.calls).toEqual([["app.tool.error.code", code]]);
   });
 
   it("records user-facing failures without creating an exception issue", () => {

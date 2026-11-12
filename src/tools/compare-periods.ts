@@ -98,7 +98,7 @@ export function register(
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: comparePeriodsOutputSchema,
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         site_id: siteIdSchemaFor(defaultSiteId),
         period_a: dateRangeSchema.describe(
           'Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". For a current-vs-prior comparison, this is the prior range.'
