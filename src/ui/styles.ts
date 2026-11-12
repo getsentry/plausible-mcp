@@ -1,6 +1,6 @@
 export const analyticsStyles = String.raw`
+:root { color-scheme: light dark; }
 #plausible-app {
-  color-scheme: light dark;
   --ink: var(--color-text-primary, light-dark(#202020,#f2f2f2));
   --sub: var(--color-text-secondary, light-dark(#595959,#b5b5b5));
   --line: var(--color-border-tertiary, light-dark(#d9d9d9,#424242));

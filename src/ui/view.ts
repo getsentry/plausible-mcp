@@ -567,7 +567,10 @@ export const analyticsHtml = String.raw`<!doctype html>
       root.style.height = Number.isFinite(height) ? height + "px" : "";
       root.style.maxHeight = Number.isFinite(maxHeight) ? maxHeight + "px" : "";
     }
-    if (ctx?.theme === "dark" || ctx?.theme === "light") root.style.colorScheme = ctx.theme;
+    if (ctx?.theme === "dark" || ctx?.theme === "light") {
+      document.documentElement.dataset.theme = ctx.theme;
+      document.documentElement.style.colorScheme = ctx.theme;
+    }
     for (const [key, value] of Object.entries(ctx?.styles?.variables ?? {})) {
       if (
         /^--(?:color-(?:text|background|border|ring)-[a-z-]+|border-radius-(?:lg|sm)|font-(?:sans|text-(?:md|sm|xs)-size|heading-md-size))$/.test(key) &&

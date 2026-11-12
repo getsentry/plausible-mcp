@@ -1,4 +1,4 @@
-import { reviewSandboxUrl } from "../dist/ui/review-sandbox.js";
+import { sandboxProxyUrl } from "../dist/ui/review-sandbox.js";
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 
 const { html, scenarios, dailyReadings } = JSON.parse(document.getElementById("fixtures").textContent);
@@ -8,6 +8,17 @@ const theme = document.getElementById("theme");
 const width = document.getElementById("width");
 const main = document.querySelector("main");
 let bridge;
+const params = new URLSearchParams(location.search);
+const hostVariables = {
+  "--color-background-primary": "light-dark(#ffffff, #262626)",
+  "--color-text-primary": "light-dark(#1a1a1a, #f2f2f2)",
+  "--color-text-secondary": "light-dark(#5c5c5c, #b3b3b3)",
+  "--color-border-tertiary": "light-dark(#e0e0e0, #404040)",
+  "--font-sans": "system-ui, sans-serif",
+};
+for (const [name, value] of Object.entries(hostVariables)) document.documentElement.style.setProperty(name, value);
+theme.value = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+document.documentElement.dataset.theme = theme.value;
 
 const names = {
   get_timeseries: "Traffic",
@@ -35,11 +46,13 @@ async function openSample() {
   const frame = document.createElement("iframe");
   frame.title = "Plausible Analytics";
   frame.sandbox = "allow-scripts allow-same-origin";
-  const params = new URLSearchParams(location.search);
   const capabilities = params.has("display-only") ? {} : {serverTools: {},
     ...(!params.has("no-chat") && {message: {text: {}}, updateModelContext: {structuredContent: {}}})};
   const active = new AppBridge(null, { name: "Review host", version: "1" }, capabilities, {
-    hostContext: { theme: theme.value, toolInfo: { tool: scenario.tool } },
+    hostContext: {
+      theme: theme.value, toolInfo: { tool: scenario.tool },
+      ...(!params.has("no-host-styles") && { styles: { variables: hostVariables } }),
+    },
   });
   active.onsandboxready = () => active.sendSandboxResourceReady({html});
   active.oncalltool = ({ name, arguments: args }) => {
@@ -84,11 +97,12 @@ async function openSample() {
     if (Number.isFinite(height)) frame.style.height = height + "px";
   };
   await active.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
-  if (bridge === active) frame.src = reviewSandboxUrl;
+  if (bridge === active) frame.src = sandboxProxyUrl(!params.has("plain-proxy"));
 }
 tool.onchange = selectTool;
 sample.onchange = openSample;
 theme.onchange = () => {
+  document.documentElement.dataset.theme = theme.value;
   if (bridge?.getAppCapabilities()) bridge.setHostContext({ theme: theme.value });
 };
 width.onchange = () => { main.style.maxWidth = width.value; };
