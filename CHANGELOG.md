@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.1
+
+### Bug Fixes 🐛
+
+- (ui) Make MCP Apps results readable on dark hosts by @sergical and @claude in [#90](https://github.com/getsentry/plausible-mcp/pull/90)
+
 ## 0.12.0
 
 ### New Features ✨
