@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.2
+
+### Bug Fixes 🐛
+
+- (tools) Reject unknown arguments and record the error code on tool spans by @sergical and @claude in [#91](https://github.com/getsentry/plausible-mcp/pull/91)
+
+### Internal Changes 🔧
+
+- (deps) Bump the minor-and-patch group across 1 directory with 8 updates by @dependabot in [#87](https://github.com/getsentry/plausible-mcp/pull/87)
+- (evals) Evaluate tool choice with the real server instructions by @sergical and @claude in [#89](https://github.com/getsentry/plausible-mcp/pull/89)
+
 ## 0.12.1
 
 ### Bug Fixes 🐛
