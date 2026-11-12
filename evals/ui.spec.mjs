@@ -177,19 +177,57 @@ test("daily comparison preserves missing days and reads both periods through the
   await app.getByRole("button", {name: "Daily trend"}).click();
   const plot = app.getByRole("slider", {name: /by day of period/});
   await expect(app.locator("input[type=range]")).toHaveCount(0);
-  await expect(plot).toHaveAttribute("aria-valuetext", "Day 1 · Baseline Sep 17: 19 · Comparison Oct 1: 23");
+  const tip = app.locator(".trend-tooltip");
+  await expect(tip).toBeHidden();
+  await expect(plot).toHaveAttribute("aria-valuetext", "Day 1 · Baseline Sep 17: 19 · Comparison Oct 1: 23 · Change: +4");
+  await hoverTimeAxis(plot, 0);
+  await expect(tip).toBeVisible();
+  await expect(tip.locator(".tip-number")).toHaveText(["19", "23", "+4"]);
+  await tip.hover();
+  await expect(plot).toHaveAttribute("aria-valuenow", "1");
+  await app.getByRole("heading").hover();
+  await expect(tip).toBeHidden();
   await hoverTimeAxis(plot, 1);
   await expect(plot).toHaveAttribute("aria-valuenow", "14");
   await plot.press("Home");
+  await expect(tip).toBeVisible();
+  await plot.press("Escape");
+  await expect(tip).toBeHidden();
   await plot.press("ArrowRight");
-  await expect(plot).toHaveAttribute("aria-valuetext", "Day 2 · Baseline Sep 18: — · Comparison Oct 2: —");
+  await expect(plot).toHaveAttribute("aria-valuetext", "Day 2 · Baseline Sep 18: no reading · Comparison Oct 2: no reading");
+  await expect(tip.locator(".tip-change")).toBeHidden();
+  await expect(tip.locator(".tip-number").first()).toHaveText("—");
   await plot.press("ArrowRight");
   await app.getByLabel("Metric").selectOption("bounce_rate");
-  await expect(plot).toHaveAttribute("aria-valuetext", "Day 3 · Baseline Sep 19: — · Comparison Oct 3: 39%");
+  await expect(plot).toHaveAttribute("aria-valuetext", "Day 3 · Baseline Sep 19: no reading · Comparison Oct 3: 39%");
   await page.getByLabel("Width").selectOption("320px");
-  await expect(plot).toBeVisible();
-  await plot.press("End");
-  await expect(plot).toHaveAttribute("aria-valuenow", "14");
+  await expect.poll(() => plot.evaluate(el => el.viewBox.baseVal.width === Math.floor(el.getBoundingClientRect().width))).toBe(true);
+  for (const key of ["Home", "End"]) {
+    await plot.press(key);
+    await expect(tip).toBeVisible();
+    const {box, bounds} = await tip.evaluate(el => ({
+      box: el.getBoundingClientRect().toJSON(), bounds: el.parentElement.getBoundingClientRect().toJSON(),
+    }));
+    expect(box.left).toBeGreaterThanOrEqual(bounds.left);
+    expect(box.right).toBeLessThanOrEqual(bounds.right);
+    expect(box.top).toBeGreaterThanOrEqual(bounds.top);
+    expect(box.bottom).toBeLessThanOrEqual(bounds.bottom);
+  }
+  await plot.press("Home");
+  await expect(tip.locator(".tip-change")).toHaveText("Change+4 pp");
+  for (let day = 0; day < 4; day++) {
+    expect(await plot.evaluate(svg => {
+      const tip = svg.nextElementSibling.getBoundingClientRect();
+      return Array.from(svg.querySelectorAll(".trend-guide circle")).every(dot => {
+        const point = dot.getBoundingClientRect();
+        return !point.width || point.right < tip.left || point.left > tip.right ||
+          point.bottom < tip.top || point.top > tip.bottom;
+      });
+    })).toBe(true);
+    await plot.press("ArrowRight");
+  }
+  await plot.press("Tab");
+  await expect(tip).toBeHidden();
   await app.getByRole("button", {name: "Summary"}).click();
   await expect(app.locator(".value")).toHaveText(["48.5%", "43.2%"]);
 });
@@ -216,6 +254,8 @@ test.describe("touch inspection", () => {
     await expect(plot).toHaveAttribute("aria-valuenow", "14");
     await plot.tap({position:{x: 8, y: 55}});
     await expect(plot).toHaveAttribute("aria-valuenow", "1");
+    await expect(app.locator(".trend-tooltip")).toBeVisible();
+    await expect(app.locator(".tip-date")).toHaveText(["Sep 17", "Oct 1"]);
   });
 });
 

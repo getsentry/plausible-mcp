@@ -64,8 +64,17 @@ export const analyticsHtml = String.raw`<!doctype html>
 #plausible-app .state-message {padding-block:12px;color:var(--sub)}
 #plausible-app code {overflow-wrap:anywhere}
 #plausible-app .trend-legend {display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--sub);font-size:var(--font-text-xs-size,12px)}
-#plausible-app .trend-legend span::before {content:"";display:inline-block;width:15px;margin-inline-end:5px;vertical-align:middle;border-top:2px solid var(--accent)}
-#plausible-app .trend-legend .dashed::before {border-top:2px dashed var(--sub)}
+#plausible-app .trend-swatch::before {content:"";display:inline-block;width:15px;margin-inline-end:6px;vertical-align:middle;border-top:2px solid var(--accent)}
+#plausible-app .trend-swatch.dashed::before {border-top:2px dashed var(--sub)}
+#plausible-app .trend-plot {position:relative;isolation:isolate;container-type:inline-size;margin-block-start:8px}
+#plausible-app .trend-plot .plot {height:192px;cursor:crosshair}
+#plausible-app .trend-tooltip {position:absolute;width:max-content;max-width:calc(100% - 8px);display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:4px 8px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--border-radius-sm,6px);background:var(--paper);color:var(--ink);box-shadow:0 3px 12px #0002;font-size:var(--font-text-sm-size,13px);line-height:1.35}
+#plausible-app .tip-title {grid-column:1/-1;font-weight:600;margin-bottom:2px}
+#plausible-app .tip-date {color:var(--sub)}
+#plausible-app .tip-number {text-align:end;font-weight:600;overflow-wrap:anywhere}
+#plausible-app .tip-change {grid-column:1/-1;display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--line);padding-top:5px;margin-top:2px}
+@container (width < 380px){#plausible-app .trend-plot .plot {height:252px} #plausible-app .tip-series {display:none} #plausible-app .trend-tooltip .trend-swatch::before {margin-inline-end:0}}
+#plausible-app .trend-plot:has(.trend-tooltip[hidden]) .trend-guide {display:none}
 </style></head><body style="margin:0">
 <section id="plausible-app" aria-label="Plausible Analytics">
   <div class="identity"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>Plausible Analytics</div>
@@ -489,7 +498,7 @@ export const analyticsHtml = String.raw`<!doctype html>
           nice(k),
           format(a.metrics[k], k),
           format(b.metrics[k], k),
-          delta(k),
+          formatChange(data.deltas[k]?.absolute, k),
           pct(k),
         ]),
       );
@@ -512,23 +521,21 @@ export const analyticsHtml = String.raw`<!doctype html>
         node(
           "p",
           "Change: " +
-            delta(key) +
+            formatChange(data.deltas[key]?.absolute, key) +
             (pct(key) === "—" ? " · Relative change unavailable" : " (" + pct(key) + ")"),
           "detail",
         ),
       );
     }
-    function delta(k) {
-      const v = data.deltas[k]?.absolute;
-      const rate = rates.has(k);
-      return (
-        (number(v) && v > 0 ? "+" : "") +
-        (number(v) && rate ? formatNumber.format(v) + " pp" : format(v, k))
-      );
-    }
+  }
+  function formatChange(value, key) {
+    if (!number(value)) return "—";
+    return (value > 0 ? "+" : "") + (rates.has(key) ? formatNumber.format(value) + " pp" : format(value, key));
   }
   function render() {
     if (!data) return;
+    const focusedTrend = mode === "trend" && find(".trend-plot .plot:focus");
+    const inspecting = focusedTrend && !find(".trend-tooltip").hidden;
     output.replaceChildren();
     const key = select.value;
     select.parentElement.style.visibility = mode === "data" ? "hidden" : "visible";
@@ -538,6 +545,10 @@ export const analyticsHtml = String.raw`<!doctype html>
     else if (mode === "data") renderRows();
     else if (data.dimensions[0]?.startsWith("time:")) timeseries(key);
     else rank(key);
+    if (focusedTrend && find(".trend-tooltip")) {
+      find(".trend-plot .plot").focus({preventScroll:true});
+      find(".trend-tooltip").hidden = !inspecting;
+    }
   }
   select.onchange = render;
   for (const b of controls.querySelectorAll("button"))
@@ -687,6 +698,7 @@ export const analyticsHtml = String.raw`<!doctype html>
         requests.clear();
         ready = false;
         observer.disconnect();
+        document.removeEventListener("keydown", dismissTrendOnEscape);
         window.removeEventListener("message", receive);
         send({ id: m.id, result: {} });
         break;
