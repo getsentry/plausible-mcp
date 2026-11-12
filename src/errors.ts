@@ -39,6 +39,13 @@ export interface ToolErrorInfo {
  * how the failure is represented in telemetry and which safe message and code the client receives.
  */
 export function reportToolError(error: unknown, toolName: ToolName): ToolErrorInfo {
+  const info = classifyToolError(error, toolName);
+  // Only the code: the message can echo user input, which must not reach /mcp spans.
+  Sentry.getActiveSpan()?.setAttribute("error.type", info.code);
+  return info;
+}
+
+function classifyToolError(error: unknown, toolName: ToolName): ToolErrorInfo {
   if (error instanceof UserFacingError) {
     Sentry.metrics.count("mcp.tool.error", 1, {
       attributes: {
