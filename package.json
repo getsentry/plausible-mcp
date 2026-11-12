@@ -36,23 +36,23 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",
-    "@sentry/cloudflare": "11.10.0",
+    "@sentry/cloudflare": "11.11.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261030.1",
+    "@cloudflare/workers-types": "^5.20261109.1",
     "@modelcontextprotocol/client": "2.4.0",
     "@modelcontextprotocol/ext-apps": "2.1.0",
     "@playwright/test": "1.65.0",
     "@types/node": "^26.6.6",
-    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/coverage-v8": "^5.1.0",
     "esbuild": "0.28.2",
-    "openai": "^7.45.1",
-    "sentry": "^0.47.0",
+    "openai": "^7.53.0",
+    "sentry": "^0.49.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5",
-    "vitest": "^5.0.5",
-    "wrangler": "^4.156.0"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.158.0"
   }
 }
