@@ -1,6 +1,7 @@
+import { reviewSandboxUrl } from "../dist/ui/review-sandbox.js";
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 
-const { html, scenarios, dailyReadings, reviewSandboxUrl } = JSON.parse(document.getElementById("fixtures").textContent);
+const { html, scenarios, dailyReadings } = JSON.parse(document.getElementById("fixtures").textContent);
 const tool = document.getElementById("tool");
 const sample = document.getElementById("sample");
 const theme = document.getElementById("theme");

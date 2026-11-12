@@ -7,7 +7,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createServer } from "../dist/server.js";
 import { build } from "esbuild";
-import { reviewSandboxUrl } from "../dist/ui/review-sandbox.js";
 import { landingHtml } from "../dist/landing.js";
 
 const days = [188, 215, 193, 254, 231, 205, 262, 279, 238, 246, 305, 277, 314, 327];
@@ -178,7 +177,7 @@ try {
     assert.ok(!result.isError && result.structuredContent);
     dailyReadings[range] = result;
   }
-  const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings, reviewSandboxUrl }).replaceAll("<", "\\u003c");
+  const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings }).replaceAll("<", "\\u003c");
   const document = template
     .replace("<!--fixtures-->", () => '<script type="application/json" id="fixtures">' + fixtures + "</script>")
     .replace("<!--bridge-->", () => "<script>" + hostScript.outputFiles[0].text + "</script>");
