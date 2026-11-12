@@ -370,3 +370,82 @@ for (const host of ["no-chat", "decline"]) {
     await expect(page.locator("#message")).toHaveText("");
   });
 }
+
+const screens = new URL("../coverage/ui-review/screens/", import.meta.url);
+const toolNames = ["get_timeseries", "get_breakdown", "get_conversions", "compare_periods", "send_feedback"];
+
+async function paintedBackground(page, frame, path) {
+  const png = await frame.screenshot({ path });
+  const decoder = await page.context().newPage();
+  try {
+    return await decoder.evaluate(async (data) => {
+      const image = new Image();
+      image.src = "data:image/png;base64," + data;
+      await image.decode();
+      const canvas = Object.assign(document.createElement("canvas"), { width: image.width, height: image.height });
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, image.width, image.height).data;
+      const counts = new Map();
+      for (let i = 0; i < pixels.length; i += 4) {
+        const key = pixels[i] + "," + pixels[i + 1] + "," + pixels[i + 2];
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return [...counts].sort((a, b) => b[1] - a[1])[0][0].split(",").map(Number);
+    }, png.toString("base64"));
+  } finally {
+    await decoder.close();
+  }
+}
+
+const rgb = (css) => css.match(/[\d.]+/g).slice(0, 3).map(Number);
+const luminance = (color) => {
+  const [r, g, b] = color.map((v) => v / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light + 0.05) / (dark + 0.05);
+};
+
+async function expectReadableOnHost(page, frame, app, surface, path) {
+  const host = rgb(await surface.evaluate((element) => getComputedStyle(element).backgroundColor));
+  const painted = await paintedBackground(page, frame, path);
+  for (const [i, channel] of painted.entries()) {
+    expect(Math.abs(channel - host[i]), `painted background rgb(${painted}) differs from the host surface rgb(${host})`).toBeLessThanOrEqual(3);
+  }
+  for (const selector of ["h2", ".identity"]) {
+    const text = rgb(await app.locator(selector).evaluate((element) => getComputedStyle(element).color));
+    expect(contrast(text, painted), `${selector} rgb(${text}) on rgb(${painted})`).toBeGreaterThanOrEqual(4.5);
+  }
+}
+
+for (const colorScheme of ["light", "dark"]) {
+  test.describe(`on a ${colorScheme} device`, () => {
+    test.use({ colorScheme });
+    for (const [theme, query] of [["light", ""], ["dark", ""], [colorScheme === "light" ? "dark" : "light", "?no-host-styles"]]) {
+      test(`every tool is readable on a ${theme} host${query && " without host styles"}`, async ({ page, browserName }) => {
+        await page.goto(preview + query);
+        await page.getByLabel("Theme").selectOption(theme);
+        const app = view(page);
+        for (const name of toolNames) {
+          await page.getByRole("combobox", { name: "Tool", exact: true }).selectOption(name);
+          await expect(app.locator("h2")).not.toHaveText("Analytics");
+          const file = [browserName, colorScheme + "-device", theme + "-host", query ? "no-styles" : "styles", name].join("-") + ".png";
+          await expectReadableOnHost(page, page.locator('iframe[title="Plausible Analytics"]'), app, page.locator("body"), new URL(file, screens).pathname);
+        }
+      });
+    }
+
+    test("the landing page chart is readable", async ({ page, browserName }) => {
+      const { landingHtml, landingSecurityPolicy } = await import("../dist/landing.js");
+      await page.route("https://landing.example.test/", (route) => route.fulfill({
+        body: landingHtml("https://landing.example.test/mcp"), headers: { "content-type": "text/html", "content-security-policy": landingSecurityPolicy },
+      }));
+      await page.goto("https://landing.example.test/");
+      const app = page.frameLocator("iframe").frameLocator('iframe[title="Analytics result"]');
+      await expect(app.locator("h2")).toHaveText("Traffic over time");
+      await expectReadableOnHost(page, page.locator(".frame iframe"), app, page.locator(".frame"), new URL(`${browserName}-${colorScheme}-device-landing.png`, screens).pathname);
+    });
+  });
+}
