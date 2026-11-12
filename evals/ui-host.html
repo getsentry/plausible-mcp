@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plausible MCP Apps review</title>
+  <style>
+    :root {color-scheme:light dark;font:14px/1.45 system-ui,sans-serif}
+    body {max-width:850px;margin:20px auto;padding:0 12px}
+    header {display:flex;gap:8px 14px;align-items:end;flex-wrap:wrap;margin-bottom:16px}
+    label {display:grid;gap:3px;font-size:12px}
+    .picker {display:inline-grid;position:relative}
+    select {appearance:none;font:inherit;font-size:14px;color:CanvasText;background:Canvas;border:1px solid color-mix(in srgb,CanvasText 30%,Canvas);border-radius:6px;padding:6px 32px 6px 10px;cursor:pointer}
+    .picker::after {content:"";position:absolute;inset-inline-end:12px;top:50%;width:6px;height:6px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-70%) rotate(45deg);pointer-events:none}
+    @media(forced-colors:active){select {appearance:auto} .picker::after {display:none}}
+    @media(pointer:coarse){select {font-size:16px;min-height:44px}}
+    iframe {display:block;border:0;width:100%;min-height:120px}
+  </style></head><body>
+  <header aria-label="Preview controls">
+    <label>Tool<span class="picker"><select id="tool"></select></span></label>
+    <label>State<span class="picker"><select id="sample"></select></span></label>
+    <label>Theme<span class="picker"><select id="theme"><option>light</option><option>dark</option></select></span></label>
+    <label>Width<span class="picker"><select id="width"><option value="100%">Full</option><option value="320px">320 px</option></select></span></label>
+  </header>
+  <main></main>
+  <details hidden id="chat"><summary>Chat handoff</summary>
+    <p>Selected context: <output id="selection"></output></p>
+    <p>Requested message: <output id="message"></output></p>
+  </details>
+  <!--fixtures-->
+  <!--bridge-->
+</body></html>

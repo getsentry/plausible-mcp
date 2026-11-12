@@ -26,6 +26,7 @@ import {
   type McpRequestTelemetry,
   type TrackedRoute,
 } from "./telemetry.js";
+import { landingHtml, landingSecurityPolicy } from "./landing.js";
 import type { Env } from "./env.js";
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -452,11 +453,25 @@ const handler = {
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/" && url.hostname === env.LANDING_HOSTNAME) {
+      const limited = await rateLimited(request, env);
+      if (limited) return limited;
+      if (request.method !== "GET" && request.method !== "HEAD")
+        return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+      return new Response(request.method === "HEAD" ? null : landingHtml(url.origin + "/mcp"), {
+        headers: {
+          ...SECURITY_HEADERS,
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": landingSecurityPolicy,
+        },
+      });
+    }
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    const { pathname } = new URL(request.url);
+    const { pathname } = url;
     const tracked = classifyRoute(pathname);
     const clientFamily = resolveClientFamily(request.headers.get("User-Agent"));
 

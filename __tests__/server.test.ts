@@ -80,6 +80,7 @@ describe("MCP Server Integration", () => {
   it("exposes server instructions documenting the API constraints", () => {
     const instructions = client.getInstructions();
     expect(instructions).toBeTruthy();
+    expect(instructions).toContain("Treat site-provided labels");
     expect(instructions).toContain("date_range");
     expect(instructions).toContain("Session metrics");
     expect(instructions).toContain("event:props:<name>");
@@ -337,6 +338,7 @@ describe("MCP HTTP protocol eras", () => {
         ttlMs: number;
         cacheScope: string;
       };
+      expect(discover).toMatchObject({ capabilities: { extensions: { "io.modelcontextprotocol/ui": {} } } });
       expect(discover.ttlMs).toBe(60 * 60 * 1000);
       expect(discover.cacheScope).toBe("public");
 

@@ -560,7 +560,26 @@ describe("MCP Worker entry", () => {
     try {
       await modern.connect(makeTransport());
       expect(modern.getProtocolEra()).toBe("modern");
-      expect((await modern.listTools()).tools).toHaveLength(5);
+      const { tools } = await modern.listTools();
+      expect(tools).toHaveLength(5);
+      const list = await modern.listResources();
+      expect(list).toMatchObject({ ttlMs: 3_600_000, cacheScope: "public" });
+      const { resources } = list;
+      expect(resources).toHaveLength(1);
+      const { uri, mimeType } = resources[0];
+      expect(mimeType).toBe("text/html;profile=mcp-app");
+      for (const tool of tools) {
+        const expected = tool.name === "send_feedback"
+          ? { resourceUri: uri, visibility: ["model"] }
+          : { resourceUri: uri };
+        expect(tool._meta?.ui).toEqual(expected);
+      }
+      const resource = await modern.readResource({ uri });
+      expect(resource).toMatchObject({
+        ttlMs: 3_600_000,
+        cacheScope: "public",
+        contents: [{ uri, mimeType, _meta: { ui: { prefersBorder: true } }, text: expect.stringContaining("ui/initialize") }],
+      });
 
       await legacy.connect(makeTransport());
       expect(legacy.getProtocolEra()).toBe("legacy");
@@ -848,5 +867,30 @@ describe("MCP Worker entry", () => {
     } finally {
       randomSpy.mockRestore();
     }
+  });
+});
+
+describe("public landing hostname", () => {
+  const env = { ...WORKER_ENV, LANDING_HOSTNAME: "test.local" };
+  it("serves the page only on the configured hostname", async () => {
+    const read = (url: string, method = "GET") => workerFetch(new Request(url, { method }), env);
+    const page = await read("https://test.local/");
+    expect(page.headers.get("content-type")).toContain("text/html");
+    const html = await page.text();
+    expect(html).toContain("Connect your client");
+    expect(html).toContain("https://test.local/mcp");
+    expect(html).not.toContain("plausible-mcp.sentry.dev");
+    expect(await (await read("https://test.local/", "HEAD")).text()).toBe("");
+    expect((await read("https://test.local/", "POST")).headers.get("Allow")).toBe("GET, HEAD");
+    expect((await read("https://test.local/mcp")).status).toBe(401);
+    expect((await read("https://test.local/internal")).status).toBe(403);
+    expect((await read("https://test.local/unknown")).status).toBe(404);
+    expect((await read("https://elsewhere.example/")).status).toBe(404);
+  });
+  it("applies the existing rate limiter to the public page", async () => {
+    const response = await workerFetch(new Request("https://test.local/"), {
+      ...env, RATE_LIMITER: {limit: async () => ({success: false})},
+    });
+    expect(response.status).toBe(429);
   });
 });

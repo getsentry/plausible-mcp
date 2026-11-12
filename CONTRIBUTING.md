@@ -20,6 +20,14 @@ pnpm test:coverage # With coverage report
 
 Tests use [Vitest](https://vitest.dev) with mocked `fetch` — no Plausible account needed to run them.
 
+## Reviewing MCP Apps results
+
+Run `pnpm review:ui` and open `coverage/ui-review/index.html` in a browser. The preview loads the same HTML that clients read from the MCP server. Choose a tool, then a result or lifecycle state. Switch the theme and width to check the same view at 320 px or full width. It works offline with fixture analytics and feedback data. Open the adjacent `landing.html` to try the public installation page and its embedded traffic chart. Both documents are included in the CI review artifact.
+
+To run the browser checks, install Chromium and WebKit with `pnpm exec playwright install --only-shell chromium webkit`. Run `pnpm test:ui` to build the preview and test it in Chromium and WebKit with the MCP Apps SDK host bridge. The checks cover all five tools, error and empty results, keyboard inspection, table paging, and host theme and size changes. CI also publishes the preview as the **mcp-apps-preview** artifact.
+
+To check the deployed hostname before launch, run `pnpm verify:hosted --baseline`. After the Worker release and the exact-root Access override, run `pnpm verify:hosted` from the released commit. The check verifies the landing document, bearer challenge, OAuth challenge, and discovery metadata. Set `PLAUSIBLE_API_KEY` and `PLAUSIBLE_SITE_ID` and add `--read` to check authenticated discovery, read the shipped app after launch, and query traffic. Also run a traffic query through an existing SSO connector to check the authenticated `/internal` path. The checker prints no analytics rows or credentials.
+
 ## Adding a New Tool
 
 1. Create `src/tools/your-tool.ts`, starting from the closest existing tool. A tool that queries Plausible exports `register(server, client, defaultSiteId?)` — copy `get-timeseries.ts`. A tool that does not needs no client, so it exports `register(server)` — copy `send-feedback.ts`.

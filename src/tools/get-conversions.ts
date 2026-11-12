@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { appToolMeta } from "../ui/resource.js";
 import type { PlausibleClient } from "../plausible.js";
 import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -30,6 +31,7 @@ export function register(
       title: "Get Conversions",
       description:
         "Get goal conversion rates and counts. Can break down by page to see which pages drive conversions.",
+      _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,
       inputSchema: z.object({

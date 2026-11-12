@@ -12,6 +12,7 @@ routes = [
 ]
 
 [vars]
+LANDING_HOSTNAME = "plausible-mcp.sentry.dev"
 # Email domain(s) allowed to sign in to /internal (comma-separated, "@" optional).
 # Enforced in code in ADDITION to the upstream Access policy. Self-hosting? Set your own.
 ALLOWED_EMAIL_DOMAIN = "sentry.io"

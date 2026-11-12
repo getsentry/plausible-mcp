@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { appToolMeta } from "../ui/resource.js";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
 import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -94,6 +95,7 @@ export function register(
       title: "Compare Periods",
       description:
         "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To see how the current period changed from a prior one, pass the prior range as period_a and the current range as period_b.",
+      _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: comparePeriodsOutputSchema,
       inputSchema: z.object({
