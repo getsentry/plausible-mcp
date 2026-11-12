@@ -51,7 +51,10 @@ test("timeseries accepts keyboard and pointer input and pages all returned rows"
 test("host theme and width changes update the same chart and keep the table inside the frame", async ({ page, app }) => {
   await app.getByLabel("Metric").selectOption("bounce_rate");
   await page.getByLabel("Theme").selectOption("dark");
-  await expect(app.locator("#plausible-app")).toHaveCSS("color-scheme", "dark");
+  const surface = app.locator("#plausible-app");
+  await expect(surface).toHaveCSS("color-scheme", "dark");
+  await expect(surface).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(surface).toHaveCSS("border-top-left-radius", "0px");
   await page.getByLabel("Width").selectOption("320px");
   await expect(page.locator("iframe")).toHaveCSS("width", "320px");
   await expect(app.getByLabel("Metric")).toHaveValue("bounce_rate");
@@ -96,6 +99,19 @@ for (const width of ["100%", "320px"]) {
     }
   });
 }
+
+test("site labels containing markup render literally", async ({page, app}) => {
+  await page.getByRole("combobox", {name:"Tool", exact:true}).selectOption("get_breakdown");
+  await expect(app.getByRole("heading")).toHaveText("Top pages");
+  await page.evaluate(() => document.querySelector("iframe").contentWindow.postMessage({
+    jsonrpc: "2.0", method: "ui/notifications/tool-result", params: {
+      content: [], structuredContent: {metrics:["visitors"], dimensions:["event:page"],
+        results:[{dimensions:["/docs/<b>draft</b>"], metrics:[12]}]},
+    },
+  }, "*"));
+  await expect(app.locator(".rank-label")).toHaveText("/docs/<b>draft</b>");
+  await expect(app.locator(".rank-label b")).toHaveCount(0);
+});
 
 test("period comparison distinguishes percentage points, relative change and missing baselines", async ({ page, app }) => {
   const tool = page.getByRole("combobox", { name: "Tool", exact: true });
