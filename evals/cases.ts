@@ -162,4 +162,29 @@ export const cases: EvalCase[] = [
       return errors;
     },
   },
+  {
+    // From feedback PLAUSIBLE-MCP-V: an agent read conversion_rate, whose denominator is
+    // every visitor in the query, as each row's own rate.
+    name: "per-row conversion rate in a goal breakdown",
+    prompt:
+      "For the Purchase goal, what is the conversion rate of each entry page on example.com over the last 30 days?",
+    expectedTool: "get_breakdown",
+    assertions: (args) => {
+      const errors: string[] = [];
+      if (args.dimension !== "visit:entry_page") {
+        errors.push(`Expected dimension "visit:entry_page", got "${args.dimension}"`);
+      }
+      if (!String(args.goal ?? "").toLowerCase().includes("purchase")) {
+        errors.push(`Expected goal to contain "purchase", got "${args.goal}"`);
+      }
+      // Omitted metrics are fine: a goal breakdown defaults to group_conversion_rate.
+      const metrics = args.metrics as string[] | undefined;
+      if (metrics && !metrics.includes("group_conversion_rate")) {
+        errors.push(
+          `Expected metrics to include "group_conversion_rate", got ${JSON.stringify(metrics)}`
+        );
+      }
+      return errors;
+    },
+  },
 ];

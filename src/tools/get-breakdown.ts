@@ -3,14 +3,14 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
 import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient, PlausibleResult } from "../plausible.js";
-import { toolErrorResult } from "../errors.js";
+import { toolErrorResult, UserFacingError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
   siteIdSchemaFor,
   dateRangeSchema,
   pageSchema,
   goalSchema,
-  metricsSchema,
+  rowMetricsSchema,
   dimensionSchema,
   propertyFiltersSchema,
   isCustomPropertyDimension,
@@ -26,7 +26,7 @@ import { resolveSiteId } from "./get-timeseries.js";
 // Plausible rejects session metrics (bounce_rate) with goal/property dimensions and with
 // event:hostname unless event:page is also a dimension, which a single-dimension breakdown
 // never has. It rejects event metrics (pageviews) with entry/exit page dimensions.
-function defaultMetrics(dimension: string): string[] {
+function baseMetrics(dimension: string): string[] {
   if (
     dimension === "event:goal" ||
     dimension === "event:hostname" ||
@@ -38,6 +38,14 @@ function defaultMetrics(dimension: string): string[] {
     return ["visitors", "visits", "bounce_rate"];
   }
   return ["visitors", "pageviews", "bounce_rate"];
+}
+
+// A goal breakdown by anything but the goal is almost always asking for each row's
+// conversion rate, so give it one rather than leaving the agent to pick conversion_rate,
+// which divides by every visitor in the query (feedback PLAUSIBLE-MCP-V).
+function defaultMetrics(dimension: string, hasGoal: boolean): string[] {
+  const metrics = baseMetrics(dimension);
+  return hasGoal && dimension !== "event:goal" ? [...metrics, "group_conversion_rate"] : metrics;
 }
 
 function byFirstMetricThenName(a: PlausibleResult, b: PlausibleResult): number {
@@ -69,7 +77,7 @@ export function register(
         page: pageSchema,
         goal: goalSchema,
         property_filters: propertyFiltersSchema,
-        metrics: metricsSchema,
+        metrics: rowMetricsSchema,
         limit: z
           .number()
           .int()
@@ -92,7 +100,15 @@ export function register(
       recordMcpClientInfo(ctx);
       try {
         const siteId = resolveSiteId(args.site_id, defaultSiteId);
-        const metrics = args.metrics ?? defaultMetrics(args.dimension);
+        const hasGoal =
+          !!args.goal || !!args.property_filters?.some((f) => f.property === "event:goal");
+        const metrics = args.metrics ?? defaultMetrics(args.dimension, hasGoal);
+        // Plausible accepts this pair but every row comes back 0.
+        if (args.dimension === "event:goal" && metrics.includes("group_conversion_rate")) {
+          throw new UserFacingError(
+            "group_conversion_rate is always 0 when grouped by event:goal. Use conversion_rate, which is each goal's percent of all visitors."
+          );
+        }
         const limit = args.limit ?? 20;
         const offset = args.offset ?? 0;
 
@@ -134,17 +150,22 @@ export function register(
           : result.results;
         const trimmed = { ...result, results: rows.slice(0, limit) };
         const pagination = { limit, offset, has_more: rows.length > limit };
+        const structuredContent = buildQueryStructuredContent(
+          trimmed,
+          metrics,
+          [args.dimension],
+          pagination
+        );
+        const { notes } = structuredContent;
 
         return {
           content: [
-            { type: "text" as const, text: JSON.stringify({ ...trimmed, pagination }, null, 2) },
+            {
+              type: "text" as const,
+              text: JSON.stringify({ ...trimmed, pagination, notes }, null, 2),
+            },
           ],
-          structuredContent: buildQueryStructuredContent(
-            trimmed,
-            metrics,
-            [args.dimension],
-            pagination
-          ),
+          structuredContent,
         };
       } catch (error) {
         return toolErrorResult(error, "get_breakdown", offerFeedback);

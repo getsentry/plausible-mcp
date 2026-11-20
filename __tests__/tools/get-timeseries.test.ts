@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/server";
 import { register, resolveSiteId } from "../../src/tools/get-timeseries.js";
 import type { PlausibleClient } from "../../src/plausible.js";
+import { CONVERSION_RATES_MEANING } from "../../src/schemas.js";
 
 function createMockClient(): PlausibleClient {
   return {
@@ -205,6 +206,18 @@ describe("get_timeseries tool", () => {
     expect(result.content[0].type).toBe("text");
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.results).toBeDefined();
+  });
+
+  it("explains that a bucket's conversion_rate divides by the whole period", async () => {
+    const handler = getToolHandler(server, "get_timeseries");
+    const result = await handler({
+      date_range: "7d",
+      goal: "Signup",
+      metrics: ["visitors", "conversion_rate"],
+    });
+
+    expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+    expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
   });
 });
 

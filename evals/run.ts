@@ -72,7 +72,12 @@ async function runEval(
   const toolCall = response.choices[0]?.message.tool_calls?.[0];
 
   if (!toolCall || toolCall.type !== "function") {
-    return { pass: false, errors: ["No tool call in response"] };
+    const choice = response.choices[0];
+    const said = choice?.message.content?.trim().slice(0, 300) ?? "";
+    return {
+      pass: false,
+      errors: [`No tool call (finish_reason ${choice?.finish_reason}). The model said: ${said}`],
+    };
   }
 
   const errors: string[] = [];
@@ -112,33 +117,35 @@ async function main() {
   );
   console.log(`Model: ${model}\n`);
 
+  // A model picks tools differently from run to run, so one run per case cannot show
+  // whether a wording change helped. EVAL_RUNS repeats each case; EVAL_CASE narrows the
+  // set to cases whose name contains it.
+  const runs = Number(process.env.EVAL_RUNS ?? 1);
+  const selected = cases.filter((c) => c.name.includes(process.env.EVAL_CASE ?? ""));
+
   let passed = 0;
   let failed = 0;
 
-  for (const evalCase of cases) {
-    process.stdout.write(`  ${evalCase.name}... `);
-
-    try {
-      const result = await runEval(context, evalCase);
-
-      if (result.pass) {
-        console.log("PASS");
-        passed++;
-      } else {
-        console.log("FAIL");
-        for (const err of result.errors) {
-          console.log(`    - ${err}`);
-        }
-        failed++;
+  for (const evalCase of selected) {
+    let casePassed = 0;
+    const failures: string[] = [];
+    for (let run = 0; run < runs; run++) {
+      try {
+        const result = await runEval(context, evalCase);
+        if (result.pass) casePassed++;
+        else failures.push(...result.errors);
+      } catch (err) {
+        failures.push((err as Error).message);
       }
-    } catch (err) {
-      console.log("ERROR");
-      console.log(`    - ${(err as Error).message}`);
-      failed++;
     }
+    passed += casePassed;
+    failed += runs - casePassed;
+    const verdict = casePassed === runs ? "PASS" : "FAIL";
+    console.log(`  ${evalCase.name}... ${verdict}${runs > 1 ? ` (${casePassed}/${runs})` : ""}`);
+    for (const error of failures) console.log(`    - ${error}`);
   }
 
-  console.log(`\nResults: ${passed} passed, ${failed} failed out of ${cases.length}`);
+  console.log(`\nResults: ${passed} passed, ${failed} failed out of ${selected.length * runs}`);
 
   if (failed > 0) {
     process.exit(1);
