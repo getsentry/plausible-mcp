@@ -129,7 +129,7 @@ describe("get_conversions tool", () => {
                 { dimensions: ["Purchase", "/gone"], metrics: [1, 1, 0.01] },
               ],
               meta: {},
-              query: {},
+              query: { metrics: ["visitors", "events", "conversion_rate"] },
             }
           : { results: [{ dimensions: ["/pricing"], metrics: [1150] }], meta: {}, query: {} }
       );
@@ -151,6 +151,9 @@ describe("get_conversions tool", () => {
         { dimensions: ["Purchase", "/gone"], metrics: [1, 1, 0.01, null] },
       ]);
       expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+      expect(JSON.parse(result.content[0].text).query.metrics).toEqual(
+        result.structuredContent.metrics
+      );
     });
 
     it("counts page visitors without the goal and custom-property filters", async () => {
