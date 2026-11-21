@@ -214,9 +214,16 @@ describe("PlausibleClient", () => {
       expect(await retryAfterFor("Wed, 21 Oct 2026 06:00:00 GMT")).toBe(0);
     });
 
-    // "1.5" and "-5" are not valid Retry-After values, but Date.parse reads them as dates in
-    // 2001, which would have told the caller to retry at once.
-    it.each(["soon", "1.5", "-5", "5x", "1e3"])("ignores the invalid value %j", async (header) => {
+    it.each(["Wednesday, 21-Oct-26 07:00:30 GMT", "Wed Oct 21 07:00:30 2026"])(
+      "reads the obsolete HTTP-date form %j",
+      async (header) => {
+        expect(await retryAfterFor(header)).toBe(30);
+      }
+    );
+
+    // Not valid Retry-After values, but Date.parse reads most of them as dates in 2001, which
+    // would have told the caller to retry at once.
+    it.each(["soon", "1.5", "-5", "5x", "1e3", "Monday 5", "January 1, 2001", "Monkeys 1 Jan 2001", "2026-10-21T07:00:30Z"])("ignores the invalid value %j", async (header) => {
       expect(await retryAfterFor(header)).toBeUndefined();
     });
 

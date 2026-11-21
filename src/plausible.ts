@@ -77,17 +77,26 @@ export class PlausibleApiError extends Error {
 }
 
 /**
- * Retry-After is either delta-seconds or an HTTP-date; both are normalized to seconds from now.
- * Every HTTP-date form starts with a day name. Anything else goes to `Date.parse` only after
- * that check, because `Date.parse` reads "1.5" or "-5" as a date in 2001, which would tell the
- * caller to retry at once.
+ * The HTTP-date forms of RFC 9110: IMF-fixdate, RFC 850 and asctime. `Date.parse` reads
+ * almost anything as a date ("1.5" and "Monday 5" both land in 2001), which would tell the
+ * caller to retry at once, so only these forms reach it.
  */
+const GMT_HTTP_DATE = [
+  /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/,
+  /^[A-Z][a-z]{5,8}, \d{2}-[A-Z][a-z]{2}-\d{2} \d{2}:\d{2}:\d{2} GMT$/,
+];
+/** asctime carries no zone but is GMT by definition; `Date.parse` would read it as local time. */
+const ASCTIME_DATE = /^[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/;
+
+/** Retry-After is either delta-seconds or an HTTP-date; both are normalized to seconds from now. */
 function parseRetryAfterSeconds(header: string | null): number | undefined {
   const value = header?.trim();
   if (!value) return undefined;
   if (/^\d+$/.test(value)) return Number(value);
-  if (!/^[A-Za-z]{3}/.test(value)) return undefined;
-  const date = Date.parse(value);
+  let date: number;
+  if (GMT_HTTP_DATE.some((form) => form.test(value))) date = Date.parse(value);
+  else if (ASCTIME_DATE.test(value)) date = Date.parse(`${value} GMT`);
+  else return undefined;
   return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : undefined;
 }
 
