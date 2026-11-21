@@ -8,6 +8,7 @@
     ".codex/**",
     ".cursor/**",
     "CHANGELOG.md",
+    "package.json",
     "pnpm-lock.yaml",
     "coverage/**",
     "dist/**",
