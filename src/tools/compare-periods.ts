@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
+import { toIsoSeconds } from "../plausible.js";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
-import { toolErrorResult } from "../errors.js";
+import { toolErrorResult, UserFacingError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
   siteIdSchemaFor,
@@ -83,6 +84,59 @@ function computeDeltas(
   return deltas;
 }
 
+const MS_PER_DAY = 86_400_000;
+const UTC_OFFSET = /(Z|([+-])(\d{2}):(\d{2}))$/;
+
+/** The calendar date at `ms` in the zone of an ISO 8601 offset such as "-05:00". */
+function localDate(ms: number, offset: string): string {
+  const [, , sign, hours, minutes] = UTC_OFFSET.exec(offset) ?? [];
+  const offsetMs = sign ? (sign === "-" ? -1 : 1) * (Number(hours) * 60 + Number(minutes)) * 60_000 : 0;
+  return new Date(ms + offsetMs).toISOString().slice(0, 10);
+}
+
+function addDays(date: string, days: number): string {
+  return new Date(Date.parse(date) + days * MS_PER_DAY).toISOString().slice(0, 10);
+}
+
+/**
+ * The range of the same length right before period_b, built the way Plausible's dashboard
+ * builds its previous period (lib/plausible/stats/comparisons.ex in plausible/analytics):
+ * a range of whole days moves back by its own number of days, leaving out days after
+ * today; "day" (today so far) and hour ranges move back by their length in time. It starts
+ * from the range Plausible resolved for period_b, so an agent can compare "this week with
+ * last week" without knowing today's date, which most prompts do not give.
+ */
+export function previousPeriod(periodB: string, resolved: unknown, now: number): string {
+  const [first, last] = Array.isArray(resolved) ? resolved : [];
+  if (
+    typeof first !== "string" ||
+    typeof last !== "string" ||
+    Number.isNaN(Date.parse(first)) ||
+    Number.isNaN(Date.parse(last))
+  ) {
+    throw new UserFacingError(
+      "Plausible did not return the dates of period_b, so the period before it is unknown. Pass period_a."
+    );
+  }
+  const start = Date.parse(first);
+  const end = Date.parse(last);
+  if (periodB === "day" || /^\d+h$/.test(periodB) || periodB.includes("T")) {
+    const shift = periodB === "day" ? MS_PER_DAY : end - start;
+    return `${toIsoSeconds(start - shift)},${toIsoSeconds(end - shift)}`;
+  }
+  const firstDate = first.slice(0, 10);
+  // Today in the site's time zone, from the UTC offset Plausible gave the range's end.
+  const today = localDate(now, last);
+  const lastDate = last.slice(0, 10) < today ? last.slice(0, 10) : today;
+  if (lastDate < firstDate) {
+    throw new UserFacingError(
+      "period_b starts after today, so the period before it has no fixed length. Pass period_a."
+    );
+  }
+  const days = (Date.parse(lastDate) - Date.parse(firstDate)) / MS_PER_DAY + 1;
+  return `${addDays(firstDate, -days)},${addDays(firstDate, -1)}`;
+}
+
 export function register(
   server: McpServer,
   client: PlausibleClient,
@@ -94,17 +148,19 @@ export function register(
     {
       title: "Compare Periods",
       description:
-        "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To see how the current period changed from a prior one, pass the prior range as period_a and the current range as period_b.",
+        "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To compare a period with the one of the same length right before it, such as this week with last week, pass only period_b (\"7d\").",
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: comparePeriodsOutputSchema,
       inputSchema: z.strictObject({
         site_id: siteIdSchemaFor(defaultSiteId),
-        period_a: dateRangeSchema.describe(
-          'Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". For a current-vs-prior comparison, this is the prior range.'
-        ),
+        period_a: dateRangeSchema
+          .describe(
+            'Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". Omit it to use the period of the same length right before period_b, as Plausible\'s "previous period" does: period_b "7d" alone compares the last 7 days with the 7 days before them. The result gives the dates used.'
+          )
+          .optional(),
         period_b: dateRangeSchema.describe(
-          'Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range.'
+          'Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range; omit period_a to compare it with the period right before it.'
         ),
         page: pageSchema,
         metrics: metricsSchema,
@@ -135,16 +191,25 @@ export function register(
           filters,
         };
 
-        const [responseA, responseB] = await Promise.all([
-          client.query({ ...queryBase, date_range: args.period_a }),
-          client.query({ ...queryBase, date_range: args.period_b }),
-        ]);
+        let periodA = args.period_a;
+        let responseA: PlausibleResponse;
+        let responseB: PlausibleResponse;
+        if (periodA) {
+          [responseA, responseB] = await Promise.all([
+            client.query({ ...queryBase, date_range: periodA }),
+            client.query({ ...queryBase, date_range: args.period_b }),
+          ]);
+        } else {
+          responseB = await client.query({ ...queryBase, date_range: args.period_b });
+          periodA = previousPeriod(args.period_b, responseB.query.date_range, Date.now());
+          responseA = await client.query({ ...queryBase, date_range: periodA });
+        }
 
         const metricsA = extractAggregateMetrics(responseA, metrics);
         const metricsB = extractAggregateMetrics(responseB, metrics);
 
         const comparison: PeriodComparison = {
-          period_a: { range: args.period_a, metrics: metricsA },
+          period_a: { range: periodA, metrics: metricsA },
           period_b: { range: args.period_b, metrics: metricsB },
           deltas: computeDeltas(metricsA, metricsB),
         };

@@ -685,7 +685,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "openWorldHint": true,
         "readOnlyHint": true,
       },
-      "description": "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To see how the current period changed from a prior one, pass the prior range as period_a and the current range as period_b.",
+      "description": "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To compare a period with the one of the same length right before it, such as this week with last week, pass only period_b ("7d").",
       "execution": undefined,
       "icons": undefined,
       "inputSchema": {
@@ -726,12 +726,12 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "period_a": {
-            "description": "Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". For a current-vs-prior comparison, this is the prior range.",
+            "description": "Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". Omit it to use the period of the same length right before period_b, as Plausible's "previous period" does: period_b "7d" alone compares the last 7 days with the 7 days before them. The result gives the dates used.",
             "pattern": "^(\\d+h|\\d+d|\\d+mo|day|month|year|all|\\d{4}-\\d{2}-\\d{2},\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}),\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}))$",
             "type": "string",
           },
           "period_b": {
-            "description": "Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range.",
+            "description": "Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range; omit period_a to compare it with the period right before it.",
             "pattern": "^(\\d+h|\\d+d|\\d+mo|day|month|year|all|\\d{4}-\\d{2}-\\d{2},\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}),\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}))$",
             "type": "string",
           },
@@ -780,7 +780,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           },
         },
         "required": [
-          "period_a",
           "period_b",
         ],
         "type": "object",

@@ -57,7 +57,8 @@ async function runEval(
 ): Promise<{ pass: boolean; errors: string[] }> {
   const response = await openrouter.chat.completions.create({
     model,
-    max_tokens: 1024,
+    // Room for the model's thinking before its tool call; at 1024 it often ran out first.
+    max_tokens: 4096,
     messages: [
       {
         role: "system",
@@ -127,17 +128,13 @@ async function main() {
   let failed = 0;
 
   for (const evalCase of selected) {
-    let casePassed = 0;
-    const failures: string[] = [];
-    for (let run = 0; run < runs; run++) {
-      try {
-        const result = await runEval(context, evalCase);
-        if (result.pass) casePassed++;
-        else failures.push(...result.errors);
-      } catch (err) {
-        failures.push((err as Error).message);
-      }
-    }
+    const results = await Promise.all(
+      Array.from({ length: runs }, () =>
+        runEval(context, evalCase).catch((err: Error) => ({ pass: false, errors: [err.message] }))
+      )
+    );
+    const casePassed = results.filter((r) => r.pass).length;
+    const failures = results.flatMap((r) => r.errors);
     passed += casePassed;
     failed += runs - casePassed;
     const verdict = casePassed === runs ? "PASS" : "FAIL";
