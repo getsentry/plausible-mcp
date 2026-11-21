@@ -1,5 +1,5 @@
 import { reviewSandboxUrl } from "./ui/review-sandbox.js";
-import type { JsonValue } from "./plausible.js";
+import type { JsonValue } from "./json.js";
 import { analyticsHtml } from "./ui/view.js";
 
 export const landingSecurityPolicy =

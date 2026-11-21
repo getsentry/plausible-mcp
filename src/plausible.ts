@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { JsonObject, JsonValue } from "./json.js";
 
 export interface PlausibleQueryParams {
   site_id: string;
@@ -14,15 +15,6 @@ export interface PlausibleResult {
   dimensions: (string | number)[];
   metrics: (number | null)[];
 }
-
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-export type JsonObject = { [key: string]: JsonValue };
 
 export interface PlausibleResponse {
   results: PlausibleResult[];
