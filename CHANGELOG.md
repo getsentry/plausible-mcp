@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+### Bug Fixes 🐛
+
+- (tools) Make conversion rates and period comparisons unambiguous for agents by @sergical and @claude in [#93](https://github.com/getsentry/plausible-mcp/pull/93)
+
+### Internal Changes 🔧
+
+- Add Oxlint with type-aware and anti-slop rules, and oxfmt by @sergical and @claude in [#96](https://github.com/getsentry/plausible-mcp/pull/96)
+- Rebuild the test suite and fix two bugs it found by @sergical and @claude in [#94](https://github.com/getsentry/plausible-mcp/pull/94)
+
 ## 0.12.2
 
 ### Bug Fixes 🐛
