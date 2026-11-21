@@ -9,6 +9,7 @@ import {
   type AccessConfig,
 } from "../src/cf-access.js";
 import instrumentedWorker, { workerHandler } from "../src/worker.js";
+import { HEARTBEAT_SPAN_KEEP_RATE } from "../src/telemetry.js";
 import type { Env } from "../src/env.js";
 
 const TEAM_DOMAIN = "https://sentry.cloudflareaccess.com";
@@ -99,13 +100,16 @@ function mockCertsEndpoint(jwk: JsonWebKey) {
   );
 }
 
-/** Attributes of every span in the given Sentry envelopes, values unwrapped. */
+/**
+ * Attributes of every span in the given Sentry envelopes, values unwrapped. A string may hold
+ * several envelopes joined by newlines, so span items are found by their item header.
+ */
 function exportedSpans(envelopes: string[]): Array<Record<string, unknown>> {
   return envelopes.flatMap((text) => {
     const lines = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
     const spans: Array<Record<string, unknown>> = [];
-    for (let i = 1; i + 1 < lines.length; i += 2) {
-      if (lines[i].type !== "span") continue;
+    for (let i = 0; i + 1 < lines.length; i++) {
+      if (lines[i].type !== "span" || !Array.isArray(lines[i + 1].items)) continue;
       for (const span of lines[i + 1].items) {
         spans.push({
           is_segment: span.is_segment,
@@ -514,61 +518,44 @@ describe("MCP Worker entry", () => {
     expect(await response.json()).toMatchObject({ error: { code: -32700 } });
   });
 
-  it("rejects invalid hosts, opaque origins, and non-JSON media types", async () => {
-    const invalidHost = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer test-key-123",
-        "Content-Type": "application/json",
-        Host: "evil.example",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(invalidHost.status).toBe(403);
-
-    const opaqueOrigin = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer test-key-123",
-        "Content-Type": "application/json",
-        Origin: "null",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(opaqueOrigin.status).toBe(403);
-
-    const openByokOrigin = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: "https://browser.example",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(openByokOrigin.status).toBe(401);
-
-    const unapprovedInternalOrigin = await workerFetch(
-      new Request("https://test.local/internal", {
+  const byokKey = { Authorization: "Bearer test-key-123" };
+  it.each([
+    ["an unlisted Host", "/mcp", { ...byokKey, Host: "evil.example" }, {}, 403],
+    ["an opaque Origin", "/mcp", { ...byokKey, Origin: "null" }, {}, 403],
+    // /mcp is open to any browser origin; the key is what authenticates it.
+    ["a browser Origin without a key", "/mcp", { Origin: "https://browser.example" }, {}, 401],
+    ["an unlisted browser Origin on /internal", "/internal", { Origin: "https://browser.example" }, {}, 403],
+    ["a non-JSON media type", "/mcp", { ...byokKey, "Content-Type": "text/plain; note=application/json" }, {}, 415],
+    ["no allowed hostnames configured", "/mcp", byokKey, { MCP_ALLOWED_HOSTNAMES: " " }, 500],
+  ])("answers a request with %s", async (_case, path, headers, envOverride, status) => {
+    const response = await workerFetch(
+      new Request(`https://test.local${path}`, {
         method: "POST",
         headers: {
+          Accept: "application/json, text/event-stream",
           "Content-Type": "application/json",
-          Origin: "https://browser.example",
+          ...headers,
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       }),
+      { ...WORKER_ENV, ...envOverride },
     );
-    expect(unapprovedInternalOrigin.status).toBe(403);
 
-    const wrongMediaType = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        Accept: "application/json, text/event-stream",
-        Authorization: "Bearer test-key-123",
-        "Content-Type": "text/plain; note=application/json",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(wrongMediaType.status).toBe(415);
+    expect(response.status).toBe(status);
+  });
+
+  it("lets a listed browser Origin reach the /internal Access check", async () => {
+    const response = await workerFetch(
+      new Request("https://test.local/internal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "https://browser.example" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+      { ...WORKER_ENV, MCP_ALLOWED_ORIGIN_HOSTNAMES: "browser.example" },
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("missing Cloudflare Access assertion");
   });
 
   it("serves modern and legacy clients from the BYOK endpoint", async () => {
@@ -808,7 +795,7 @@ describe("MCP Worker entry", () => {
     expect(anonymousSpans.flatMap((span) => Object.keys(span).filter((key) => key.startsWith("user.")))).toEqual([]);
   });
 
-  it("samples heartbeat/keepalive spans down to the heartbeat keep-rate", async () => {
+  it("samples heartbeat spans at the keep-rate and keeps tool calls, with or without Mcp-Method", async () => {
     clearCertsCache();
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
     const envelopes: string[] = [];
@@ -897,8 +884,18 @@ describe("MCP Worker entry", () => {
           },
         }),
       );
-      expect(legacyToolEnvelope).toContain('"mcp.method.name":{"value":"tools/call"');
-      expect(legacyToolEnvelope).toContain('"is_segment":true');
+      const legacyToolSpans = exportedSpans([legacyToolEnvelope]);
+      expect(legacyToolSpans.some((span) => span["mcp.method.name"] === "tools/call")).toBe(true);
+      expect(legacyToolSpans.some((span) => span.is_segment)).toBe(true);
+
+      // Below the keep-rate, the same legacy ping is kept: it is sampled, not dropped.
+      randomSpy.mockReturnValue(HEARTBEAT_SPAN_KEEP_RATE / 2);
+      const keptPingEnvelope = await sendAndFlush(
+        mcpPost({ jsonrpc: "2.0", id: 2, method: "ping" }),
+      );
+      expect(exportedSpans([keptPingEnvelope])).toContainEqual(
+        expect.objectContaining({ "mcp.method.name": "ping" }),
+      );
     } finally {
       randomSpy.mockRestore();
     }
