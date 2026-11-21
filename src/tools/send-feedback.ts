@@ -4,11 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
 import { TOOL_NAMES } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
-import {
-  anonymizeEventWithoutEmail,
-  scrubFeedbackText,
-  type RedactableEvent,
-} from "../redaction.js";
+import { anonymizeEventWithoutEmail, scrubFeedbackText } from "../redaction.js";
 
 // Sentry truncates User Feedback messages beyond this length.
 const FEEDBACK_MAX_LENGTH = 4096;
@@ -58,7 +54,7 @@ export function register(server: McpServer, apiKey: string) {
         tool_name: z.enum(TOOL_NAMES).optional(),
       }),
     },
-    async (args, ctx) => {
+    (args, ctx) => {
       recordMcpClientInfo(ctx);
       const header = args.tool_name
         ? `Task: ${args.task}\nTool: ${args.tool_name}`
@@ -69,7 +65,7 @@ export function register(server: McpServer, apiKey: string) {
       );
       const feedbackId = Sentry.withScope((scope) => {
         scope.addEventProcessor((event) => {
-          anonymizeEventWithoutEmail(event as RedactableEvent);
+          anonymizeEventWithoutEmail(event);
           return event;
         });
         return Sentry.captureFeedback({

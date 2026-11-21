@@ -128,20 +128,20 @@ function withPageConversionRates(
     pageTotals.results.map((row) => [row.dimensions[0], row.metrics[0]]),
   );
   // The text block labels each row's values from query.metrics, so it names the new one too.
-  const queriedMetrics = conversions.query.metrics;
+  const queriedMetrics = z.array(z.string()).safeParse(conversions.query.metrics);
   return {
     ...conversions,
     query: {
       ...conversions.query,
-      ...(Array.isArray(queriedMetrics) && {
-        metrics: [...queriedMetrics, "group_conversion_rate"],
+      ...(queriedMetrics.success && {
+        metrics: [...queriedMetrics.data, "group_conversion_rate"],
       }),
     },
     results: conversions.results.map((row) => {
       const converted = row.metrics[0];
       const total = visitorsByPage.get(row.dimensions[1]);
       const rate =
-        typeof converted !== "number" || typeof total !== "number"
+        converted === null || total === null || total === undefined
           ? null
           : total > 0
             ? Math.round((converted / total) * 10_000) / 100

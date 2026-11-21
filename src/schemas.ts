@@ -202,11 +202,10 @@ export type PropertyFilter = {
  * value containing ":" is rejected up front — silently prefixing it would turn a
  * typo like "visit:chanel" into a nonsense event:props:visit:chanel filter.
  */
+const VALID_DIMENSION_NAMES = new Set<string>(VALID_DIMENSIONS);
+
 function isFilterableDimension(property: string): boolean {
-  return (
-    isCustomPropertyDimension(property) ||
-    (VALID_DIMENSIONS as readonly string[]).includes(property)
-  );
+  return isCustomPropertyDimension(property) || VALID_DIMENSION_NAMES.has(property);
 }
 
 export const propertyFilterSchema = z

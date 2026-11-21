@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export interface PlausibleQueryParams {
   site_id: string;
   metrics: string[];
@@ -13,11 +15,23 @@ export interface PlausibleResult {
   metrics: (number | null)[];
 }
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
+
 export interface PlausibleResponse {
   results: PlausibleResult[];
-  meta: Record<string, unknown>;
-  query: Record<string, unknown>;
+  meta: JsonObject;
+  /** Plausible's echo of the query as it resolved it, e.g. the absolute date_range. */
+  query: JsonObject;
 }
+
+const errorBodySchema = z.object({ error: z.string().min(1) });
 
 const MAX_ERROR_DETAIL_LENGTH = 500;
 
@@ -28,14 +42,15 @@ const MAX_ERROR_DETAIL_LENGTH = 500;
  * for 5xx, a Sentry exception message.
  */
 export function parsePlausibleErrorDetail(body: string): string | undefined {
-  let parsed: unknown;
+  let parsed: JsonValue;
   try {
     parsed = JSON.parse(body);
   } catch {
     return undefined;
   }
-  const detail = (parsed as { error?: unknown } | null)?.error;
-  if (typeof detail !== "string" || detail.length === 0) return undefined;
+  const errorBody = errorBodySchema.safeParse(parsed);
+  if (!errorBody.success) return undefined;
+  const detail = errorBody.data.error;
   return detail.length > MAX_ERROR_DETAIL_LENGTH
     ? `${detail.slice(0, MAX_ERROR_DETAIL_LENGTH)}...`
     : detail;
@@ -100,6 +115,17 @@ function parseRetryAfterSeconds(header: string | null): number | undefined {
   return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : undefined;
 }
 
+/** The JSON body of a Stats API v2 query. */
+interface PlausibleQueryBody {
+  site_id: string;
+  metrics: string[];
+  date_range: string | [string, string];
+  dimensions?: string[];
+  filters?: unknown[];
+  pagination?: { limit: number; offset?: number };
+  order_by?: [string, "asc" | "desc"][];
+}
+
 export interface PlausibleClientConfig {
   apiKey: string;
   baseUrl?: string;
@@ -143,7 +169,7 @@ export class PlausibleClient {
   async query(params: PlausibleQueryParams): Promise<PlausibleResponse> {
     const url = `${this.baseUrl}/api/v2/query`;
 
-    const body: Record<string, unknown> = {
+    const body: PlausibleQueryBody = {
       site_id: params.site_id,
       metrics: params.metrics,
       date_range: encodeDateRange(params.date_range),
@@ -188,6 +214,9 @@ export class PlausibleClient {
       );
     }
 
+    // SAFETY: a 200 from /api/v2/query has the Stats API v2 response layout. The rows reach a
+    // client only through structuredContent, which the MCP SDK validates against each tool's
+    // outputSchema, so a layout change fails there rather than passing on wrong data.
     return (await response.json()) as PlausibleResponse;
   }
 }

@@ -92,20 +92,18 @@ export function isSubDayRange(range: string): boolean {
   return range === "day" || /^\d+h$/.test(range) || range.includes("T");
 }
 
+const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
+const resolvedRangeSchema = z.tuple([timestamp, timestamp]);
+
 /** The start and end Plausible resolved for a query's date_range, in `response.query`. */
 function resolvedRange(response: PlausibleResponse): [string, string] {
-  const [first, last] = Array.isArray(response.query.date_range) ? response.query.date_range : [];
-  if (
-    typeof first !== "string" ||
-    typeof last !== "string" ||
-    Number.isNaN(Date.parse(first)) ||
-    Number.isNaN(Date.parse(last))
-  ) {
+  const range = resolvedRangeSchema.safeParse(response.query.date_range);
+  if (!range.success) {
     throw new UserFacingError(
       "Plausible did not return the dates it resolved, so the period before period_b is unknown. Pass period_a.",
     );
   }
-  return [first, last];
+  return range.data;
 }
 
 /**

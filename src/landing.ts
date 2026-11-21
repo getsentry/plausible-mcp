@@ -1,4 +1,5 @@
 import { reviewSandboxUrl } from "./ui/review-sandbox.js";
+import type { JsonValue } from "./plausible.js";
 import { analyticsHtml } from "./ui/view.js";
 
 export const landingSecurityPolicy =
@@ -18,7 +19,7 @@ const demo = {
     [512, 803],
   ].map((metrics, index) => ({ dimensions: ["2026-10-0" + (index + 1)], metrics })),
 };
-const scriptValue = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c");
+const scriptValue = (value: JsonValue) => JSON.stringify(value).replaceAll("<", "\\u003c");
 const css = `
 :root{color-scheme:light dark;--bg:light-dark(#f8f7f3,#19191c);--ink:light-dark(#22222a,#eeedf2);--soft:light-dark(#595963,#b6b4c1);--line:light-dark(#d7d5cc,#48464f);--sheet:light-dark(#fff,#222228);--accent:light-dark(#544ac0,#b7adff);font:16px/1.55 system-ui,sans-serif}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink)}a{color:inherit;text-underline-offset:4px}
