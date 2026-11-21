@@ -171,66 +171,86 @@ describe("compare_periods tool", () => {
   });
 });
 
-// Resolved ranges as Plausible returned them for blog.sentry.io (America/Toronto) at this time.
-const NOW = Date.parse("2026-11-20T23:57:52Z");
+// Resolved ranges as Plausible returned them for blog.sentry.io (America/Toronto).
+const TODAY = "2026-11-20";
 
 describe("previousPeriod", () => {
   it("moves whole days back by their own number of days", () => {
     expect(
-      previousPeriod("7d", ["2026-11-13T00:00:00-05:00", "2026-11-19T23:59:59-05:00"], NOW)
+      previousPeriod("7d", ["2026-11-13T00:00:00-05:00", "2026-11-19T23:59:59-05:00"], TODAY)
     ).toBe("2026-11-06,2026-11-12");
     expect(
-      previousPeriod("6mo", ["2026-05-01T00:00:00-04:00", "2026-10-31T23:59:59-04:00"], NOW)
+      previousPeriod("6mo", ["2026-05-01T00:00:00-04:00", "2026-10-31T23:59:59-04:00"], TODAY)
     ).toBe("2025-10-29,2026-04-30");
   });
 
   it("leaves out days after today, as Plausible does", () => {
     expect(
-      previousPeriod("month", ["2026-11-01T00:00:00-04:00", "2026-11-30T23:59:59-05:00"], NOW)
+      previousPeriod("month", ["2026-11-01T00:00:00-04:00", "2026-11-30T23:59:59-05:00"], TODAY)
     ).toBe("2026-10-12,2026-10-31");
   });
 
-  it("moves today and hour ranges back by their length in time", () => {
+  it("takes today from Plausible, not from the range's UTC offset", () => {
+    // In July, Toronto is at -04:00 while both ends of "year" are at -05:00.
     expect(
-      previousPeriod("day", ["2026-11-20T00:00:00-05:00", "2026-11-20T18:57:51-05:00"], NOW)
-    ).toBe("2026-11-19T05:00:00Z,2026-11-19T23:57:51Z");
-    expect(
-      previousPeriod("24h", ["2026-11-19T18:57:51-05:00", "2026-11-20T18:57:51-05:00"], NOW)
-    ).toBe("2026-11-18T23:57:51Z,2026-11-19T23:57:51Z");
+      previousPeriod("year", ["2026-01-01T00:00:00-05:00", "2026-12-31T23:59:59-05:00"], "2026-07-20")
+    ).toBe("2025-06-14,2025-12-31");
   });
 
-  it("asks for period_a when there is no fixed previous period", () => {
+  it("moves today and hour windows back by their length in time", () => {
+    expect(
+      previousPeriod("day", ["2026-11-20T00:00:00-05:00", "2026-11-20T18:57:51-05:00"])
+    ).toBe("2026-11-19T05:00:00Z,2026-11-19T23:57:51Z");
+    expect(
+      previousPeriod("24h", ["2026-11-19T18:57:51-05:00", "2026-11-20T18:57:51-05:00"])
+    ).toBe("2026-11-18T23:57:51Z,2026-11-19T23:57:51Z");
+    expect(
+      previousPeriod("2026-11-13T12:00:00-05:00,2026-11-13T15:00:00-05:00", [
+        "2026-11-13T12:00:00-05:00",
+        "2026-11-13T15:00:00-05:00",
+      ])
+    ).toBe("2026-11-13T14:00:00Z,2026-11-13T17:00:00Z");
+  });
+
+  it("asks for period_a when period_b starts after today", () => {
     expect(() =>
       previousPeriod(
         "2026-12-01,2026-12-07",
         ["2026-12-01T00:00:00-05:00", "2026-12-07T23:59:59-05:00"],
-        NOW
+        TODAY
       )
     ).toThrow("Pass period_a");
-    expect(() => previousPeriod("7d", undefined, NOW)).toThrow("Pass period_a");
   });
 });
 
 describe("compare_periods without period_a", () => {
-  it("queries period_b, then the period right before it", async () => {
+  function setup(responseB: PlausibleResponse) {
     const client = createMockClient();
     client.query
+      .mockResolvedValueOnce(responseB)
       .mockResolvedValueOnce({
-        results: [{ dimensions: [], metrics: [50] }],
+        results: [],
         meta: {},
-        query: { date_range: ["2024-03-15T00:00:00Z", "2024-03-21T23:59:59Z"] },
+        query: { date_range: ["2024-03-25T00:00:00Z", "2024-03-25T10:00:00Z"] },
       })
       .mockResolvedValueOnce({ results: [{ dimensions: [], metrics: [40] }], meta: {}, query: {} });
     const server = new McpServer({ name: "test", version: "0.0.1" });
     register(server, client, "default.com");
+    return { client, handler: getToolHandler(server, "compare_periods") };
+  }
 
-    const result = await getToolHandler(server, "compare_periods")({
-      period_b: "2024-03-15,2024-03-21",
-      metrics: ["visitors"],
+  it("queries period_b and today, then the period right before period_b", async () => {
+    const { client, handler } = setup({
+      results: [{ dimensions: [], metrics: [50] }],
+      meta: {},
+      query: { date_range: ["2024-03-15T00:00:00Z", "2024-03-21T23:59:59Z"] },
     });
+
+    const result = await handler({ period_b: "2024-03-15,2024-03-21", metrics: ["visitors"] });
 
     expect(client.query.mock.calls.map(([params]) => params.date_range)).toEqual([
       "2024-03-15,2024-03-21",
+      "day",
       "2024-03-08,2024-03-14",
     ]);
     expect(result.structuredContent.period_a).toEqual({
@@ -239,5 +259,13 @@ describe("compare_periods without period_a", () => {
     });
     expect(result.structuredContent.deltas.visitors).toEqual({ absolute: 10, percent: 25 });
   });
-});
 
+  it("asks for period_a when Plausible returns no resolved dates", async () => {
+    const { handler } = setup({ results: [], meta: {}, query: { date_range: "7d" } });
+
+    const result = await handler({ period_b: "7d" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Pass period_a");
+  });
+});

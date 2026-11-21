@@ -85,29 +85,19 @@ function computeDeltas(
 }
 
 const MS_PER_DAY = 86_400_000;
-const UTC_OFFSET = /(Z|([+-])(\d{2}):(\d{2}))$/;
-
-/** The calendar date at `ms` in the zone of an ISO 8601 offset such as "-05:00". */
-function localDate(ms: number, offset: string): string {
-  const [, , sign, hours, minutes] = UTC_OFFSET.exec(offset) ?? [];
-  const offsetMs = sign ? (sign === "-" ? -1 : 1) * (Number(hours) * 60 + Number(minutes)) * 60_000 : 0;
-  return new Date(ms + offsetMs).toISOString().slice(0, 10);
-}
 
 function addDays(date: string, days: number): string {
   return new Date(Date.parse(date) + days * MS_PER_DAY).toISOString().slice(0, 10);
 }
 
-/**
- * The range of the same length right before period_b, built the way Plausible's dashboard
- * builds its previous period (lib/plausible/stats/comparisons.ex in plausible/analytics):
- * a range of whole days moves back by its own number of days, leaving out days after
- * today; "day" (today so far) and hour ranges move back by their length in time. It starts
- * from the range Plausible resolved for period_b, so an agent can compare "this week with
- * last week" without knowing today's date, which most prompts do not give.
- */
-export function previousPeriod(periodB: string, resolved: unknown, now: number): string {
-  const [first, last] = Array.isArray(resolved) ? resolved : [];
+/** "day" (today so far), "Nh" and datetime pairs; everything else covers whole days. */
+export function isSubDayRange(range: string): boolean {
+  return range === "day" || /^\d+h$/.test(range) || range.includes("T");
+}
+
+/** The start and end Plausible resolved for a query's date_range, in `response.query`. */
+function resolvedRange(response: PlausibleResponse): [string, string] {
+  const [first, last] = Array.isArray(response.query.date_range) ? response.query.date_range : [];
   if (
     typeof first !== "string" ||
     typeof last !== "string" ||
@@ -115,22 +105,41 @@ export function previousPeriod(periodB: string, resolved: unknown, now: number):
     Number.isNaN(Date.parse(last))
   ) {
     throw new UserFacingError(
-      "Plausible did not return the dates of period_b, so the period before it is unknown. Pass period_a."
+      "Plausible did not return the dates it resolved, so the period before period_b is unknown. Pass period_a."
     );
   }
-  const start = Date.parse(first);
-  const end = Date.parse(last);
-  if (periodB === "day" || /^\d+h$/.test(periodB) || periodB.includes("T")) {
+  return [first, last];
+}
+
+/**
+ * The range of the same length right before period_b, from the range Plausible resolved
+ * for it, so an agent can compare "this week with last week" without knowing today's date,
+ * which most prompts do not give.
+ *
+ * Whole days move back by their own number of days, leaving out days after today, as
+ * Plausible's dashboard does (lib/plausible/stats/comparisons.ex in plausible/analytics).
+ * `today` is the site's date, from Plausible's own resolution of "day": a UTC offset from
+ * the range cannot give it, because daylight saving time can differ between then and now.
+ *
+ * Today so far and hour or datetime windows move back by their length in time. Here this
+ * differs on purpose from Plausible, which compares custom datetime windows by whole
+ * calendar days: "the last 6 hours" should be compared with the 6 hours before it.
+ *
+ * A range that starts after today has no data and no fixed length. Plausible would compare
+ * it with one day; an error that asks for period_a is clearer.
+ */
+export function previousPeriod(periodB: string, [first, last]: [string, string], today?: string): string {
+  if (isSubDayRange(periodB)) {
+    const start = Date.parse(first);
+    const end = Date.parse(last);
     const shift = periodB === "day" ? MS_PER_DAY : end - start;
     return `${toIsoSeconds(start - shift)},${toIsoSeconds(end - shift)}`;
   }
   const firstDate = first.slice(0, 10);
-  // Today in the site's time zone, from the UTC offset Plausible gave the range's end.
-  const today = localDate(now, last);
-  const lastDate = last.slice(0, 10) < today ? last.slice(0, 10) : today;
+  const lastDate = today && today < last.slice(0, 10) ? today : last.slice(0, 10);
   if (lastDate < firstDate) {
     throw new UserFacingError(
-      "period_b starts after today, so the period before it has no fixed length. Pass period_a."
+      "period_b starts after today, so it has no data and the period before it has no fixed length. Pass period_a."
     );
   }
   const days = (Date.parse(lastDate) - Date.parse(firstDate)) / MS_PER_DAY + 1;
@@ -200,8 +209,15 @@ export function register(
             client.query({ ...queryBase, date_range: args.period_b }),
           ]);
         } else {
-          responseB = await client.query({ ...queryBase, date_range: args.period_b });
-          periodA = previousPeriod(args.period_b, responseB.query.date_range, Date.now());
+          const [b, day] = await Promise.all([
+            client.query({ ...queryBase, date_range: args.period_b }),
+            isSubDayRange(args.period_b)
+              ? undefined
+              : client.query({ site_id: siteId, metrics: ["visitors"], date_range: "day" }),
+          ]);
+          responseB = b;
+          const today = day && resolvedRange(day)[0].slice(0, 10);
+          periodA = previousPeriod(args.period_b, resolvedRange(responseB), today);
           responseA = await client.query({ ...queryBase, date_range: periodA });
         }
 

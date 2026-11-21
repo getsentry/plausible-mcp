@@ -7,9 +7,15 @@ export interface EvalCase {
 
 const MS_PER_DAY = 86_400_000;
 
-/** The first day, last day and length of a "YYYY-MM-DD,YYYY-MM-DD" range. */
+/**
+ * The first day, last day and length of a range of whole days: "YYYY-MM-DD,YYYY-MM-DD", or
+ * the same days as datetimes from 00:00:00 to 23:59:59 at any offset.
+ */
 function dayRange(value: unknown): { first: string; last: string; days: number } | undefined {
-  const match = /^(\d{4}-\d{2}-\d{2}),(\d{4}-\d{2}-\d{2})$/.exec(String(value));
+  const offset = String.raw`(?:Z|[+-]\d{2}:\d{2})`;
+  const match = new RegExp(
+    String.raw`^(\d{4}-\d{2}-\d{2})(?:T00:00:00${offset})?,(\d{4}-\d{2}-\d{2})(?:T23:59:59${offset})?$`
+  ).exec(String(value));
   if (!match) return undefined;
   const [, first, last] = match;
   return { first, last, days: (Date.parse(last) - Date.parse(first)) / MS_PER_DAY + 1 };
