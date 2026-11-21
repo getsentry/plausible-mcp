@@ -37,81 +37,66 @@ export interface ToolErrorInfo {
  * Preserve visibility into failed tool calls without turning expected caller errors into
  * exception issues. The MCP response remains an `isError` result; this function only decides
  * how the failure is represented in telemetry and which safe message and code the client receives.
+ *
+ * `cause` is whatever the tool's catch block received, so it is classified here by class.
  */
-export function reportToolError(error: unknown, toolName: ToolName): ToolErrorInfo {
-  const info = classifyToolError(error, toolName);
+export function reportToolError(cause: unknown, toolName: ToolName): ToolErrorInfo {
+  const info = classifyToolError(cause, toolName);
   // Only the code: the message can echo user input, which must not reach /mcp spans.
   Sentry.getActiveSpan()?.setAttribute("app.tool.error.code", info.code);
   return info;
 }
 
-function classifyToolError(error: unknown, toolName: ToolName): ToolErrorInfo {
-  if (error instanceof UserFacingError) {
-    Sentry.metrics.count("mcp.tool.error", 1, {
-      attributes: {
-        "mcp.tool.name": toolName,
-        "error.kind": "user_input",
-      },
-    });
-    return { code: "invalid_input", message: error.message, retryable: false };
-  }
-
-  if (error instanceof PlausibleApiError) {
-    Sentry.metrics.count("mcp.tool.error", 1, {
-      attributes: {
-        "mcp.tool.name": toolName,
-        "error.kind": "plausible_api",
-        "http.response.status_code": error.status,
-      },
-    });
-    if (error.status >= 500) Sentry.captureException(error);
-
-    let summary: string;
-    if (error.status === 401) {
-      summary = "Plausible rejected the API key or site_id (401)";
-    } else if (error.status === 402) {
-      summary = "The Plausible account behind this API key has no Stats API access (402)";
-    } else if (error.status === 429) {
-      summary = "Plausible rate limit exceeded (429)";
-    } else {
-      summary = `Plausible API returned ${error.status}`;
-    }
-    const message = error.detail ? `${summary}: ${error.detail}` : summary;
-
-    if (error.status === 401 || error.status === 402 || error.status === 403) {
-      return { code: "unauthorized", message, retryable: false };
-    }
-    if (error.status === 429 || error.status >= 500) {
-      return {
-        code: error.status === 429 ? "rate_limited" : "upstream_unavailable",
-        message,
-        retryable: true,
-        ...(error.retryAfterSeconds !== undefined && {
-          retry_after_seconds: error.retryAfterSeconds,
-        }),
-      };
-    }
-    return { code: "invalid_query", message, retryable: false };
-  }
-
-  if (error instanceof PlausibleUnreachableError) {
-    Sentry.metrics.count("mcp.tool.error", 1, {
-      attributes: {
-        "mcp.tool.name": toolName,
-        "error.kind": "plausible_unreachable",
-      },
-    });
-    Sentry.captureException(error);
-    return { code: "upstream_unavailable", message: error.message, retryable: true };
-  }
-
+function countToolError(toolName: ToolName, kind: string, status?: number): void {
   Sentry.metrics.count("mcp.tool.error", 1, {
     attributes: {
       "mcp.tool.name": toolName,
-      "error.kind": "unexpected",
+      "error.kind": kind,
+      ...(status !== undefined && { "http.response.status_code": status }),
     },
   });
-  Sentry.captureException(error);
+}
+
+const PLAUSIBLE_STATUS_SUMMARIES = new Map([
+  [401, "Plausible rejected the API key or site_id (401)"],
+  [402, "The Plausible account behind this API key has no Stats API access (402)"],
+  [429, "Plausible rate limit exceeded (429)"],
+]);
+
+function classifyPlausibleApiError(error: PlausibleApiError): ToolErrorInfo {
+  const { status } = error;
+  const summary = PLAUSIBLE_STATUS_SUMMARIES.get(status) ?? `Plausible API returned ${status}`;
+  const message = error.detail ? `${summary}: ${error.detail}` : summary;
+
+  if (status === 401 || status === 402 || status === 403) {
+    return { code: "unauthorized", message, retryable: false };
+  }
+  if (status !== 429 && status < 500) return { code: "invalid_query", message, retryable: false };
+  return {
+    code: status === 429 ? "rate_limited" : "upstream_unavailable",
+    message,
+    retryable: true,
+    ...(error.retryAfterSeconds !== undefined && { retry_after_seconds: error.retryAfterSeconds }),
+  };
+}
+
+function classifyToolError(cause: unknown, toolName: ToolName): ToolErrorInfo {
+  if (cause instanceof UserFacingError) {
+    countToolError(toolName, "user_input");
+    return { code: "invalid_input", message: cause.message, retryable: false };
+  }
+  if (cause instanceof PlausibleApiError) {
+    countToolError(toolName, "plausible_api", cause.status);
+    if (cause.status >= 500) Sentry.captureException(cause);
+    return classifyPlausibleApiError(cause);
+  }
+  if (cause instanceof PlausibleUnreachableError) {
+    countToolError(toolName, "plausible_unreachable");
+    Sentry.captureException(cause);
+    return { code: "upstream_unavailable", message: cause.message, retryable: true };
+  }
+  countToolError(toolName, "unexpected");
+  Sentry.captureException(cause);
   return { code: "internal", message: "An unexpected error occurred", retryable: false };
 }
 
@@ -121,8 +106,8 @@ function classifyToolError(error: unknown, toolName: ToolName): ToolErrorInfo {
  * success `outputSchema` even when `isError` is true, which would turn the error into a
  * protocol failure.
  */
-export function toolErrorResult(error: unknown, toolName: ToolName, offerFeedback = false) {
-  const info = reportToolError(error, toolName);
+export function toolErrorResult(cause: unknown, toolName: ToolName, offerFeedback = false) {
+  const info = reportToolError(cause, toolName);
   let text = `Error: ${info.message}`;
   if (info.retry_after_seconds !== undefined) {
     text += ` Retry after ${info.retry_after_seconds} seconds.`;
