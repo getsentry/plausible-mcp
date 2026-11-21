@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import fc from "fast-check";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import {
   verifyCloudflareAccessJwt,
@@ -8,6 +9,7 @@ import {
   type AccessConfig,
 } from "../src/cf-access.js";
 import instrumentedWorker, { workerHandler } from "../src/worker.js";
+import { HEARTBEAT_SPAN_KEEP_RATE } from "../src/telemetry.js";
 import type { Env } from "../src/env.js";
 
 const TEAM_DOMAIN = "https://sentry.cloudflareaccess.com";
@@ -98,6 +100,27 @@ function mockCertsEndpoint(jwk: JsonWebKey) {
   );
 }
 
+/** Attributes of every span in the given Sentry envelopes (one envelope per string), values unwrapped. */
+function exportedSpans(envelopes: string[]): Array<Record<string, unknown>> {
+  return envelopes.flatMap((text) => {
+    const lines = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const spans: Array<Record<string, unknown>> = [];
+    // An envelope is a header line, then item-header and payload lines in pairs.
+    for (let i = 1; i + 1 < lines.length; i += 2) {
+      if (lines[i].type !== "span") continue;
+      for (const span of lines[i + 1].items) {
+        spans.push({
+          is_segment: span.is_segment,
+          ...Object.fromEntries(
+            Object.entries(span.attributes ?? {}).map(([key, attribute]) => [key, (attribute as { value: unknown }).value]),
+          ),
+        });
+      }
+    }
+    return spans;
+  });
+}
+
 describe("verifyCloudflareAccessJwt", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -125,15 +148,6 @@ describe("verifyCloudflareAccessJwt", () => {
     await expect(
       verifyCloudflareAccessJwt(`${invalidBase64}.${invalidBase64}.${invalidBase64}`, config),
     ).resolves.toBeNull();
-  });
-
-  it("fails closed (returns null) when the certs fetch itself throws", async () => {
-    const { jwt } = await makeValidJwt();
-    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-      Promise.reject(new Error("network down")),
-    );
-
-    await expect(verifyCloudflareAccessJwt(jwt, config)).resolves.toBeNull();
   });
 
   it("returns email for a valid JWT", async () => {
@@ -289,40 +303,56 @@ describe("verifyCloudflareAccessJwt", () => {
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
-  it("returns null when certs endpoint fails", async () => {
+  it.each([
+    ["the certs fetch throws", () => Promise.reject(new Error("network down"))],
+    ["the certs endpoint answers 500", () => Promise.resolve(new Response("Internal Server Error", { status: 500 }))],
+    ["the certs response has no keys array", () => Promise.resolve(Response.json({}))],
+    ["the certs response has an empty keys array", () => Promise.resolve(Response.json({ keys: [] }))],
+    ["the certs response keys is not an array", () => Promise.resolve(Response.json({ keys: "not-an-array" }))],
+  ])("fails closed (returns null, does not throw) when %s", async (_case, certs) => {
     const { jwt } = await makeValidJwt();
-    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-      Promise.resolve(new Response("Internal Server Error", { status: 500 })),
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(certs as () => Promise<Response>);
+
+    await expect(verifyCloudflareAccessJwt(jwt, config)).resolves.toBeNull();
+  });
+
+  // Algorithm confusion: a token must not choose a weaker check than the RS256 one we run.
+  it.each([
+    ["alg none", { alg: "none" }],
+    ["alg HS256", { alg: "HS256" }],
+  ])("returns null for a token with %s", async (_case, header) => {
+    const { jwt, jwk } = await makeValidJwt({ header });
+    mockCertsEndpoint(jwk);
 
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
-  it("returns null when certs response has no keys array", async () => {
-    const { jwt } = await makeValidJwt();
-    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-      Promise.resolve(new Response(JSON.stringify({}), { status: 200 })),
-    );
+  it("returns null for a token without exp", async () => {
+    const { jwt, jwk } = await makeValidJwt({ payload: { exp: undefined } });
+    mockCertsEndpoint(jwk);
 
     expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
-  it("returns null when certs response has empty keys array", async () => {
-    const { jwt } = await makeValidJwt();
-    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-      Promise.resolve(new Response(JSON.stringify({ keys: [] }), { status: 200 })),
+  // For any address: accepted if and only if it ends in "@" plus an allowed domain, so
+  // lookalikes such as sentry.io.evil.com, evilsentry.io and a second "@" never pass.
+  it("accepts an email exactly when its domain is allowed", async () => {
+    const { keyPair, jwk } = await makeValidJwt();
+    mockCertsEndpoint(jwk);
+    const domain = fc.constantFrom("sentry.io", "sentry.io.evil.com", "evilsentry.io", "SENTRY.IO", "evil.com", "sub.sentry.io");
+    await fc.assert(
+      fc.asyncProperty(fc.stringMatching(/^[a-z0-9.@+-]{1,12}$/), domain, async (local, host) => {
+        const email = `${local}@${host}`;
+        const jwt = await signJwt(
+          { alg: "RS256", kid: "test-kid" },
+          { email, aud: [AUD], iss: TEAM_DOMAIN, exp: Math.floor(Date.now() / 1000) + 3600 },
+          keyPair.privateKey,
+        );
+        const identity = await verifyCloudflareAccessJwt(jwt, config);
+        expect(identity !== null).toBe(email.toLowerCase().endsWith("@sentry.io"));
+      }),
+      { numRuns: 60 },
     );
-
-    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
-  });
-
-  it("returns null when certs response keys is not an array", async () => {
-    const { jwt } = await makeValidJwt();
-    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-      Promise.resolve(new Response(JSON.stringify({ keys: "not-an-array" }), { status: 200 })),
-    );
-
-    expect(await verifyCloudflareAccessJwt(jwt, config)).toBeNull();
   });
 
   it("parseAllowedEmailDomains normalizes and defaults", () => {
@@ -486,61 +516,44 @@ describe("MCP Worker entry", () => {
     expect(await response.json()).toMatchObject({ error: { code: -32700 } });
   });
 
-  it("rejects invalid hosts, opaque origins, and non-JSON media types", async () => {
-    const invalidHost = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer test-key-123",
-        "Content-Type": "application/json",
-        Host: "evil.example",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(invalidHost.status).toBe(403);
-
-    const opaqueOrigin = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer test-key-123",
-        "Content-Type": "application/json",
-        Origin: "null",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(opaqueOrigin.status).toBe(403);
-
-    const openByokOrigin = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: "https://browser.example",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(openByokOrigin.status).toBe(401);
-
-    const unapprovedInternalOrigin = await workerFetch(
-      new Request("https://test.local/internal", {
+  const byokKey = { Authorization: "Bearer test-key-123" };
+  it.each([
+    ["an unlisted Host", "/mcp", { ...byokKey, Host: "evil.example" }, {}, 403],
+    ["an opaque Origin", "/mcp", { ...byokKey, Origin: "null" }, {}, 403],
+    // /mcp is open to any browser origin; the key is what authenticates it.
+    ["a browser Origin without a key", "/mcp", { Origin: "https://browser.example" }, {}, 401],
+    ["an unlisted browser Origin on /internal", "/internal", { Origin: "https://browser.example" }, {}, 403],
+    ["a non-JSON media type", "/mcp", { ...byokKey, "Content-Type": "text/plain; note=application/json" }, {}, 415],
+    ["no allowed hostnames configured", "/mcp", byokKey, { MCP_ALLOWED_HOSTNAMES: " " }, 500],
+  ])("answers a request with %s", async (_case, path, headers, envOverride, status) => {
+    const response = await workerFetch(
+      new Request(`https://test.local${path}`, {
         method: "POST",
         headers: {
+          Accept: "application/json, text/event-stream",
           "Content-Type": "application/json",
-          Origin: "https://browser.example",
+          ...headers,
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       }),
+      { ...WORKER_ENV, ...envOverride },
     );
-    expect(unapprovedInternalOrigin.status).toBe(403);
 
-    const wrongMediaType = await workerFetch(new Request("https://test.local/mcp", {
-      method: "POST",
-      headers: {
-        Accept: "application/json, text/event-stream",
-        Authorization: "Bearer test-key-123",
-        "Content-Type": "text/plain; note=application/json",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    }));
-    expect(wrongMediaType.status).toBe(415);
+    expect(response.status).toBe(status);
+  });
+
+  it("lets a listed browser Origin reach the /internal Access check", async () => {
+    const response = await workerFetch(
+      new Request("https://test.local/internal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "https://browser.example" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+      { ...WORKER_ENV, MCP_ALLOWED_ORIGIN_HOSTNAMES: "browser.example" },
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("missing Cloudflare Access assertion");
   });
 
   it("serves modern and legacy clients from the BYOK endpoint", async () => {
@@ -658,16 +671,20 @@ describe("MCP Worker entry", () => {
       await pending[index];
     }
     const recorded = envelopes.join("\n");
-    expect(recorded).toContain('"sentry.op":{"value":"mcp.server"');
-    expect(recorded).toContain('"sentry.op":{"value":"http.server"');
-    expect(recorded).toContain('"is_segment":true');
-    expect(recorded).not.toContain('"type":"transaction"');
-    expect(recorded).toContain('"mcp.method.name":{"value":"tools/call"');
-    expect(recorded).toContain('"mcp.client.name":{"value":"sentry-modern-test"');
-    expect(recorded).toContain(
-      '"mcp.request.argument.site_id":{"value":"\\"example.com\\""',
+    const internalSpans = exportedSpans(envelopes);
+    expect(internalSpans.map((span) => span["sentry.op"])).toEqual(
+      expect.arrayContaining(["mcp.server", "http.server"]),
     );
-    expect(recorded).toContain('"mcp.tool.result.content":');
+    expect(internalSpans.some((span) => span.is_segment)).toBe(true);
+    expect(recorded).not.toContain('"type":"transaction"');
+    expect(internalSpans).toContainEqual(expect.objectContaining({
+      "mcp.method.name": "tools/call",
+      "mcp.client.name": "sentry-modern-test",
+      "mcp.request.argument.site_id": '"example.com"',
+    }));
+    expect(internalSpans.some((span) => "mcp.tool.result.content" in span)).toBe(true);
+    // Positive control for the anonymous checks below: /internal does attribute the caller.
+    expect(internalSpans).toContainEqual(expect.objectContaining({ "user.email": "user@sentry.io" }));
     expect(recorded).not.toContain(jwt);
     expect(recorded).not.toContain("shared-test-key");
 
@@ -748,14 +765,15 @@ describe("MCP Worker entry", () => {
       await pending[index];
     }
     const anonymous = envelopes.join("\n");
-    expect(anonymous).toContain('"mcp.method.name":{"value":"tools/call"');
+    const anonymousSpans = exportedSpans(envelopes);
+    expect(anonymousSpans.some((span) => span["mcp.method.name"] === "tools/call")).toBe(true);
     expect(anonymous).not.toContain("mcp.request.argument.site_id");
     expect(anonymous).not.toContain('"mcp.tool.result.content":');
     expect(anonymous).not.toContain("private.example");
     expect(anonymous).not.toContain("private-test-key");
     // mcp.client.name/version are recorded on both endpoints — a client library
     // name and version identify software, not the person using it.
-    expect(anonymous).toContain('"mcp.client.name":{"value":"sentry-byok-test"');
+    expect(anonymousSpans.some((span) => span["mcp.client.name"] === "sentry-byok-test")).toBe(true);
     // Positive control: the feedback submission really did reach the transport, so the
     // canary assertions below are checking a populated envelope rather than an empty one.
     expect(anonymous).toContain("send_feedback");
@@ -769,11 +787,13 @@ describe("MCP Worker entry", () => {
     // mcp.client.name is kept, but sanitizeClientAttribute replaces a value shaped like a
     // person rather than a piece of software — including on the SDK's own write path.
     expect(anonymous).not.toContain("legacy-canary@example.com");
-    expect(anonymous).toContain('"mcp.client.name":{"value":"[redacted]"');
-    expect(anonymous).not.toContain('"user.');
+    expect(anonymousSpans.some((span) => span["mcp.client.name"] === "[redacted]")).toBe(true);
+    // The SDK derives no user.* here today, so this guards a future SDK change; the
+    // stripping itself is covered by redaction.test.ts "anonymizeSpanWithoutIdentity".
+    expect(anonymousSpans.flatMap((span) => Object.keys(span).filter((key) => key.startsWith("user.")))).toEqual([]);
   });
 
-  it("samples heartbeat/keepalive spans down to the heartbeat keep-rate", async () => {
+  it("samples heartbeat spans at the keep-rate and keeps tool calls, with or without Mcp-Method", async () => {
     clearCertsCache();
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
     const envelopes: string[] = [];
@@ -829,10 +849,10 @@ describe("MCP Worker entry", () => {
 
     // Sends one request, drains ctx.waitUntil, and returns the envelopes it flushed —
     // resetting both so the next request in this test starts from a clean slate.
-    const sendAndFlush = async (request: Request): Promise<string> => {
+    const sendAndFlush = async (request: Request): Promise<string[]> => {
       await (await instrumentedWorker.fetch!(request, env, ctx)).text();
       for (const promise of pending) await promise;
-      const flushed = envelopes.join("\n");
+      const flushed = [...envelopes];
       envelopes.length = 0;
       pending.length = 0;
       return flushed;
@@ -842,13 +862,13 @@ describe("MCP Worker entry", () => {
       const pingEnvelope = await sendAndFlush(
         mcpPost({ jsonrpc: "2.0", id: 1, method: "ping" }, { "Mcp-Method": "ping" }),
       );
-      expect(pingEnvelope).not.toContain('"type":"span"');
+      expect(exportedSpans(pingEnvelope)).toEqual([]);
 
       // Legacy client: no Mcp-Method header at all — proves withMcpMethodHeader.
       const legacyPingEnvelope = await sendAndFlush(
         mcpPost({ jsonrpc: "2.0", id: 1, method: "ping" }),
       );
-      expect(legacyPingEnvelope).not.toContain('"type":"span"');
+      expect(exportedSpans(legacyPingEnvelope)).toEqual([]);
 
       // Legacy client calling a real tool: still classified and sampled at 100%.
       const legacyToolEnvelope = await sendAndFlush(
@@ -862,8 +882,18 @@ describe("MCP Worker entry", () => {
           },
         }),
       );
-      expect(legacyToolEnvelope).toContain('"mcp.method.name":{"value":"tools/call"');
-      expect(legacyToolEnvelope).toContain('"is_segment":true');
+      const legacyToolSpans = exportedSpans(legacyToolEnvelope);
+      expect(legacyToolSpans.some((span) => span["mcp.method.name"] === "tools/call")).toBe(true);
+      expect(legacyToolSpans.some((span) => span.is_segment)).toBe(true);
+
+      // Below the keep-rate, the same legacy ping is kept: it is sampled, not dropped.
+      randomSpy.mockReturnValue(HEARTBEAT_SPAN_KEEP_RATE / 2);
+      const keptPingEnvelope = await sendAndFlush(
+        mcpPost({ jsonrpc: "2.0", id: 2, method: "ping" }),
+      );
+      expect(exportedSpans(keptPingEnvelope)).toContainEqual(
+        expect.objectContaining({ "mcp.method.name": "ping" }),
+      );
     } finally {
       randomSpy.mockRestore();
     }
@@ -875,13 +905,18 @@ describe("public landing hostname", () => {
   it("serves the page only on the configured hostname", async () => {
     const read = (url: string, method = "GET") => workerFetch(new Request(url, { method }), env);
     const page = await read("https://test.local/");
+    expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
+    expect(page.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
+    // Rendering and the shipped app embed are covered in evals/ui.spec.mjs
+    // "landing page renders the shipped app and switches installation instructions".
     const html = await page.text();
-    expect(html).toContain("Connect your client");
     expect(html).toContain("https://test.local/mcp");
     expect(html).not.toContain("plausible-mcp.sentry.dev");
     expect(await (await read("https://test.local/", "HEAD")).text()).toBe("");
-    expect((await read("https://test.local/", "POST")).headers.get("Allow")).toBe("GET, HEAD");
+    const post = await read("https://test.local/", "POST");
+    expect(post.status).toBe(405);
+    expect(post.headers.get("Allow")).toBe("GET, HEAD");
     expect((await read("https://test.local/mcp")).status).toBe(401);
     expect((await read("https://test.local/internal")).status).toBe(403);
     expect((await read("https://test.local/unknown")).status).toBe(404);
@@ -892,5 +927,159 @@ describe("public landing hostname", () => {
       ...env, RATE_LIMITER: {limit: async () => ({success: false})},
     });
     expect(response.status).toBe(429);
+  });
+});
+
+/**
+ * Stands in for everything the Worker reaches over the network: the Access JWKS, Plausible
+ * (recording the Authorization header each query carries) and a Sentry ingest host.
+ */
+function stubUpstream(jwk?: JsonWebKey) {
+  const plausibleAuth: string[] = [];
+  const envelopes: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    const url = new URL(request.url);
+    if (url.pathname === "/cdn-cgi/access/certs" && jwk) return Response.json({ keys: [jwk] });
+    if (url.hostname === "plausible.io") {
+      plausibleAuth.push(request.headers.get("Authorization") ?? "");
+      return Response.json({ results: [{ dimensions: ["2026-07-30"], metrics: [1, 2, 3, 4] }], meta: {}, query: {} });
+    }
+    if (url.hostname === "sentry.example") {
+      envelopes.push(await request.text());
+      return new Response(null, { status: 200 });
+    }
+    throw new Error(`Unexpected fetch in test: ${request.url}`);
+  });
+  return { plausibleAuth, envelopes };
+}
+
+function workerClient(path: string, headers: Record<string, string>, env: Env = WORKER_ENV) {
+  const transport = new StreamableHTTPClientTransport(new URL(`https://test.local${path}`), {
+    requestInit: { headers },
+    fetch: (url, init) => workerFetch(new Request(url, init), env),
+  });
+  const client = new Client({ name: "worker-e2e", version: "0.0.1" });
+  return { client, connect: () => client.connect(transport) };
+}
+
+const timeseries = { name: "get_timeseries", arguments: { site_id: "example.com", date_range: "7d" } };
+
+function toolsList(path: string, headers: Record<string, string>) {
+  return new Request(`https://test.local${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+}
+
+describe("Worker endpoints end to end", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearCertsCache();
+  });
+
+  // The Worker builds a server per request, so one caller's key must never serve another's.
+  it("queries Plausible with each BYOK caller's own key", async () => {
+    const upstream = stubUpstream();
+    const a = workerClient("/mcp", { Authorization: "Bearer key-aaaa-1111" });
+    const b = workerClient("/mcp", { Authorization: "bearer key-bbbb-2222" });
+    try {
+      await a.connect();
+      await b.connect();
+      await a.client.callTool(timeseries);
+      await b.client.callTool(timeseries);
+      await a.client.callTool(timeseries);
+    } finally {
+      await a.client.close();
+      await b.client.close();
+    }
+
+    expect(upstream.plausibleAuth).toEqual([
+      "Bearer key-aaaa-1111",
+      "Bearer key-bbbb-2222",
+      "Bearer key-aaaa-1111",
+    ]);
+  });
+
+  it("queries Plausible from /internal with the shared key, never the Access assertion", async () => {
+    const { jwt, jwk } = await makeValidJwt();
+    const upstream = stubUpstream(jwk);
+    const env = { ...WORKER_ENV, PLAUSIBLE_API_KEY: "shared-key-1234" } satisfies Env;
+    const internal = workerClient("/internal", { "Cf-Access-Jwt-Assertion": jwt }, env);
+    try {
+      await internal.connect();
+      const result = await internal.client.callTool(timeseries);
+      expect(result.isError).toBeFalsy();
+    } finally {
+      await internal.client.close();
+    }
+
+    expect(upstream.plausibleAuth).toEqual(["Bearer shared-key-1234"]);
+  });
+
+  it.each([
+    ["no Access assertion", {}, {}, 403],
+    ["an assertion that does not verify", { "Cf-Access-Jwt-Assertion": "a.b.c" }, {}, 403],
+    ["no Access verification config", {}, { CF_ACCESS_TEAM_DOMAIN: undefined }, 500],
+  ])("refuses /internal with %s", async (_case, headers, envOverride, status) => {
+    stubUpstream();
+    const response = await workerFetch(toolsList("/internal", headers), {
+      ...WORKER_ENV,
+      PLAUSIBLE_API_KEY: "shared-key-1234",
+      ...envOverride,
+    } as Env);
+
+    expect(response.status).toBe(status);
+  });
+
+  it("refuses /internal without the shared key even for a valid identity", async () => {
+    const { jwt, jwk } = await makeValidJwt();
+    const upstream = stubUpstream(jwk);
+
+    const response = await workerFetch(toolsList("/internal", { "Cf-Access-Jwt-Assertion": jwt }));
+
+    expect(response.status).toBe(500);
+    expect(upstream.plausibleAuth).toEqual([]);
+  });
+
+  it.each([
+    ["a bare key with no scheme", "key-aaaa-1111", 401],
+    ["a Basic credential", "Basic a2V5LWFhYWEtMTExMQ==", 401],
+    ["an empty bearer", "Bearer ", 401],
+    ["a lowercase bearer scheme", "bearer key-aaaa-1111", 200],
+    ["an 8-character key", "Bearer 12345678", 200],
+  ])("answers /mcp with %s", async (_case, authorization, status) => {
+    stubUpstream();
+    const response = await workerFetch(toolsList("/mcp", { Authorization: authorization }));
+
+    expect(response.status).toBe(status);
+  });
+
+  // Regression (2a69caf): a failure inside the MCP handler reached no one. Plausible base URLs
+  // must be HTTPS, so an HTTP one makes server creation throw inside the handler.
+  it("reports a failure inside the MCP handler to Sentry and answers a JSON-RPC error", async () => {
+    const upstream = stubUpstream();
+    const pending: Promise<unknown>[] = [];
+    const ctx = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
+    const env = {
+      ...WORKER_ENV,
+      PLAUSIBLE_BASE_URL: "http://plausible.example",
+      SENTRY_DSN: "https://public@sentry.example/1",
+    } satisfies Env;
+    const request = toolsList("/mcp", { Authorization: "Bearer key-aaaa-1111", Host: "test.local" });
+
+    const response = await instrumentedWorker.fetch!(request, env, ctx);
+    for (let i = 0; i < pending.length; i++) await pending[i];
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ error: { code: -32603 } });
+    const events = upstream.envelopes.filter((envelope) => envelope.includes('"type":"event"'));
+    expect(events.join("\n")).toContain("baseUrl must use HTTPS");
+    expect(upstream.envelopes.join("\n")).not.toContain("key-aaaa-1111");
   });
 });

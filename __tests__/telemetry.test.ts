@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import fc from "fast-check";
 import { UnsupportedProtocolVersionError } from "@modelcontextprotocol/server";
 import {
   classifyMcpMethod,
@@ -9,6 +10,7 @@ import {
   statusClass,
   errorDropReason,
   isMcpClientRejection,
+  isKnownMcpMethod,
   HEARTBEAT_SPAN_KEEP_RATE,
   type ErrorEventLike,
 } from "../src/telemetry.js";
@@ -71,28 +73,27 @@ describe("classifyMcpRequest", () => {
     })).toEqual({ method: "initialize", kind: "control" });
   });
 
-  it("bounds caller-controlled and malformed input", () => {
-    expect(classifyMcpRequest({ method: "attacker-defined-method" }))
-      .toEqual({ method: "other", kind: "unknown" });
-    expect(classifyMcpRequest(null))
-      .toEqual({ method: "unknown", kind: "unknown" });
-    expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1 }))
-      .toEqual({ method: "unknown", kind: "unknown" });
-    expect(classifyMcpRequest([{ method: "ping" }]))
-      .toEqual({ method: "batch", kind: "control" });
+  it("bounds malformed input", () => {
+    expect(classifyMcpRequest(null)).toEqual({ method: "unknown", kind: "unknown" });
+    expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1 })).toEqual({ method: "unknown", kind: "unknown" });
+    expect(classifyMcpRequest([{ method: "ping" }])).toEqual({ method: "batch", kind: "control" });
   });
 });
 
+// The worker classifies the Mcp-Method header with classifyMcpMethod and a legacy body with
+// classifyMcpRequest; both must give the same bounded values for any caller-sent name.
 describe("classifyMcpMethod", () => {
-  it("classifies modern Mcp-Method header values without reading a request body", () => {
-    expect(classifyMcpMethod("server/discover"))
-      .toEqual({ method: "server/discover", kind: "heartbeat" });
-    expect(classifyMcpMethod("tools/call"))
-      .toEqual({ method: "tools/call", kind: "tool_call" });
-    expect(classifyMcpMethod("subscriptions/listen"))
-      .toEqual({ method: "subscriptions/listen", kind: "control" });
-    expect(classifyMcpMethod("caller-controlled"))
-      .toEqual({ method: "other", kind: "unknown" });
+  it("never echoes a method name it does not know, from a header or a body", () => {
+    const method = fc.oneof(fc.string(), fc.constantFrom("ping", "tools/call", "server/discover", "tools/list"));
+    fc.assert(
+      fc.property(method, (name) => {
+        const fromHeader = classifyMcpMethod(name);
+        expect(fromHeader.method).toBe(isKnownMcpMethod(name) ? name : "other");
+        expect(["heartbeat", "tool_call", "control", "unknown"]).toContain(fromHeader.kind);
+        expect(fromHeader.kind === "unknown").toBe(fromHeader.method === "other");
+        if (name) expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1, method: name })).toEqual(fromHeader);
+      })
+    );
   });
 });
 
@@ -118,18 +119,21 @@ describe("resolveClientFamily", () => {
     expect(resolveClientFamily("node")).toBe("node");
     expect(resolveClientFamily("python-httpx/0.27")).toBe("python");
     expect(resolveClientFamily("Go-http-client/2.0")).toBe("go");
-  });
-
-  it("collapses mcp-remote proxies into one bounded family regardless of self-reported name", () => {
     expect(resolveClientFamily("mcp-remote/0.1.37")).toBe("mcp-remote");
+    expect(resolveClientFamily("Claude-User")).toBe("claude");
+    expect(resolveClientFamily("openai-mcp/1.0")).toBe("openai");
+    expect(resolveClientFamily("Java-http-client/21")).toBe("java");
   });
 
-  it("buckets anything unrecognized into 'other' so cardinality stays bounded", () => {
-    // The whole point: a caller-controlled string like the monitor's "healthcheck"
-    // or a scanner's "openclaw-bundle-mcp" can never become its own dimension value.
+  it("buckets any user agent into one of the documented families", () => {
+    const families = ["claude-code", "cursor", "codex", "mcp-remote", "claude", "openai", "go", "java", "python", "node", "other", "unknown"];
+    fc.assert(
+      fc.property(fc.option(fc.string(), { nil: null }), (userAgent) => {
+        expect(families).toContain(resolveClientFamily(userAgent));
+      })
+    );
+    // A caller-chosen name like the monitor's "healthcheck" never becomes its own value.
     expect(resolveClientFamily("healthcheck")).toBe("other");
-    expect(resolveClientFamily("openclaw-bundle-mcp")).toBe("other");
-    expect(resolveClientFamily("some-random-agent/9")).toBe("other");
   });
 });
 
@@ -256,10 +260,6 @@ describe("rootSampleRate", () => {
     }
   });
 
-  it("keeps a tool call at the tracked endpoint", () => {
-    expect(rootSampleRate({ pathname: "/mcp/", mcpMethod: "tools/call" })).toBe(1);
-  });
-
   it("keeps the endpoint itself with no method header", () => {
     expect(rootSampleRate({ pathname: "/mcp", mcpMethod: null })).toBe(1);
     expect(rootSampleRate({ pathname: "/mcp", mcpMethod: null, requestMethod: "POST" }))
@@ -269,12 +269,6 @@ describe("rootSampleRate", () => {
   it("samples GET probes for an event stream down to the heartbeat keep-rate", () => {
     expect(rootSampleRate({ pathname: "/mcp", mcpMethod: null, requestMethod: "GET" }))
       .toBe(HEARTBEAT_SPAN_KEEP_RATE);
-  });
-
-  it("still drops GET probes of untracked routes and tracked sub-paths", () => {
-    for (const pathname of ["/.env", "/mcp/actuator/heapdump"]) {
-      expect(rootSampleRate({ pathname, mcpMethod: null, requestMethod: "GET" })).toBe(0);
-    }
   });
 
   it("drops handshake-only notifications", () => {

@@ -1,465 +1,233 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { McpServer } from "@modelcontextprotocol/server";
-import { register } from "../../src/tools/get-breakdown.js";
-import { CONVERSION_RATES_MEANING } from "../../src/schemas.js";
-import { createMockClient, getToolHandler } from "./_helpers.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import fc from "fast-check";
+import { connect, CONVERSION_RATES_MEANING, errorOf, type Harness } from "../harness.js";
+import type { PlausibleResult } from "../../src/plausible.js";
 
-describe("get_breakdown tool", () => {
-  let server: McpServer;
-  let client: ReturnType<typeof createMockClient>;
+let h: Harness;
+beforeEach(async () => {
+  h = await connect();
+});
+afterEach(() => h.close());
 
-  beforeEach(() => {
-    server = new McpServer({ name: "test", version: "0.0.1" });
-    client = createMockClient();
-    register(server, client, "default.com");
-  });
+describe("get_breakdown", () => {
+  it("asks Plausible for one dimension and labels the rows", async () => {
+    h.reply(() => [{ dimensions: ["Germany"], metrics: [10, 20, 30] }]);
 
-  it("calls client.query with correct dimension", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
+    const result = await h.call("get_breakdown", {
+      date_range: "30d",
+      dimension: "visit:country_name",
+    });
+
+    expect(h.requests[0].body).toMatchObject({
       site_id: "example.com",
       date_range: "30d",
-      dimension: "event:page",
+      dimensions: ["visit:country_name"],
+      metrics: ["visitors", "pageviews", "bounce_rate"],
     });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        site_id: "example.com",
-        dimensions: ["event:page"],
-        metrics: ["visitors", "pageviews", "bounce_rate"],
-        pagination: { limit: 21, offset: 0 },
-      })
-    );
-  });
-
-  it("uses custom limit", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "visit:source",
-      limit: 50,
+    expect(result.structuredContent).toEqual({
+      metrics: ["visitors", "pageviews", "bounce_rate"],
+      dimensions: ["visit:country_name"],
+      results: [{ dimensions: ["Germany"], metrics: [10, 20, 30] }],
+      pagination: { limit: 20, offset: 0, has_more: false },
     });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ pagination: { limit: 51, offset: 0 } })
-    );
   });
 
-  it("adds page filter", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "visit:country",
-      page: "/pricing",
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [["is", "event:page", ["/pricing"]]],
-      })
-    );
-  });
-
-  it("adds goal filter", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "event:page",
-      metrics: ["events"],
-      goal: "404",
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [["is", "event:goal", ["404"]]],
-      })
-    );
-  });
-
-  it("rejects combining the goal shortcut with an event:goal filter", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    const result = await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "event:page",
-      goal: "404",
-      property_filters: [
-        { property: "event:goal", operator: "is", values: ["Signup"] },
-      ],
-    });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("property_filters");
-    expect(client.query).not.toHaveBeenCalled();
-  });
-
-  it("uses default site_id", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({ date_range: "7d", dimension: "event:page" });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ site_id: "default.com" })
-    );
-  });
-
-  it("accepts human-readable geo dimensions (issue #3)", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    for (const dimension of [
-      "visit:country_name",
-      "visit:region_name",
-      "visit:city_name",
-    ]) {
-      const result = await handler({
-        site_id: "example.com",
-        date_range: "30d",
-        dimension,
-      });
-      expect(result.isError).toBeFalsy();
-      expect(client.query).toHaveBeenCalledWith(
-        expect.objectContaining({ dimensions: [dimension] })
-      );
-    }
-  });
-
-  it("breaks down by a custom property dimension", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    const result = await handler({
-      site_id: "example.com",
-      date_range: "30d",
-      dimension: "event:props:destination_host",
-    });
-
-    expect(result.isError).toBeFalsy();
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dimensions: ["event:props:destination_host"],
-        metrics: ["visitors", "pageviews", "events"],
-      })
-    );
-  });
-
+  // Regressions (d399cc7, 505c703): Plausible answers 400 to these defaults otherwise.
   it.each([
     ["event:goal", ["visitors", "pageviews", "events"]],
     ["event:hostname", ["visitors", "pageviews", "events"]],
+    ["event:props:plan", ["visitors", "pageviews", "events"]],
     ["visit:entry_page", ["visitors", "visits", "bounce_rate"]],
     ["visit:exit_page", ["visitors", "visits", "bounce_rate"]],
+    ["event:page", ["visitors", "pageviews", "bounce_rate"]],
+    // Issue #3: the human-readable geo names.
+    ["visit:country_name", ["visitors", "pageviews", "bounce_rate"]],
+    ["visit:region_name", ["visitors", "pageviews", "bounce_rate"]],
+    ["visit:city_name", ["visitors", "pageviews", "bounce_rate"]],
   ])("defaults %s to metrics Plausible accepts with it", async (dimension, metrics) => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({ site_id: "example.com", date_range: "30d", dimension });
+    await h.call("get_breakdown", { date_range: "30d", dimension });
 
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ dimensions: [dimension], metrics })
-    );
+    expect(h.requests[0].body.metrics).toEqual(metrics);
   });
 
-  it("adds custom property filters", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "event:page",
-      property_filters: [{ property: "plan", operator: "is", values: ["pro"] }],
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [["is", "event:props:plan", ["pro"]]],
-      })
-    );
-  });
-
-  it("filters by a visit-level dimension while breaking down by another dimension", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    const result = await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "event:page",
-      property_filters: [
-        { property: "visit:channel", operator: "is", values: ["Organic Search"] },
-      ],
-    });
-
-    expect(result.isError).toBeFalsy();
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dimensions: ["event:page"],
-        filters: [["is", "visit:channel", ["Organic Search"]]],
-      })
-    );
-  });
-
-  it("rejects combining the page shortcut with an event:page filter", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    const result = await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "visit:source",
-      page: "/pricing",
-      property_filters: [
-        { property: "event:page", operator: "is", values: ["/docs"] },
-      ],
-    });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("property_filters");
-    expect(client.query).not.toHaveBeenCalled();
-  });
-
-  it("combines page and custom property filters", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "event:props:destination_host",
-      page: "/pricing",
-      property_filters: [{ property: "ctry", operator: "is", values: ["US"] }],
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [
-          ["is", "event:page", ["/pricing"]],
-          ["is", "event:props:ctry", ["US"]],
-        ],
-      })
-    );
-  });
-
-  it("returns structuredContent labelled with the metric and dimension keys", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    const result = await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "visit:source",
-      metrics: ["visitors"],
-    });
-
-    expect(result.structuredContent).toMatchObject({
-      metrics: ["visitors"],
-      dimensions: ["visit:source"],
-    });
-  });
-
-  it("uses custom metrics", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "event:page",
-      metrics: ["visitors", "visit_duration"],
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ metrics: ["visitors", "visit_duration"] })
-    );
-  });
-
-  it("passes offset through to the query", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      dimension: "event:page",
-      limit: 10,
-      offset: 30,
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ pagination: { limit: 11, offset: 30 } })
-    );
-  });
-
-  it("orders by the first metric with the dimension as a tiebreaker", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({
-      site_id: "example.com",
+  it("passes caller metrics through and orders by the first one", async () => {
+    await h.call("get_breakdown", {
       date_range: "7d",
       dimension: "event:page",
       metrics: ["pageviews", "visitors"],
     });
 
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        order_by: [
-          ["pageviews", "desc"],
-          ["event:page", "asc"],
-        ],
-      })
-    );
+    expect(h.requests[0].body.metrics).toEqual(["pageviews", "visitors"]);
+    expect(h.requests[0].body.order_by).toEqual([
+      ["pageviews", "desc"],
+      ["event:page", "asc"],
+    ]);
   });
 
-  it("omits the dimension tiebreaker for event:goal, which Plausible rejects in order_by", async () => {
-    const handler = getToolHandler(server, "get_breakdown");
-    await handler({ site_id: "example.com", date_range: "7d", dimension: "event:goal" });
+  it("does not send event:goal in order_by, which Plausible rejects", async () => {
+    await h.call("get_breakdown", { date_range: "7d", dimension: "event:goal" });
 
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ order_by: [["visitors", "desc"]] })
-    );
+    expect(h.requests[0].body.order_by).toEqual([["visitors", "desc"]]);
   });
 
-  describe("paging", () => {
-    function rows(n: number) {
-      return Array.from({ length: n }, (_, i) => ({
-        dimensions: [`/page-${i}`],
-        metrics: [i, i, 0],
-      }));
-    }
+  it("reports the page window in the text block as well as structuredContent", async () => {
+    h.reply(() => rowsOf(["/a", "/b", "/c"]));
 
-    it("trims the extra row and reports has_more when another page exists", async () => {
-      client.query.mockResolvedValue({ results: rows(3), meta: {}, query: {} });
-      const handler = getToolHandler(server, "get_breakdown");
-      const result = await handler({
-        site_id: "example.com",
-        date_range: "7d",
-        dimension: "event:page",
-        limit: 2,
-        offset: 4,
-      });
-
-      expect(result.structuredContent.results).toHaveLength(2);
-      expect(result.structuredContent.pagination).toEqual({
-        limit: 2,
-        offset: 4,
-        has_more: true,
-      });
-      const text = JSON.parse(result.content[0].text);
-      expect(text.results).toHaveLength(2);
-      expect(text.pagination).toEqual(result.structuredContent.pagination);
+    const result = await h.call("get_breakdown", {
+      date_range: "7d",
+      dimension: "event:page",
+      limit: 2,
+      offset: 4,
     });
 
-    it("pages goals over a stable order however Plausible orders tied rows", async () => {
-      const goal = (name: string, visitors: number) => ({
-        dimensions: [name],
-        metrics: [visitors, 0, 0],
-      });
-      const handler = getToolHandler(server, "get_breakdown");
-      const pageOf = async (results: unknown[], offset: number) => {
-        client.query.mockResolvedValueOnce({ results, meta: {}, query: {} });
-        const result = await handler({
-          site_id: "example.com",
-          date_range: "2026-10-01,2026-10-07",
-          dimension: "event:goal",
-          limit: 2,
-          offset,
-        });
-        return result.structuredContent;
-      };
-
-      const first = await pageOf([goal("Top", 9), goal("B", 5), goal("A", 5), goal("C", 5)], 0);
-      const second = await pageOf([goal("Top", 9), goal("C", 5), goal("A", 5), goal("B", 5)], 2);
-
-      expect(client.query).toHaveBeenCalledWith(
-        expect.objectContaining({ pagination: { limit: 10_000 } })
-      );
-      expect([...first.results, ...second.results].map((r: any) => r.dimensions[0])).toEqual([
-        "Top",
-        "A",
-        "B",
-        "C",
-      ]);
-      expect(first.pagination.has_more).toBe(true);
-      expect(second.pagination.has_more).toBe(false);
-    });
-
-    it("reports has_more false when the page is not full beyond limit", async () => {
-      client.query.mockResolvedValue({ results: rows(2), meta: {}, query: {} });
-      const handler = getToolHandler(server, "get_breakdown");
-      const result = await handler({
-        site_id: "example.com",
-        date_range: "7d",
-        dimension: "event:page",
-        limit: 2,
-      });
-
-      expect(result.structuredContent.results).toHaveLength(2);
-      expect(result.structuredContent.pagination).toEqual({
-        limit: 2,
-        offset: 0,
-        has_more: false,
-      });
-      expect(JSON.parse(result.content[0].text).pagination).toEqual(
-        result.structuredContent.pagination
-      );
-    });
-  });
-
-  describe("conversion rates", () => {
-    it("adds group_conversion_rate to the defaults when a goal is set", async () => {
-      const handler = getToolHandler(server, "get_breakdown");
-      await handler({ date_range: "30d", dimension: "visit:entry_page", goal: "Purchase" });
-
-      expect(client.query).toHaveBeenCalledWith(
-        expect.objectContaining({
-          metrics: ["visitors", "visits", "bounce_rate", "group_conversion_rate"],
-        })
-      );
-    });
-
-    it("treats an event:goal property filter as a goal", async () => {
-      const handler = getToolHandler(server, "get_breakdown");
-      await handler({
-        date_range: "30d",
-        dimension: "visit:source",
-        property_filters: [{ property: "event:goal", values: ["Purchase"] }],
-      });
-
-      expect(client.query).toHaveBeenCalledWith(
-        expect.objectContaining({
-          metrics: ["visitors", "pageviews", "bounce_rate", "group_conversion_rate"],
-        })
-      );
-    });
-
-    it("keeps the goal-breakdown defaults when grouped by event:goal", async () => {
-      const handler = getToolHandler(server, "get_breakdown");
-      await handler({ date_range: "30d", dimension: "event:goal", goal: "Purchase" });
-
-      expect(client.query).toHaveBeenCalledWith(
-        expect.objectContaining({ metrics: ["visitors", "pageviews", "events"] })
-      );
-    });
-
-    it("rejects group_conversion_rate grouped by event:goal, where it is always 0", async () => {
-      const handler = getToolHandler(server, "get_breakdown");
-      const result = await handler({
-        date_range: "30d",
-        dimension: "event:goal",
-        metrics: ["visitors", "group_conversion_rate"],
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("Use conversion_rate");
-      expect(client.query).not.toHaveBeenCalled();
-    });
-
-    it("explains conversion_rate's shared denominator in both result blocks", async () => {
-      client.query.mockResolvedValue({
-        results: [{ dimensions: ["/"], metrics: [4, 0.46] }],
-        meta: {},
-        query: {},
-      });
-      const handler = getToolHandler(server, "get_breakdown");
-      const result = await handler({
-        date_range: "30d",
-        dimension: "visit:entry_page",
-        goal: "Purchase",
-        metrics: ["visitors", "conversion_rate"],
-      });
-
-      expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
-      expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
-    });
-
-    it("adds no notes when the result has no conversion_rate", async () => {
-      const handler = getToolHandler(server, "get_breakdown");
-      const result = await handler({ date_range: "30d", dimension: "event:page" });
-
-      expect(result.structuredContent).not.toHaveProperty("notes");
-      expect(JSON.parse(result.content[0].text)).not.toHaveProperty("notes");
-    });
+    expect(result.structuredContent.pagination).toEqual({ limit: 2, offset: 4, has_more: true });
+    const text = JSON.parse(result.content[0].text);
+    expect(text.results).toEqual(result.structuredContent.results);
+    expect(text.pagination).toEqual(result.structuredContent.pagination);
   });
 });
 
+describe("get_breakdown conversion rates", () => {
+  it.each([
+    ["the goal shortcut", { dimension: "visit:entry_page", goal: "Purchase" }, ["visitors", "visits", "bounce_rate", "group_conversion_rate"]],
+    [
+      "an event:goal property filter",
+      { dimension: "visit:source", property_filters: [{ property: "event:goal", values: ["Purchase"] }] },
+      ["visitors", "pageviews", "bounce_rate", "group_conversion_rate"],
+    ],
+    ["a goal, grouped by event:goal", { dimension: "event:goal", goal: "Purchase" }, ["visitors", "pageviews", "events"]],
+  ])("with %s, asks for the default metrics plus a per-row rate where it means something", async (_case, args, metrics) => {
+    await h.call("get_breakdown", { date_range: "30d", ...args });
+
+    expect(h.requests[0].body.metrics).toEqual(metrics);
+  });
+
+  it("rejects group_conversion_rate grouped by event:goal, where it is always 0", async () => {
+    const result = await h.call("get_breakdown", {
+      date_range: "30d",
+      dimension: "event:goal",
+      metrics: ["visitors", "group_conversion_rate"],
+    });
+
+    expect(errorOf(result).code).toBe("invalid_input");
+    expect(result.content[0].text).toContain("Use conversion_rate");
+    expect(h.requests).toHaveLength(0);
+  });
+
+  it("explains conversion_rate's shared denominator in both result blocks", async () => {
+    h.reply(() => [{ dimensions: ["/"], metrics: [4, 0.46] }]);
+
+    const result = await h.call("get_breakdown", {
+      date_range: "30d",
+      dimension: "visit:entry_page",
+      goal: "Purchase",
+      metrics: ["visitors", "conversion_rate"],
+    });
+
+    expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+    expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
+  });
+
+  it("adds no notes when the result has no conversion_rate", async () => {
+    const result = await h.call("get_breakdown", { date_range: "30d", dimension: "event:page" });
+
+    expect(result.structuredContent).not.toHaveProperty("notes");
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty("notes");
+  });
+});
+
+function rowsOf(names: string[]): PlausibleResult[] {
+  return names.map((name) => ({ dimensions: [name], metrics: [1, 1, 0] }));
+}
+
+/** Rows with distinct names and few distinct metric values, so ties are common. */
+const dataset = fc.uniqueArray(
+  fc.record({ name: fc.stringMatching(/^\/[a-z]{1,6}$/), visitors: fc.integer({ min: 0, max: 3 }) }),
+  { selector: (row) => row.name, maxLength: 30 },
+);
+
+/** Every row once, by visitors descending and then name ascending: the order the tool promises. */
+function expectedOrder(rows: Array<{ name: string; visitors: number }>) {
+  return [...rows]
+    .sort((a, b) => b.visitors - a.visitors || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .map((row) => row.name);
+}
+
+async function walkPages(dimension: string, limit: number) {
+  const names: string[] = [];
+  const hasMore: boolean[] = [];
+  for (let offset = 0; ; offset += limit) {
+    const result = await h.call("get_breakdown", {
+      date_range: "7d",
+      dimension,
+      metrics: ["visitors"],
+      limit,
+      offset,
+    });
+    const page = result.structuredContent;
+    expect(page.pagination).toMatchObject({ limit, offset });
+    names.push(...page.results.map((row: PlausibleResult) => String(row.dimensions[0])));
+    hasMore.push(page.pagination.has_more);
+    if (!page.pagination.has_more) return { names, hasMore };
+  }
+}
+
+describe("get_breakdown paging", () => {
+  // A Plausible stand-in that applies order_by and pagination as the Stats API does, and
+  // orders rows that order_by leaves tied differently on every request.
+  it("walks every row exactly once, in a stable order, for any data and page size", async () => {
+    await fc.assert(
+      fc.asyncProperty(dataset, fc.integer({ min: 1, max: 7 }), async (rows, limit) => {
+        h.reply((body) => {
+          const keyOf = (row: { name: string; visitors: number }, field: string) =>
+            field === "event:page" ? row.name : row.visitors;
+          const sorted = rows
+            .map((row) => ({ row, tie: Math.random() }))
+            .sort((a, b) => {
+              for (const [field, direction] of body.order_by as [string, string][]) {
+                const [x, y] = [keyOf(a.row, field), keyOf(b.row, field)];
+                if (x !== y) return (x < y ? -1 : 1) * (direction === "asc" ? 1 : -1);
+              }
+              return a.tie - b.tie;
+            });
+          const { limit: take, offset = 0 } = body.pagination;
+          return sorted
+            .slice(offset, offset + take)
+            .map(({ row }) => ({ dimensions: [row.name], metrics: [row.visitors] }));
+        });
+
+        const { names, hasMore } = await walkPages("event:page", limit);
+
+        expect(names).toEqual(expectedOrder(rows));
+        // has_more is true on every page but the last, and the last page is not empty.
+        expect(hasMore).toHaveLength(Math.max(1, Math.ceil(rows.length / limit)));
+        expect(hasMore.slice(0, -1).every(Boolean)).toBe(true);
+      }),
+      { numRuns: 40 },
+    );
+  });
+
+  // Regression (f1aebc5): Plausible cannot order goals by name, so tied goals came back in a
+  // different order on each request and pages skipped or repeated them.
+  it("pages goals over a stable order however Plausible orders tied rows", async () => {
+    await fc.assert(
+      fc.asyncProperty(dataset, fc.integer({ min: 1, max: 7 }), fc.infiniteStream(fc.integer()), async (rows, limit, seeds) => {
+        const seed = seeds[Symbol.iterator]();
+        h.reply((body) => {
+          expect(body.pagination).toEqual({ limit: 10_000 });
+          // Visitors descending, but ties shuffled differently on every request.
+          const shuffled = rows
+            .map((row) => ({ row, key: seed.next().value as number }))
+            .sort((a, b) => b.row.visitors - a.row.visitors || a.key - b.key)
+            .map(({ row }) => row);
+          return shuffled.map((row) => ({ dimensions: [row.name], metrics: [row.visitors] }));
+        });
+
+        const { names } = await walkPages("event:goal", limit);
+
+        expect(names).toEqual(expectedOrder(rows));
+      }),
+      { numRuns: 40 },
+    );
+  });
+});

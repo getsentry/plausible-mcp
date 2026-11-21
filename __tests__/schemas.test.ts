@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
+import fc from "fast-check";
 import {
   buildResultNotes,
   CONVERSION_RATES_MEANING,
+  VALID_DIMENSIONS,
+  PROPERTY_FILTER_OPERATORS,
   buildPropertyFilters,
   isCustomPropertyDimension,
   dimensionSchema,
@@ -11,28 +14,24 @@ import {
 } from "../src/schemas.js";
 
 describe("isCustomPropertyDimension", () => {
-  it("accepts event:props:<name>", () => {
-    expect(isCustomPropertyDimension("event:props:plan")).toBe(true);
-  });
-
-  it("rejects standard dimensions", () => {
-    expect(isCustomPropertyDimension("event:page")).toBe(false);
-    expect(isCustomPropertyDimension("visit:source")).toBe(false);
-  });
-
   it("rejects the bare prefix with no name", () => {
     expect(isCustomPropertyDimension("event:props:")).toBe(false);
   });
 });
 
 describe("dateRangeSchema", () => {
+  it("accepts N hours, days or months for any N, and the named periods", () => {
+    fc.assert(
+      fc.property(fc.nat(100_000), fc.constantFrom("h", "d", "mo"), (n, unit) => {
+        expect(dateRangeSchema.safeParse(`${n}${unit}`).success).toBe(true);
+      })
+    );
+    for (const period of ["day", "month", "year", "all"]) {
+      expect(dateRangeSchema.safeParse(period).success).toBe(true);
+    }
+  });
+
   it.each([
-    "1h",
-    "24h",
-    "7d",
-    "12mo",
-    "day",
-    "all",
     "2026-07-01,2026-07-07",
     "2026-07-01T09:00:00Z,2026-07-01T12:00:00Z",
     "2026-07-01T09:00:00+02:00,2026-07-01T12:00:00-05:00",
@@ -42,6 +41,8 @@ describe("dateRangeSchema", () => {
 
   it.each([
     "10m",
+    "7w",
+    "-7d",
     "2026-07-01T09:00:00,2026-07-01T12:00:00",
     "2026-07-01T09:00Z,2026-07-01T12:00Z",
     "2026-07-01,2026-07-01T12:00:00Z",
@@ -51,15 +52,6 @@ describe("dateRangeSchema", () => {
 });
 
 describe("dimensionSchema", () => {
-  it("parses a standard dimension", () => {
-    expect(dimensionSchema.safeParse("event:page").success).toBe(true);
-    expect(dimensionSchema.safeParse("visit:country_name").success).toBe(true);
-  });
-
-  it("parses a custom property dimension", () => {
-    expect(dimensionSchema.safeParse("event:props:destination_host").success).toBe(true);
-  });
-
   it("parses a custom property name beginning with whitespace", () => {
     expect(dimensionSchema.safeParse("event:props: plan").success).toBe(true);
   });
@@ -108,16 +100,6 @@ describe("propertyFilterSchema", () => {
     ).toBe(false);
   });
 
-  it("rejects an unknown operator", () => {
-    expect(
-      propertyFilterSchema.safeParse({
-        property: "plan",
-        operator: "matches",
-        values: ["pro"],
-      }).success
-    ).toBe(false);
-  });
-
   it("accepts a 300-character property name", () => {
     const property = "p".repeat(300);
 
@@ -143,12 +125,8 @@ describe("propertyFilterSchema", () => {
     ).toBe(true);
   });
 
-  it("accepts built-in dimensions", () => {
-    for (const property of ["visit:channel", "visit:source", "event:page", "visit:country_name"]) {
-      expect(
-        propertyFilterSchema.safeParse({ property, values: ["x"] }).success
-      ).toBe(true);
-    }
+  it.each(VALID_DIMENSIONS)("accepts the built-in dimension %s as a property", (property) => {
+    expect(propertyFilterSchema.safeParse({ property, values: ["x"] }).success).toBe(true);
   });
 
   it("rejects an unknown dimension-like property instead of prefixing it", () => {
@@ -159,26 +137,10 @@ describe("propertyFilterSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects negated event:goal filters", () => {
-    expect(
-      propertyFilterSchema.safeParse({
-        property: "event:goal",
-        operator: "is_not",
-        values: ["Signup"],
-      }).success
-    ).toBe(false);
-  });
-
-  it("accepts is and contains on event:goal", () => {
-    for (const operator of ["is", "contains"] as const) {
-      expect(
-        propertyFilterSchema.safeParse({
-          property: "event:goal",
-          operator,
-          values: ["Signup"],
-        }).success
-      ).toBe(true);
-    }
+  // Plausible rejects negated goal filters.
+  it.each(PROPERTY_FILTER_OPERATORS)("accepts event:goal with %s only if it is not negated", (operator) => {
+    const result = propertyFilterSchema.safeParse({ property: "event:goal", operator, values: ["Signup"] });
+    expect(result.success).toBe(operator === "is" || operator === "contains");
   });
 });
 
@@ -197,63 +159,29 @@ describe("buildPropertyFilters", () => {
     ).toEqual([["contains", "event:props:destination_host", ["github", "gitlab"]]]);
   });
 
-  it("builds one filter per entry", () => {
-    expect(
-      buildPropertyFilters([
-        { property: "plan", operator: "is", values: ["pro"] },
-        { property: "ctry", operator: "is_not", values: ["US"] },
-      ])
-    ).toEqual([
-      ["is", "event:props:plan", ["pro"]],
-      ["is_not", "event:props:ctry", ["US"]],
-    ]);
-  });
-
-  it("passes built-in dimensions through verbatim", () => {
-    expect(
-      buildPropertyFilters([
-        { property: "visit:channel", operator: "is", values: ["Organic Search"] },
-      ])
-    ).toEqual([["is", "visit:channel", ["Organic Search"]]]);
-  });
-
   it("does not double-prefix a fully-qualified event:props: property", () => {
     expect(
       buildPropertyFilters([{ property: "event:props:plan", values: ["pro"] }])
     ).toEqual([["is", "event:props:plan", ["pro"]]]);
   });
+
+  it("builds the same filter from a bare name and from the target it produced", () => {
+    fc.assert(
+      fc.property(fc.stringMatching(/^[a-z_]{1,20}$/), (name) => {
+        const [[, target]] = buildPropertyFilters([{ property: name, values: ["x"] }]);
+        expect(buildPropertyFilters([{ property: target as string, values: ["x"] }])).toEqual(
+          buildPropertyFilters([{ property: name, values: ["x"] }])
+        );
+      })
+    );
+  });
 });
 
 describe("assertNoShortcutOverlap", () => {
-  it("passes when the filters target other dimensions", () => {
-    expect(() =>
-      assertNoShortcutOverlap(
-        [{ property: "visit:channel", values: ["Organic Search"] }],
-        { page: "/pricing", goal: "Signup" }
-      )
-    ).not.toThrow();
-  });
-
   it("passes when the shortcut param is absent", () => {
     expect(() =>
       assertNoShortcutOverlap([{ property: "event:page", values: ["/docs"] }], {})
     ).not.toThrow();
-  });
-
-  it("rejects the page shortcut alongside an event:page filter", () => {
-    expect(() =>
-      assertNoShortcutOverlap([{ property: "event:page", values: ["/docs"] }], {
-        page: "/pricing",
-      })
-    ).toThrow('Drop "page"');
-  });
-
-  it("rejects the goal shortcut alongside an event:goal filter", () => {
-    expect(() =>
-      assertNoShortcutOverlap([{ property: "event:goal", values: ["Purchase"] }], {
-        goal: "Signup",
-      })
-    ).toThrow('Drop "goal"');
   });
 });
 

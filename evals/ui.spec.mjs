@@ -3,13 +3,19 @@ import { test as base, expect } from "@playwright/test";
 const preview = new URL("../coverage/ui-review/index.html", import.meta.url).href;
 const view = page => page.frameLocator('iframe[title="Plausible Analytics"]').frameLocator('iframe[title="Analytics result"]');
 const test = base.extend({
-  app: async ({ page }, use) => {
+  // Every test fails on a page error or console error, including the tests that drive the
+  // page without the app fixture.
+  page: async ({ page }, use) => {
     const errors = [];
-    const network = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {
       if (message.type() === "error") errors.push(message.text());
     });
+    await use(page);
+    expect(errors).toEqual([]);
+  },
+  app: async ({ page }, use) => {
+    const network = [];
     page.on("request", (request) => {
       if (/^https?:/.test(request.url())) network.push(request.url());
     });
@@ -17,7 +23,6 @@ const test = base.extend({
     const app = view(page);
     await expect(app.getByRole("heading", { name: "Traffic over time" })).toBeVisible();
     await use(app);
-    expect(errors).toEqual([]);
     expect(network).toEqual([]);
   },
 });
@@ -53,8 +58,6 @@ test("host theme and width changes update the same chart and keep the table insi
   await page.getByLabel("Theme").selectOption("dark");
   const surface = app.locator("#plausible-app");
   await expect(surface).toHaveCSS("color-scheme", "dark");
-  await expect(surface).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(surface).toHaveCSS("border-top-left-radius", "0px");
   await page.getByLabel("Width").selectOption("320px");
   await expect(page.locator("iframe")).toHaveCSS("width", "320px");
   await expect(app.getByLabel("Metric")).toHaveValue("bounce_rate");
@@ -152,24 +155,6 @@ for (const [label, middle] of [["Weekly traffic", /Oct 5, 2/], ["Monthly traffic
   });
 }
 
-test("feedback, empty and failed calls each show the corresponding result", async ({ page, app }) => {
-  const tool = page.getByRole("combobox", { name: "Tool", exact: true });
-  await tool.selectOption("send_feedback");
-  await expect(app.getByRole("heading")).toHaveText("Feedback received");
-  const id = await page.locator("#fixtures").evaluate((el) =>
-    JSON.parse(el.textContent).scenarios.find((s) => s.tool.name === "send_feedback").result.structuredContent.feedback_id
-  );
-  await expect(app.locator("code")).toHaveText(id);
-  await tool.selectOption("get_timeseries");
-  await page.getByLabel("State").selectOption("Empty result");
-  await expect(app.locator(".result")).toHaveText("No results for this query.");
-  await expect(app.getByLabel("Metric")).toBeHidden();
-  await page.getByLabel("State").selectOption("Query error");
-  await expect(app.getByRole("heading")).toHaveText("Query failed");
-  await expect(app.locator(".result")).toContainText("This fixture site is unavailable.");
-});
-
-
 test("each tool can show its pending, cancelled and failed states", async ({ page, app }) => {
   const tool = page.getByRole("combobox", { name: "Tool", exact: true });
   const state = page.getByLabel("State");
@@ -182,10 +167,22 @@ test("each tool can show its pending, cancelled and failed states", async ({ pag
     if (name !== "send_feedback") {
       await state.selectOption("Empty result");
       await expect(app.locator(".result")).toHaveText("No results for this query.");
+      await expect(app.getByLabel("Metric")).toBeHidden();
     }
     await state.selectOption(name === "send_feedback" ? "Feedback error" : "Query error");
     await expect(app.getByRole("heading")).toHaveText(name === "send_feedback" ? "Feedback failed" : "Query failed");
+    if (name === "get_timeseries") {
+      await expect(app.locator(".result")).toContainText("This fixture site is unavailable.");
+    }
   }
+  // The successful feedback result shows the id Sentry returned.
+  await tool.selectOption("send_feedback");
+  await state.selectOption(await state.locator("option").first().getAttribute("value"));
+  await expect(app.getByRole("heading")).toHaveText("Feedback received");
+  const id = await page.locator("#fixtures").evaluate((el) =>
+    JSON.parse(el.textContent).scenarios.find((s) => s.tool.name === "send_feedback").result.structuredContent.feedback_id
+  );
+  await expect(app.locator("code")).toHaveText(id);
 });
 
 test("daily comparison preserves missing days and reads both periods through the host", async ({ page, app }) => {

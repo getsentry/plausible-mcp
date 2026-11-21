@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
+import fc from "fast-check";
 import {
   anonymizeEventWithoutEmail,
   anonymizeSpanWithoutIdentity,
   sanitizeClientAttribute,
   stripRequestAttributes,
+  stripUrlQuery,
   type RedactableEvent,
 } from "../src/redaction.js";
 
@@ -90,28 +92,6 @@ describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
     });
   });
 
-  it("keeps mcp.client.name and mcp.client.version on an anonymous event", () => {
-    const anonymous: RedactableEvent = {
-      contexts: {
-        trace: {
-          data: {
-            "mcp.client.name": "claude-code",
-            "mcp.client.version": "1.2.3",
-            "mcp.method.name": "tools/call",
-          },
-        },
-      },
-    };
-
-    anonymizeEventWithoutEmail(anonymous);
-
-    expect(anonymous.contexts?.trace?.data).toEqual({
-      "mcp.client.name": "claude-code",
-      "mcp.client.version": "1.2.3",
-      "mcp.method.name": "tools/call",
-    });
-  });
-
   it("treats an empty-string email as anonymous", () => {
     const event: RedactableEvent = { user: { email: "", ip_address: "1.2.3.4" } };
     anonymizeEventWithoutEmail(event);
@@ -166,6 +146,7 @@ describe("stripRequestAttributes", () => {
       "user_agent.original": "SomeClient/1.0 (user@example.com)",
       "mcp.client.title": "Ada's Work Laptop",
       "mcp.client.name": "some-client",
+      "mcp.client.version": "1.2.3",
       "url.query": "?subject=user@example.com",
       "url.full": "https://example.com/mcp?subject=user@example.com",
       "url.path": "/mcp",
@@ -178,16 +159,50 @@ describe("stripRequestAttributes", () => {
       "url.full": "https://example.com/mcp",
       "url.path": "/mcp",
       "mcp.client.name": "some-client",
+      "mcp.client.version": "1.2.3",
       "mcp.tool.name": "get_breakdown",
     });
   });
 
-  it("leaves a url with no query or fragment unchanged", () => {
-    const data: Record<string, unknown> = { "url.full": "https://example.com/mcp" };
+  it("cuts any URL at its first ? or #, and cutting again changes nothing", () => {
+    fc.assert(
+      fc.property(fc.webUrl({ withQueryParameters: true, withFragments: true }), (url) => {
+        const stripped = stripUrlQuery(url);
+        expect(stripped).toBe(url.split(/[?#]/)[0]);
+        expect(stripped).not.toMatch(/[?#]/);
+        expect(stripUrlQuery(stripped)).toBe(stripped);
+      })
+    );
+  });
 
-    stripRequestAttributes(data);
+  // Any caller-controlled attribute map: no header, user agent, title or query survives,
+  // and stripping twice gives the same result as stripping once.
+  it("removes every caller-controlled request attribute from any attribute map", () => {
+    const key = fc.oneof(
+      fc.constantFrom("http.request.header.", "http.response.header.", "HTTP.Request.Header.").chain((prefix) =>
+        fc.string({ minLength: 1, maxLength: 12 }).map((name) => prefix + name)
+      ),
+      fc.constantFrom("user_agent.original", "mcp.client.title", "url.query", "url.path", "mcp.tool.name"),
+      fc.string({ maxLength: 12 })
+    );
+    const value = fc.oneof(fc.string(), fc.webUrl({ withQueryParameters: true }), fc.integer());
+    fc.assert(
+      fc.property(fc.dictionary(key, value), fc.option(fc.webUrl({ withQueryParameters: true }), { nil: undefined }), (input, url) => {
+        const data: Record<string, unknown> = { ...input, ...(url && { "url.full": url }) };
+        stripRequestAttributes(data);
 
-    expect(data["url.full"]).toBe("https://example.com/mcp");
+        for (const k of Object.keys(data)) {
+          expect(k.toLowerCase()).not.toMatch(/^http\.(request|response)\.header\./);
+        }
+        for (const k of ["user_agent.original", "mcp.client.title", "url.query"]) {
+          expect(data).not.toHaveProperty(k);
+        }
+        if (typeof data["url.full"] === "string") expect(data["url.full"]).not.toMatch(/[?#]/);
+        const again = { ...data };
+        stripRequestAttributes(again);
+        expect(again).toEqual(data);
+      })
+    );
   });
 });
 
@@ -233,6 +248,43 @@ describe("sanitizeClientAttribute", () => {
     const value = "a".repeat(100);
     expect(sanitizeClientAttribute(value)).toBe("a".repeat(64));
   });
+
+  // Truncation can end a value on an identity shape the full value did not have: 47 letters
+  // then "-0123456789abcdef" then "zzz" ends in a 16-hex session id once cut to 64 characters.
+  it.each([
+    ["x".repeat(47) + "-0123456789abcdef" + "zzz"],
+    ["y".repeat(60) + ".comet"],
+  ])("redacts an identity shape that truncation exposes in %j", (value) => {
+    expect(sanitizeClientAttribute(value)).toBe("[redacted]");
+  });
+
+  it("returns at most 64 characters, and the same value when applied to its own output", () => {
+    const shaped = fc.oneof(
+      fc.string(),
+      fc.emailAddress(),
+      fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 16, maxLength: 20 }).map((hex) => `-${hex}1`),
+      fc.constantFrom(".com", ".internal", "/Users/ada", " ", "-", "@")
+    );
+    fc.assert(
+      // A clean lead of 30-63 characters puts the 64-character cut inside the shaped tail.
+      fc.property(fc.string({ unit: fc.constantFrom(..."abcxyz"), minLength: 30, maxLength: 63 }), fc.array(shaped, { maxLength: 8 }), (lead, parts) => {
+        const value = lead + parts.join("");
+        const once = sanitizeClientAttribute(value);
+        if (once === undefined) return;
+        expect(once.length).toBeLessThanOrEqual(64);
+        expect(sanitizeClientAttribute(once)).toBe(once);
+      }),
+      { numRuns: 2000 }
+    );
+  });
+
+  it("never stores an email address it was given, wherever it sits", () => {
+    fc.assert(
+      fc.property(fc.string(), fc.emailAddress(), fc.string(), (before, email, after) => {
+        expect(sanitizeClientAttribute(`${before}${email} ${after}`) ?? "").not.toContain(email);
+      })
+    );
+  });
 });
 
 describe("stripRequestAttributes (client identifiers)", () => {
@@ -258,21 +310,6 @@ describe("stripRequestAttributes (client identifiers)", () => {
     stripRequestAttributes(data);
 
     expect(data).not.toHaveProperty("mcp.client.name");
-  });
-});
-
-describe("anonymizeEventWithoutEmail (feedback events)", () => {
-  it("strips user and request data from a feedback-typed event", () => {
-    const event: RedactableEvent & { type?: string } = {
-      type: "feedback",
-      user: { ip_address: "2a06:98c0::1" },
-      request: { data: { message: "it broke" } },
-    };
-
-    anonymizeEventWithoutEmail(event);
-
-    expect(event.user).toEqual({ ip_address: null });
-    expect(event.request?.data).toBeUndefined();
   });
 });
 
@@ -324,5 +361,36 @@ describe("anonymizeSpanWithoutIdentity (streamed segment spans)", () => {
     };
     anonymizeSpanWithoutIdentity(span);
     expect(span.attributes).toEqual({ "user.ip_address": "1.2.3.4" });
+  });
+});
+
+describe("anonymizeEventWithoutEmail (request headers)", () => {
+  it("filters every credential header, whatever its case, and keeps the others", () => {
+    const credential = fc
+      .tuple(
+        fc.constantFrom("authorization", "cookie", "cf-access-jwt-assertion", "cf-access-client-id", "proxy-authorization", "set-cookie"),
+        fc.boolean()
+      )
+      .map(([name, upper]) => (upper ? name.toUpperCase() : name));
+    const other = fc.constantFrom("accept", "content-type", "mcp-method", "x-request-id");
+    fc.assert(
+      fc.property(
+        fc.dictionary(credential, fc.string()),
+        fc.dictionary(other, fc.string()),
+        fc.boolean(),
+        (secrets, rest, identified) => {
+          const headers = { ...rest, ...secrets };
+          const event: RedactableEvent = {
+            user: identified ? { email: "user@sentry.io" } : { ip_address: "203.0.113.9" },
+            request: { headers: { ...headers } },
+          };
+
+          anonymizeEventWithoutEmail(event);
+
+          for (const name of Object.keys(secrets)) expect(event.request?.headers?.[name]).toBe("[Filtered]");
+          for (const [name, value] of Object.entries(rest)) expect(event.request?.headers?.[name]).toBe(value);
+        }
+      )
+    );
   });
 });

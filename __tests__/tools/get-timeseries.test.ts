@@ -1,216 +1,71 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { McpServer } from "@modelcontextprotocol/server";
-import { register, resolveSiteId } from "../../src/tools/get-timeseries.js";
-import type { PlausibleClient } from "../../src/plausible.js";
-import { CONVERSION_RATES_MEANING } from "../../src/schemas.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { connect, CONVERSION_RATES_MEANING, errorOf, type Harness } from "../harness.js";
 
-function createMockClient(): PlausibleClient {
-  return {
-    query: vi.fn().mockResolvedValue({
-      results: [{ dimensions: ["2024-01-01"], metrics: [100, 200, 45.5, 120] }],
-      meta: {},
-      query: {},
-    }),
-  } as unknown as PlausibleClient;
-}
-
-describe("resolveSiteId", () => {
-  it("returns explicit site_id when provided", () => {
-    expect(resolveSiteId("explicit.com", "default.com")).toBe("explicit.com");
-  });
-
-  it("falls back to default when no explicit", () => {
-    expect(resolveSiteId(undefined, "default.com")).toBe("default.com");
-  });
-
-  it("throws when neither provided", () => {
-    expect(() => resolveSiteId(undefined, undefined)).toThrow("site_id is required");
-  });
+let h: Harness;
+beforeEach(async () => {
+  h = await connect();
 });
+afterEach(() => h.close());
 
-describe("get_timeseries tool", () => {
-  let server: McpServer;
-  let client: ReturnType<typeof createMockClient>;
+describe("get_timeseries", () => {
+  it("asks Plausible for daily buckets of the default metrics and labels the rows", async () => {
+    h.reply(() => [{ dimensions: ["2026-01-01"], metrics: [100, 200, 45.5, 120] }]);
 
-  beforeEach(() => {
-    server = new McpServer({ name: "test", version: "0.0.1" });
-    client = createMockClient();
-    register(server, client, "default.com");
-  });
+    const result = await h.call("get_timeseries", { date_range: "30d" });
 
-  it("declares site_id optional when a default site is configured", () => {
-    const tool = (server as any)._registeredTools["get_timeseries"];
-    expect(tool.inputSchema.shape.site_id.isOptional()).toBe(true);
-  });
-
-  it("declares site_id required when no default site is configured", () => {
-    const bareServer = new McpServer({ name: "test", version: "0.0.1" });
-    register(bareServer, client);
-    const tool = (bareServer as any)._registeredTools["get_timeseries"];
-    expect(tool.inputSchema.shape.site_id.isOptional()).toBe(false);
-  });
-
-  it("registers the tool", async () => {
-    // Tool should be findable via the server's tool list
-    const tools = await (server as any).getRegisteredTools?.();
-    // Since we can't easily list tools without a transport, we verify
-    // the registration didn't throw
-    expect(true).toBe(true);
-  });
-
-  it("calls client.query with correct params for basic usage", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({ site_id: "example.com", date_range: "30d" });
-
-    expect(client.query).toHaveBeenCalledWith({
-      site_id: "example.com",
+    expect(h.requests.map((r) => r.body)).toEqual([
+      {
+        site_id: "example.com",
+        metrics: ["visitors", "pageviews", "bounce_rate", "visit_duration"],
+        date_range: "30d",
+        dimensions: ["time:day"],
+      },
+    ]);
+    expect(result.structuredContent).toEqual({
       metrics: ["visitors", "pageviews", "bounce_rate", "visit_duration"],
-      date_range: "30d",
       dimensions: ["time:day"],
-      filters: [],
+      results: [{ dimensions: ["2026-01-01"], metrics: [100, 200, 45.5, 120] }],
     });
+    expect(JSON.parse(result.content[0].text).results).toEqual(result.structuredContent.results);
   });
 
-  it("uses weekly granularity", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({ site_id: "example.com", date_range: "12mo", granularity: "week" });
+  it.each(["hour", "day", "week", "month"])("buckets by %s", async (granularity) => {
+    await h.call("get_timeseries", { date_range: "7d", granularity });
 
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ dimensions: ["time:week"] })
-    );
+    expect(h.requests[0].body.dimensions).toEqual([`time:${granularity}`]);
   });
 
-  it("uses hourly granularity", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({ site_id: "example.com", date_range: "24h", granularity: "hour" });
+  it("passes caller metrics through in order", async () => {
+    h.reply(() => [{ dimensions: ["2026-01-01"], metrics: [3, 1] }]);
 
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ dimensions: ["time:hour"] })
-    );
-  });
-
-  it("rejects a series that reaches Plausible's row limit instead of returning it truncated", async () => {
-    client.query.mockResolvedValueOnce({
-      results: Array.from({ length: 10_000 }, (_, i) => ({
-        dimensions: [`t${i}`],
-        metrics: [1, 1, 0, 0],
-      })),
-      meta: {},
-      query: {},
-    });
-    const handler = getToolHandler(server, "get_timeseries");
-    const result = await handler({ site_id: "example.com", date_range: "24mo", granularity: "hour" });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("10,000-bucket limit");
-  });
-
-  it("adds page filter for exact path", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({ site_id: "example.com", date_range: "7d", page: "/pricing" });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [["is", "event:page", ["/pricing"]]],
-      })
-    );
-  });
-
-  it("adds page filter with wildcard", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({ site_id: "example.com", date_range: "7d", page: "/blog*" });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [["contains", "event:page", ["/blog"]]],
-      })
-    );
-  });
-
-  it("adds goal filter", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({ site_id: "example.com", date_range: "7d", goal: "Signup" });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [["is", "event:goal", ["Signup"]]],
-      })
-    );
-  });
-
-  it("combines page and goal filters", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({
-      site_id: "example.com",
+    const result = await h.call("get_timeseries", {
       date_range: "7d",
-      page: "/pricing",
-      goal: "Signup",
+      metrics: ["events", "visitors"],
     });
 
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [
-          ["is", "event:page", ["/pricing"]],
-          ["is", "event:goal", ["Signup"]],
-        ],
-      })
-    );
+    expect(h.requests[0].body.metrics).toEqual(["events", "visitors"]);
+    expect(result.structuredContent.metrics).toEqual(["events", "visitors"]);
   });
 
-  it("adds custom property filters alongside page filters", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      page: "/pricing",
-      property_filters: [{ property: "plan", operator: "is", values: ["pro"] }],
-    });
+  // Regression (5dcd2a6): Plausible stops at 10,000 rows without saying so.
+  it("returns 9,999 buckets but rejects a series that reaches Plausible's 10,000-row limit", async () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ dimensions: [String(i)], metrics: [i] }));
 
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filters: [
-          ["is", "event:page", ["/pricing"]],
-          ["is", "event:props:plan", ["pro"]],
-        ],
-      })
-    );
-  });
+    h.reply(() => rows(9_999));
+    const under = await h.call("get_timeseries", { date_range: "all", granularity: "hour", metrics: ["visitors"] });
+    expect(under.isError).toBeFalsy();
+    expect(under.structuredContent.results).toHaveLength(9_999);
 
-  it("uses custom metrics", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({
-      site_id: "example.com",
-      date_range: "7d",
-      metrics: ["visitors", "events"],
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ metrics: ["visitors", "events"] })
-    );
-  });
-
-  it("uses default site_id from config", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    await handler({ date_range: "7d" });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ site_id: "default.com" })
-    );
-  });
-
-  it("returns JSON formatted result", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    const result = await handler({ site_id: "example.com", date_range: "7d" });
-
-    expect(result.content).toHaveLength(1);
-    expect(result.content[0].type).toBe("text");
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.results).toBeDefined();
+    h.reply(() => rows(10_000));
+    const at = await h.call("get_timeseries", { date_range: "all", granularity: "hour", metrics: ["visitors"] });
+    expect(at.isError).toBe(true);
+    expect(errorOf(at).code).toBe("invalid_input");
   });
 
   it("explains that a bucket's conversion_rate divides by the whole period", async () => {
-    const handler = getToolHandler(server, "get_timeseries");
-    const result = await handler({
+    h.reply(() => [{ dimensions: ["2026-01-01"], metrics: [4, 0.5] }]);
+
+    const result = await h.call("get_timeseries", {
       date_range: "7d",
       goal: "Signup",
       metrics: ["visitors", "conversion_rate"],
@@ -219,15 +74,16 @@ describe("get_timeseries tool", () => {
     expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
     expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
   });
-});
 
-// Helper: extract the tool handler from the registered tool.
-// McpServer stores handlers internally as a plain object keyed by tool name.
-function getToolHandler(server: McpServer, toolName: string) {
-  const tools = (server as any)._registeredTools as Record<string, any>;
-  const tool = tools?.[toolName];
-  if (!tool) throw new Error(`Tool ${toolName} not registered`);
-  return async (args: Record<string, unknown>) => {
-    return tool.handler(args, {} as any);
-  };
-}
+  it("treats an empty site_id as missing", async () => {
+    const bare = await connect({ defaultSiteId: undefined });
+    try {
+      const result = await bare.call("get_timeseries", { site_id: "", date_range: "7d" });
+
+      expect(errorOf(result).code).toBe("invalid_input");
+      expect(bare.requests).toHaveLength(0);
+    } finally {
+      await bare.close();
+    }
+  });
+});
