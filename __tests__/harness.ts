@@ -73,8 +73,8 @@ export async function connect(config: Partial<ServerConfig> = {}): Promise<Harne
     "fetch",
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init);
-      // SAFETY: the client under test sends JSON.stringify of a PlausibleQueryBody.
-      const body = (await request.json()) as PlausibleQueryBody;
+      // The client under test sends JSON.stringify of a PlausibleQueryBody.
+      const body = await request.json<PlausibleQueryBody>();
       requests.push({
         url: request.url,
         authorization: request.headers.get("Authorization"),
