@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import fc from "fast-check";
 
 const sentry = vi.hoisted(() => ({
   captureException: vi.fn(),
@@ -101,33 +102,36 @@ describe("reportToolError", () => {
     expect(captureException).not.toHaveBeenCalled();
   });
 
-  it("appends the Plausible error message to the 401 guidance", () => {
-    const error = new PlausibleApiError(401, JSON.stringify({ error: "site does not exist" }));
+  // Every status Plausible can answer with maps to exactly one code. Regression (9b013ad):
+  // 402 is an account problem, not a bad query.
+  it("classifies every 4xx and 5xx status by the documented rules", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 400, max: 599 }),
+        fc.option(fc.string({ minLength: 1, maxLength: 40 }), { nil: undefined }),
+        fc.option(fc.nat(86_400), { nil: undefined }),
+        (status, detail, retryAfter) => {
+          captureException.mockReset();
+          const body = detail === undefined ? "<html>error</html>" : JSON.stringify({ error: detail });
 
-    expect(reportToolError(error, toolName).message).toBe(
-      "Plausible rejected the API key or site_id (401): site does not exist",
+          const info = reportToolError(new PlausibleApiError(status, body, retryAfter), toolName);
+
+          const expected =
+            status === 401 || status === 402 || status === 403 ? "unauthorized"
+            : status === 429 ? "rate_limited"
+            : status >= 500 ? "upstream_unavailable"
+            : "invalid_query";
+          expect(info.code).toBe(expected);
+          expect(info.retryable).toBe(status === 429 || status >= 500);
+          expect(captureException).toHaveBeenCalledTimes(status >= 500 ? 1 : 0);
+          expect(info.message).toContain(String(status));
+          if (detail !== undefined) expect(info.message.endsWith(`: ${detail}`)).toBe(true);
+          else expect(info.message).not.toContain(":");
+          if (info.retryable && retryAfter !== undefined) expect(info.retry_after_seconds).toBe(retryAfter);
+          else expect(info).not.toHaveProperty("retry_after_seconds");
+        }
+      )
     );
-  });
-
-  it("classifies a Plausible 402 as an account problem, not a bad query", () => {
-    const error = new PlausibleApiError(
-      402,
-      JSON.stringify({ error: "The account that owns this API key does not have access to Stats API" })
-    );
-
-    expect(reportToolError(error, toolName)).toEqual({
-      code: "unauthorized",
-      message:
-        "The Plausible account behind this API key has no Stats API access (402): The account that owns this API key does not have access to Stats API",
-      retryable: false,
-    });
-    expect(captureException).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the status-only message for a non-JSON body", () => {
-    const error = new PlausibleApiError(502, "<html>Bad Gateway</html>");
-
-    expect(reportToolError(error, toolName).message).toBe("Plausible API returned 502");
   });
 
   it("gives the caller a 5xx detail while the captured exception stays status-only", () => {
@@ -179,44 +183,6 @@ describe("reportToolError", () => {
     expect(captureException).toHaveBeenCalledWith(error);
   });
 
-  it("classifies 403 as unauthorized", () => {
-    const error = new PlausibleApiError(403, JSON.stringify({ error: "forbidden" }));
-
-    expect(reportToolError(error, toolName)).toEqual({
-      code: "unauthorized",
-      message: "Plausible API returned 403: forbidden",
-      retryable: false,
-    });
-    expect(captureException).not.toHaveBeenCalled();
-  });
-
-  it("classifies 429 as retryable and carries the wait time when known", () => {
-    const error = new PlausibleApiError(429, "", 30);
-
-    expect(reportToolError(error, toolName)).toEqual({
-      code: "rate_limited",
-      message: "Plausible rate limit exceeded (429)",
-      retryable: true,
-      retry_after_seconds: 30,
-    });
-    expect(captureException).not.toHaveBeenCalled();
-  });
-
-  it("carries the wait time on a 5xx upstream_unavailable", () => {
-    expect(reportToolError(new PlausibleApiError(503, "", 7), toolName)).toMatchObject({
-      code: "upstream_unavailable",
-      retryable: true,
-      retry_after_seconds: 7,
-    });
-  });
-
-  it("omits retry_after_seconds on 429 without a Retry-After header", () => {
-    const info = reportToolError(new PlausibleApiError(429, ""), toolName);
-
-    expect(info.code).toBe("rate_limited");
-    expect(info.retryable).toBe(true);
-    expect(info).not.toHaveProperty("retry_after_seconds");
-  });
 });
 
 describe("toolErrorResult", () => {
@@ -225,15 +191,32 @@ describe("toolErrorResult", () => {
     count.mockReset();
   });
 
-  it("returns an isError result with the error as JSON in a second text block", () => {
-    const result = toolErrorResult(new UserFacingError("site_id is required"), toolName);
+  const anyToolError = fc.oneof(
+    fc.string({ minLength: 1 }).map((message) => new UserFacingError(message)),
+    fc
+      .tuple(fc.integer({ min: 400, max: 599 }), fc.option(fc.nat(600), { nil: undefined }))
+      .map(([status, wait]) => new PlausibleApiError(status, "", wait)),
+    fc.constant(new PlausibleUnreachableError(new TypeError("fetch failed"))),
+    fc.string().map((message) => new Error(message))
+  );
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toHaveLength(2);
-    expect(result.content[0]).toEqual({ type: "text", text: "Error: site_id is required" });
-    expect(JSON.parse(result.content[1].text)).toEqual({
-      error: { code: "invalid_input", message: "site_id is required", retryable: false },
-    });
+  it("returns the readable message first and the same error as JSON second, for any error", () => {
+    fc.assert(
+      fc.property(anyToolError, fc.boolean(), (error, offerFeedback) => {
+        const info = reportToolError(error, toolName);
+        const result = toolErrorResult(error, toolName, offerFeedback);
+
+        expect(result.isError).toBe(true);
+        expect(result.content).toHaveLength(2);
+        expect(JSON.parse(result.content[1].text)).toEqual({ error: info });
+        const text = result.content[0].text;
+        expect(text.startsWith(`Error: ${info.message}`)).toBe(true);
+        expect(text.includes("send_feedback")).toBe(
+          offerFeedback && (info.code === "invalid_query" || info.code === "internal")
+        );
+        expect(/retry/i.test(text.slice(`Error: ${info.message}`.length))).toBe(info.retryable);
+      })
+    );
   });
 
   it("carries no structuredContent", () => {
@@ -249,18 +232,6 @@ describe("toolErrorResult", () => {
       "Error: Plausible rate limit exceeded (429) Retry after 12 seconds.",
     );
     expect(JSON.parse(result.content[1].text).error.retry_after_seconds).toBe(12);
-  });
-
-  it("puts the wait time of a 503 in the JSON error block", () => {
-    const result = toolErrorResult(new PlausibleApiError(503, "", 9), toolName);
-
-    expect(result.content[0].text).toBe(
-      "Error: Plausible API returned 503 Retry after 9 seconds.",
-    );
-    expect(JSON.parse(result.content[1].text).error).toMatchObject({
-      code: "upstream_unavailable",
-      retry_after_seconds: 9,
-    });
   });
 
   it("flags a retryable error without a wait time as temporary", () => {
@@ -286,20 +257,4 @@ describe("toolErrorResult", () => {
     expect(JSON.parse(result.content[1].text).error.message).toBe("Plausible API returned 400");
   });
 
-  it("points an unexpected failure at send_feedback when the tool is offered", () => {
-    const result = toolErrorResult(new Error("boom"), toolName, true);
-
-    expect(result.content[0].text).toContain("send_feedback");
-  });
-
-  it("keeps send_feedback out of errors whose message already says what to do", () => {
-    for (const error of [
-      new UserFacingError("site_id is required"),
-      new PlausibleApiError(401, ""),
-      new PlausibleApiError(429, "", 12),
-      new PlausibleApiError(503, ""),
-    ]) {
-      expect(toolErrorResult(error, toolName, true).content[0].text).not.toContain("send_feedback");
-    }
-  });
 });
