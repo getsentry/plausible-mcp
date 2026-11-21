@@ -1,271 +1,112 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { McpServer } from "@modelcontextprotocol/server";
-import {
-  register,
-  extractAggregateMetrics,
-  computeDeltas,
-  previousPeriod,
-} from "../../src/tools/compare-periods.js";
-import { createMockClient, getToolHandler } from "./_helpers.js";
-import type { PlausibleResponse } from "../../src/plausible.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import fc from "fast-check";
+import { connect, type Harness } from "../harness.js";
 
-describe("compare_periods helpers", () => {
-  describe("extractAggregateMetrics", () => {
-    it("extracts metrics from first result row", () => {
-      const response: PlausibleResponse = {
-        results: [{ dimensions: [], metrics: [100, 200, 45.5] }],
-        meta: {},
-        query: {},
-      };
-      expect(extractAggregateMetrics(response, ["visitors", "pageviews", "bounce_rate"])).toEqual({
-        visitors: 100,
-        pageviews: 200,
-        bounce_rate: 45.5,
-      });
-    });
+const PERIOD_A = "2026-01-01,2026-01-07";
+const PERIOD_B = "2026-01-08,2026-01-14";
 
-    it("returns empty object for no results", () => {
-      const response: PlausibleResponse = {
-        results: [],
-        meta: {},
-        query: {},
-      };
-      expect(extractAggregateMetrics(response, ["visitors"])).toEqual({});
-    });
-  });
-
-  describe("computeDeltas", () => {
-    it("computes absolute and percent change", () => {
-      const a = { visitors: 100, pageviews: 200 };
-      const b = { visitors: 150, pageviews: 180 };
-      const deltas = computeDeltas(a, b);
-
-      expect(deltas.visitors).toEqual({ absolute: 50, percent: 50 });
-      expect(deltas.pageviews).toEqual({ absolute: -20, percent: -10 });
-    });
-
-    it("handles null values", () => {
-      const a = { visitors: null as unknown as number };
-      const b = { visitors: 100 };
-      const deltas = computeDeltas(a, b);
-
-      expect(deltas.visitors).toEqual({ absolute: null, percent: null });
-    });
-
-    it("handles zero in period_a (division by zero)", () => {
-      const a = { visitors: 0 };
-      const b = { visitors: 100 };
-      const deltas = computeDeltas(a, b);
-
-      expect(deltas.visitors).toEqual({ absolute: 100, percent: null });
-    });
-
-    it("rounds to 2 decimal places", () => {
-      const a = { bounce_rate: 33.33 };
-      const b = { bounce_rate: 50.0 };
-      const deltas = computeDeltas(a, b);
-
-      expect(deltas.bounce_rate.absolute).toBe(16.67);
-      expect(deltas.bounce_rate.percent).toBeCloseTo(50.02, 1);
-    });
-  });
+let h: Harness;
+beforeEach(async () => {
+  h = await connect();
 });
+afterEach(() => h.close());
 
-describe("compare_periods tool", () => {
-  let server: McpServer;
-  let client: ReturnType<typeof createMockClient>;
-
-  beforeEach(() => {
-    server = new McpServer({ name: "test", version: "0.0.1" });
-    client = createMockClient();
-    register(server, client, "default.com");
+/** Answer period_a and period_b with their own aggregate row, whatever order they arrive in. */
+function replyWith(a: Array<number | null> | null, b: Array<number | null> | null) {
+  h.reply((body) => {
+    const metrics = body.date_range[0] === "2026-01-01" ? a : b;
+    return metrics ? [{ dimensions: [], metrics }] : [];
   });
+}
 
-  it("makes two parallel API calls", async () => {
-    const handler = getToolHandler(server, "compare_periods");
-    await handler({
-      site_id: "example.com",
-      period_a: "2024-01-01,2024-01-07",
-      period_b: "2024-01-08,2024-01-14",
-    });
+describe("compare_periods", () => {
+  it("queries each period with the same metrics and filters", async () => {
+    await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B, page: "/pricing" });
 
-    expect(client.query).toHaveBeenCalledTimes(2);
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ date_range: "2024-01-01,2024-01-07" })
-    );
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ date_range: "2024-01-08,2024-01-14" })
-    );
-  });
-
-  it("returns comparison with deltas", async () => {
-    // Override mock to return different values for each call
-    client.query
-      .mockResolvedValueOnce({
-        results: [{ dimensions: [], metrics: [100, 200, 45, 120] }],
-        meta: {},
-        query: {},
-      })
-      .mockResolvedValueOnce({
-        results: [{ dimensions: [], metrics: [150, 180, 40, 130] }],
-        meta: {},
-        query: {},
-      });
-
-    const handler = getToolHandler(server, "compare_periods");
-    const result = await handler({
-      site_id: "example.com",
-      period_a: "2024-01-01,2024-01-07",
-      period_b: "2024-01-08,2024-01-14",
-    });
-
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.period_a.metrics.visitors).toBe(100);
-    expect(parsed.period_b.metrics.visitors).toBe(150);
-    expect(parsed.deltas.visitors.absolute).toBe(50);
-    expect(parsed.deltas.visitors.percent).toBe(50);
-  });
-
-  it("passes page and goal filters to both calls", async () => {
-    const handler = getToolHandler(server, "compare_periods");
-    await handler({
-      site_id: "example.com",
-      period_a: "2024-01-01,2024-01-07",
-      period_b: "2024-01-08,2024-01-14",
-      page: "/pricing",
-      goal: "Signup",
-    });
-
-    for (const call of client.query.mock.calls) {
-      expect(call[0].filters).toEqual([
-        ["is", "event:page", ["/pricing"]],
-        ["is", "event:goal", ["Signup"]],
-      ]);
-    }
-  });
-
-  it("passes custom property filters to both calls", async () => {
-    const handler = getToolHandler(server, "compare_periods");
-    await handler({
-      site_id: "example.com",
-      period_a: "2024-01-01,2024-01-07",
-      period_b: "2024-01-08,2024-01-14",
-      property_filters: [{ property: "plan", operator: "is", values: ["pro"] }],
-    });
-
-    for (const call of client.query.mock.calls) {
-      expect(call[0].filters).toEqual([["is", "event:props:plan", ["pro"]]]);
-    }
-  });
-
-  it("uses default site_id", async () => {
-    const handler = getToolHandler(server, "compare_periods");
-    await handler({
-      period_a: "2024-01-01,2024-01-07",
-      period_b: "2024-01-08,2024-01-14",
-    });
-
-    expect(client.query).toHaveBeenCalledWith(
-      expect.objectContaining({ site_id: "default.com" })
-    );
-  });
-});
-
-// Resolved ranges as Plausible returned them for blog.sentry.io (America/Toronto).
-const TODAY = "2026-11-20";
-
-describe("previousPeriod", () => {
-  it("moves whole days back by their own number of days", () => {
-    expect(
-      previousPeriod("7d", ["2026-11-13T00:00:00-05:00", "2026-11-19T23:59:59-05:00"], TODAY)
-    ).toBe("2026-11-06,2026-11-12");
-    expect(
-      previousPeriod("6mo", ["2026-05-01T00:00:00-04:00", "2026-10-31T23:59:59-04:00"], TODAY)
-    ).toBe("2025-10-29,2026-04-30");
-  });
-
-  it("leaves out days after today, as Plausible does", () => {
-    expect(
-      previousPeriod("month", ["2026-11-01T00:00:00-04:00", "2026-11-30T23:59:59-05:00"], TODAY)
-    ).toBe("2026-10-12,2026-10-31");
-  });
-
-  it("takes today from Plausible, not from the range's UTC offset", () => {
-    // In July, Toronto is at -04:00 while both ends of "year" are at -05:00.
-    expect(
-      previousPeriod("year", ["2026-01-01T00:00:00-05:00", "2026-12-31T23:59:59-05:00"], "2026-07-20")
-    ).toBe("2025-06-14,2025-12-31");
-  });
-
-  it("moves today and hour windows back by their length in time", () => {
-    expect(
-      previousPeriod("day", ["2026-11-20T00:00:00-05:00", "2026-11-20T18:57:51-05:00"])
-    ).toBe("2026-11-19T05:00:00Z,2026-11-19T23:57:51Z");
-    expect(
-      previousPeriod("24h", ["2026-11-19T18:57:51-05:00", "2026-11-20T18:57:51-05:00"])
-    ).toBe("2026-11-18T23:57:51Z,2026-11-19T23:57:51Z");
-    expect(
-      previousPeriod("2026-11-13T12:00:00-05:00,2026-11-13T15:00:00-05:00", [
-        "2026-11-13T12:00:00-05:00",
-        "2026-11-13T15:00:00-05:00",
-      ])
-    ).toBe("2026-11-13T14:00:00Z,2026-11-13T17:00:00Z");
-  });
-
-  it("asks for period_a when period_b starts after today", () => {
-    expect(() =>
-      previousPeriod(
-        "2026-12-01,2026-12-07",
-        ["2026-12-01T00:00:00-05:00", "2026-12-07T23:59:59-05:00"],
-        TODAY
-      )
-    ).toThrow("Pass period_a");
-  });
-});
-
-describe("compare_periods without period_a", () => {
-  function setup(responseB: PlausibleResponse) {
-    const client = createMockClient();
-    client.query
-      .mockResolvedValueOnce(responseB)
-      .mockResolvedValueOnce({
-        results: [],
-        meta: {},
-        query: { date_range: ["2024-03-25T00:00:00Z", "2024-03-25T10:00:00Z"] },
-      })
-      .mockResolvedValueOnce({ results: [{ dimensions: [], metrics: [40] }], meta: {}, query: {} });
-    const server = new McpServer({ name: "test", version: "0.0.1" });
-    register(server, client, "default.com");
-    return { client, handler: getToolHandler(server, "compare_periods") };
-  }
-
-  it("queries period_b and today, then the period right before period_b", async () => {
-    const { client, handler } = setup({
-      results: [{ dimensions: [], metrics: [50] }],
-      meta: {},
-      query: { date_range: ["2024-03-15T00:00:00Z", "2024-03-21T23:59:59Z"] },
-    });
-
-    const result = await handler({ period_b: "2024-03-15,2024-03-21", metrics: ["visitors"] });
-
-    expect(client.query.mock.calls.map(([params]) => params.date_range)).toEqual([
-      "2024-03-15,2024-03-21",
-      "day",
-      "2024-03-08,2024-03-14",
+    const ranges = h.requests.map((request) => request.body.date_range).sort();
+    expect(ranges).toEqual([
+      ["2026-01-01", "2026-01-07"],
+      ["2026-01-08", "2026-01-14"],
     ]);
-    expect(result.structuredContent.period_a).toEqual({
-      range: "2024-03-08,2024-03-14",
-      metrics: { visitors: 40 },
-    });
-    expect(result.structuredContent.deltas.visitors).toEqual({ absolute: 10, percent: 25 });
+    const [first, second] = h.requests.map(({ body: { date_range, ...rest } }) => rest);
+    expect(first).toEqual(second);
+    expect(first.filters).toEqual([["is", "event:page", ["/pricing"]]]);
   });
 
-  it("asks for period_a when Plausible returns no resolved dates", async () => {
-    const { handler } = setup({ results: [], meta: {}, query: { date_range: "7d" } });
+  it("labels each period's aggregate and the change from period_a to period_b", async () => {
+    replyWith([100, 200, 45, 120], [150, 180, 40, 130]);
 
-    const result = await handler({ period_b: "7d" });
+    const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
 
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("Pass period_a");
+    expect(result.structuredContent).toEqual({
+      period_a: {
+        range: PERIOD_A,
+        metrics: { visitors: 100, pageviews: 200, bounce_rate: 45, visit_duration: 120 },
+      },
+      period_b: {
+        range: PERIOD_B,
+        metrics: { visitors: 150, pageviews: 180, bounce_rate: 40, visit_duration: 130 },
+      },
+      deltas: {
+        visitors: { absolute: 50, percent: 50 },
+        pageviews: { absolute: -20, percent: -10 },
+        bounce_rate: { absolute: -5, percent: -11.11 },
+        visit_duration: { absolute: 10, percent: 8.33 },
+      },
+    });
+    expect(JSON.parse(result.content[0].text)).toEqual(result.structuredContent);
+  });
+
+  it("returns empty metrics and deltas when Plausible has no rows", async () => {
+    replyWith(null, null);
+
+    const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      period_a: { metrics: {} },
+      period_b: { metrics: {} },
+      deltas: {},
+    });
+  });
+
+  it("computes each delta from period_a to period_b, rounded to cents", async () => {
+    const value = fc.oneof(
+      { weight: 1, arbitrary: fc.constant(null) },
+      { weight: 1, arbitrary: fc.constant(0) },
+      // Plausible reports metrics to at most two decimals.
+      { weight: 3, arbitrary: fc.integer({ min: 0, max: 100_000_000 }).map((n) => n / 100) },
+      { weight: 3, arbitrary: fc.integer({ min: 0, max: 1_000_000 }) },
+    );
+    await fc.assert(
+      fc.asyncProperty(value, value, async (a, b) => {
+        replyWith([a], [b]);
+
+        const result = await h.call("compare_periods", {
+          period_a: PERIOD_A,
+          period_b: PERIOD_B,
+          metrics: ["visitors"],
+        });
+        const { absolute, percent } = result.structuredContent.deltas.visitors;
+
+        expect(result.structuredContent.period_a.metrics.visitors).toBe(a);
+        expect(result.structuredContent.period_b.metrics.visitors).toBe(b);
+        if (a === null || b === null) {
+          expect({ absolute, percent }).toEqual({ absolute: null, percent: null });
+          return;
+        }
+        const cents = (x: number) => Math.abs(x * 100 - Math.round(x * 100));
+        expect(Math.abs(absolute - (b - a))).toBeLessThanOrEqual(0.005 + 1e-9);
+        expect(cents(absolute)).toBeLessThan(1e-6);
+        if (a === 0) {
+          expect(percent).toBeNull();
+        } else {
+          const exact = ((b - a) / a) * 100;
+          expect(Math.abs(percent - exact)).toBeLessThanOrEqual(0.005 + Math.abs(exact) * 1e-12);
+          if (Math.abs(percent) >= 0.01) expect(Math.sign(percent)).toBe(Math.sign((b - a) / a));
+        }
+      }),
+      { numRuns: 100 },
+    );
   });
 });

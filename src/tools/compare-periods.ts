@@ -242,6 +242,3 @@ export function register(
     }
   );
 }
-
-// Exported for testing
-export { extractAggregateMetrics, computeDeltas };
