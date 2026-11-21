@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/server";
 import { register } from "../../src/tools/get-conversions.js";
+import { CONVERSION_RATES_MEANING } from "../../src/schemas.js";
 import { createMockClient, getToolHandler } from "./_helpers.js";
 
 describe("get_conversions tool", () => {
@@ -117,4 +118,75 @@ describe("get_conversions tool", () => {
       expect.objectContaining({ site_id: "default.com" })
     );
   });
+
+  describe("breakdown_by_page", () => {
+    function mockQueries() {
+      client.query.mockImplementation(async (params: { dimensions: string[] }) =>
+        params.dimensions.includes("event:goal")
+          ? {
+              results: [
+                { dimensions: ["Purchase", "/pricing"], metrics: [9, 12, 0.04] },
+                { dimensions: ["Purchase", "/gone"], metrics: [1, 1, 0.01] },
+              ],
+              meta: {},
+              query: { metrics: ["visitors", "events", "conversion_rate"] },
+            }
+          : { results: [{ dimensions: ["/pricing"], metrics: [1150] }], meta: {}, query: {} }
+      );
+    }
+
+    it("divides each page's conversions by that page's visitors", async () => {
+      mockQueries();
+      const handler = getToolHandler(server, "get_conversions");
+      const result = await handler({ date_range: "30d", breakdown_by_page: true });
+
+      expect(result.structuredContent.metrics).toEqual([
+        "visitors",
+        "events",
+        "conversion_rate",
+        "group_conversion_rate",
+      ]);
+      expect(result.structuredContent.results).toEqual([
+        { dimensions: ["Purchase", "/pricing"], metrics: [9, 12, 0.04, 0.78] },
+        { dimensions: ["Purchase", "/gone"], metrics: [1, 1, 0.01, null] },
+      ]);
+      expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+      expect(JSON.parse(result.content[0].text).query.metrics).toEqual(
+        result.structuredContent.metrics
+      );
+    });
+
+    it("counts page visitors without the goal and custom-property filters", async () => {
+      mockQueries();
+      const handler = getToolHandler(server, "get_conversions");
+      await handler({
+        date_range: "30d",
+        goal: "Purchase",
+        breakdown_by_page: true,
+        property_filters: [
+          { property: "plan", values: ["pro"] },
+          { property: "visit:channel", values: ["Organic Search"] },
+        ],
+      });
+
+      expect(client.query).toHaveBeenCalledTimes(2);
+      expect(client.query).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metrics: ["visitors"],
+          dimensions: ["event:page"],
+          filters: [["is", "visit:channel", ["Organic Search"]]],
+          pagination: { limit: 10_000 },
+        })
+      );
+    });
+
+    it("makes one query without breakdown_by_page", async () => {
+      const handler = getToolHandler(server, "get_conversions");
+      const result = await handler({ date_range: "30d" });
+
+      expect(client.query).toHaveBeenCalledTimes(1);
+      expect(result.structuredContent).not.toHaveProperty("notes");
+    });
+  });
 });
+

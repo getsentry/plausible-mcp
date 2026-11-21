@@ -106,12 +106,44 @@ export const goalSchema = z
   )
   .optional();
 
+/**
+ * Plausible divides both conversion rates by visitors with the goal and props filters
+ * removed. conversion_rate also drops the query's dimensions from that denominator, so
+ * every row shares one total; group_conversion_rate keeps them, so each row gets its own
+ * (lib/plausible/stats/sql/special_metrics.ex in plausible/analytics). Agents read
+ * conversion_rate as a per-row rate unless told (feedback PLAUSIBLE-MCP-V).
+ */
+export const CONVERSION_RATES_MEANING =
+  "conversion_rate is a percent of all visitors in the query, so every row shares one denominator. group_conversion_rate is a percent of each row's own visitors.";
+
+const METRIC_COMBINATION_RULES =
+  "Plausible rejects these combinations: bounce_rate or visit_duration with event:goal or event:props:<name> dimensions; pageviews, events, scroll_depth or time_on_page with visit:entry_page or visit:exit_page dimensions; views_per_visit with any non-time dimension or a page filter. For goal conversions use get_conversions.";
+
 export const metricsSchema = z
   .array(z.enum(VALID_METRICS))
+  .describe(`Metrics to return. Defaults vary by tool. ${METRIC_COMBINATION_RULES}`)
+  .optional();
+
+/** For tools that return rows, where the two conversion rates differ. */
+export const rowMetricsSchema = z
+  .array(z.enum(VALID_METRICS))
   .describe(
-    "Metrics to return. Defaults vary by tool. Plausible rejects these combinations: bounce_rate or visit_duration with event:goal or event:props:<name> dimensions; pageviews, events, scroll_depth or time_on_page with visit:entry_page or visit:exit_page dimensions; views_per_visit with any non-time dimension or a page filter. For goal conversions use get_conversions."
+    `Metrics to return. Defaults vary by tool. ${CONVERSION_RATES_MEANING} Both need a goal. ${METRIC_COMBINATION_RULES}`
   )
   .optional();
+
+/**
+ * Facts a result needs to be read correctly, added only when they apply so other calls
+ * carry nothing extra. Grouped by event:goal alone, conversion_rate is each goal's share
+ * of all visitors, which is what it says, so that case gets no note.
+ */
+export function buildResultNotes(metrics: string[], dimensions: string[]): string[] {
+  const groupedByMoreThanGoal = dimensions.some((d) => d !== "event:goal");
+  if (groupedByMoreThanGoal && metrics.includes("conversion_rate")) {
+    return [CONVERSION_RATES_MEANING];
+  }
+  return [];
+}
 
 /**
  * Build a Plausible filter for a page path.
@@ -313,6 +345,10 @@ export const queryResultOutputSchema = z.object({
     })
     .describe("Present only on paged tools (get_breakdown)")
     .optional(),
+  notes: z
+    .array(z.string())
+    .describe("Facts about this result that change how to read its numbers")
+    .optional(),
 });
 
 /**
@@ -325,6 +361,7 @@ export function buildQueryStructuredContent(
   dimensions: string[],
   pagination?: z.infer<typeof queryResultOutputSchema>["pagination"]
 ) {
+  const notes = buildResultNotes(metrics, dimensions);
   return {
     metrics,
     dimensions,
@@ -333,5 +370,6 @@ export function buildQueryStructuredContent(
       metrics: row.metrics,
     })),
     ...(pagination && { pagination }),
+    ...(notes.length > 0 && { notes }),
   };
 }

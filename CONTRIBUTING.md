@@ -49,6 +49,20 @@ OPENROUTER_API_KEY=sk-or-... pnpm eval
 
 The model defaults to `anthropic/claude-sonnet-5`; override it with `OPENROUTER_MODEL`.
 
+A model can choose differently on each run, so one run cannot show that a wording change helped. Set `EVAL_RUNS` to run each case more than once, and `EVAL_CASE` to run only the cases whose name contains that text:
+
+```bash
+EVAL_RUNS=10 EVAL_CASE="conversion rate" pnpm eval
+```
+
+To show that a change helped, run the same cases the same number of times on `main` and on your branch, and compare the pass counts.
+
+`__tests__/tool-list.test.ts` keeps a snapshot of the server instructions and of every tool's description and schema. Agents choose tools and arguments from this text only. If you change it, the snapshot test fails. Run the evals, then update the snapshot with `pnpm test -u`.
+
+## Turning Feedback into Evals
+
+The `send_feedback` tool files reports as User Feedback issues in Sentry. For each report of kind `confusing` or `broken`, add an eval case that reproduces the agent's mistake. Make sure that the case fails before your fix and passes after it. Put the Sentry issue ID in a comment above the case.
+
 ## Testing the MCP Server Locally
 
 Put your Plausible key in `.env.local` (copy `.env.example`), then:

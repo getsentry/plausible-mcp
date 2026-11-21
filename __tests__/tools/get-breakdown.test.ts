@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/server";
 import { register } from "../../src/tools/get-breakdown.js";
+import { CONVERSION_RATES_MEANING } from "../../src/schemas.js";
 import { createMockClient, getToolHandler } from "./_helpers.js";
 
 describe("get_breakdown tool", () => {
@@ -384,4 +385,81 @@ describe("get_breakdown tool", () => {
       );
     });
   });
+
+  describe("conversion rates", () => {
+    it("adds group_conversion_rate to the defaults when a goal is set", async () => {
+      const handler = getToolHandler(server, "get_breakdown");
+      await handler({ date_range: "30d", dimension: "visit:entry_page", goal: "Purchase" });
+
+      expect(client.query).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metrics: ["visitors", "visits", "bounce_rate", "group_conversion_rate"],
+        })
+      );
+    });
+
+    it("treats an event:goal property filter as a goal", async () => {
+      const handler = getToolHandler(server, "get_breakdown");
+      await handler({
+        date_range: "30d",
+        dimension: "visit:source",
+        property_filters: [{ property: "event:goal", values: ["Purchase"] }],
+      });
+
+      expect(client.query).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metrics: ["visitors", "pageviews", "bounce_rate", "group_conversion_rate"],
+        })
+      );
+    });
+
+    it("keeps the goal-breakdown defaults when grouped by event:goal", async () => {
+      const handler = getToolHandler(server, "get_breakdown");
+      await handler({ date_range: "30d", dimension: "event:goal", goal: "Purchase" });
+
+      expect(client.query).toHaveBeenCalledWith(
+        expect.objectContaining({ metrics: ["visitors", "pageviews", "events"] })
+      );
+    });
+
+    it("rejects group_conversion_rate grouped by event:goal, where it is always 0", async () => {
+      const handler = getToolHandler(server, "get_breakdown");
+      const result = await handler({
+        date_range: "30d",
+        dimension: "event:goal",
+        metrics: ["visitors", "group_conversion_rate"],
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Use conversion_rate");
+      expect(client.query).not.toHaveBeenCalled();
+    });
+
+    it("explains conversion_rate's shared denominator in both result blocks", async () => {
+      client.query.mockResolvedValue({
+        results: [{ dimensions: ["/"], metrics: [4, 0.46] }],
+        meta: {},
+        query: {},
+      });
+      const handler = getToolHandler(server, "get_breakdown");
+      const result = await handler({
+        date_range: "30d",
+        dimension: "visit:entry_page",
+        goal: "Purchase",
+        metrics: ["visitors", "conversion_rate"],
+      });
+
+      expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+      expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
+    });
+
+    it("adds no notes when the result has no conversion_rate", async () => {
+      const handler = getToolHandler(server, "get_breakdown");
+      const result = await handler({ date_range: "30d", dimension: "event:page" });
+
+      expect(result.structuredContent).not.toHaveProperty("notes");
+      expect(JSON.parse(result.content[0].text)).not.toHaveProperty("notes");
+    });
+  });
 });
+

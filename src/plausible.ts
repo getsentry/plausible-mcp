@@ -92,7 +92,7 @@ export interface PlausibleClientConfig {
 
 const MS_PER_HOUR = 3_600_000;
 
-function toIsoSeconds(ms: number): string {
+export function toIsoSeconds(ms: number): string {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 

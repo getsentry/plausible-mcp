@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildResultNotes,
+  CONVERSION_RATES_MEANING,
   buildPropertyFilters,
   isCustomPropertyDimension,
   dimensionSchema,
@@ -252,5 +254,25 @@ describe("assertNoShortcutOverlap", () => {
         goal: "Signup",
       })
     ).toThrow('Drop "goal"');
+  });
+});
+
+describe("buildResultNotes", () => {
+  it("explains conversion_rate when rows are grouped by more than the goal", () => {
+    expect(buildResultNotes(["visitors", "conversion_rate"], ["visit:entry_page"])).toEqual([
+      CONVERSION_RATES_MEANING,
+    ]);
+    expect(buildResultNotes(["conversion_rate"], ["time:day"])).toEqual([
+      CONVERSION_RATES_MEANING,
+    ]);
+    expect(buildResultNotes(["conversion_rate"], ["event:goal", "event:page"])).toEqual([
+      CONVERSION_RATES_MEANING,
+    ]);
+  });
+
+  it("adds nothing for a goal-only grouping or a result without conversion_rate", () => {
+    expect(buildResultNotes(["visitors", "conversion_rate"], ["event:goal"])).toEqual([]);
+    expect(buildResultNotes(["visitors", "group_conversion_rate"], ["event:page"])).toEqual([]);
+    expect(buildResultNotes(["visitors"], ["event:page"])).toEqual([]);
   });
 });

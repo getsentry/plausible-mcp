@@ -10,7 +10,7 @@ import {
   dateRangeSchema,
   pageSchema,
   goalSchema,
-  metricsSchema,
+  rowMetricsSchema,
   propertyFiltersSchema,
   DEFAULT_METRICS,
   buildPageFilter,
@@ -57,7 +57,7 @@ export function register(
           .default("day")
           .describe('Time bucket size. Use "hour" with a sub-day or few-day date_range.'),
         page: pageSchema,
-        metrics: metricsSchema,
+        metrics: rowMetricsSchema,
         goal: goalSchema,
         property_filters: propertyFiltersSchema,
       }),
@@ -95,9 +95,13 @@ export function register(
           );
         }
 
+        const structuredContent = buildQueryStructuredContent(result, metrics, [timeKey]);
+        const { notes } = structuredContent;
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: buildQueryStructuredContent(result, metrics, [timeKey]),
+          content: [
+            { type: "text" as const, text: JSON.stringify({ ...result, notes }, null, 2) },
+          ],
+          structuredContent,
         };
       } catch (error) {
         return toolErrorResult(error, "get_timeseries", offerFeedback);
