@@ -11,8 +11,9 @@ afterEach(() => h.close());
 
 describe.each(QUERY_TOOLS)("$name", ({ name, args }) => {
   it("queries the default site with the configured key when site_id is omitted", async () => {
-    await h.call(name, args);
+    const result = await h.call(name, args);
 
+    expect(result.isError).toBeFalsy();
     expect(h.requests.length).toBeGreaterThan(0);
     for (const request of h.requests) {
       expect(request.url).toBe("https://plausible.io/api/v2/query");
@@ -22,13 +23,15 @@ describe.each(QUERY_TOOLS)("$name", ({ name, args }) => {
   });
 
   it("queries an explicit site_id instead of the default", async () => {
-    await h.call(name, { ...args, site_id: "other.example" });
+    const result = await h.call(name, { ...args, site_id: "other.example" });
 
+    expect(result.isError).toBeFalsy();
+    expect(h.requests.length).toBeGreaterThan(0);
     for (const request of h.requests) expect(request.body.site_id).toBe("other.example");
   });
 
   it("sends the page, goal and property filters to Plausible", async () => {
-    await h.call(name, {
+    const result = await h.call(name, {
       ...args,
       page: "/blog*",
       goal: "Signup",
@@ -38,6 +41,8 @@ describe.each(QUERY_TOOLS)("$name", ({ name, args }) => {
       ],
     });
 
+    expect(result.isError).toBeFalsy();
+    expect(h.requests.length).toBeGreaterThan(0);
     for (const request of h.requests) {
       expect(request.body.filters).toEqual(
         expect.arrayContaining([

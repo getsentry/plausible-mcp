@@ -103,14 +103,14 @@ describe("reportToolError", () => {
   });
 
   // Every status Plausible can answer with maps to exactly one code. Regression (9b013ad):
-  // 402 is an account problem, not a bad query.
-  it("classifies every 4xx and 5xx status by the documented rules", () => {
+  // 402 is an account problem, not a bad query. Each status is checked, not sampled.
+  const statuses = Array.from({ length: 200 }, (_, i) => 400 + i);
+  it.each(statuses)("classifies status %i by the documented rules", (status) => {
     fc.assert(
       fc.property(
-        fc.integer({ min: 400, max: 599 }),
         fc.option(fc.string({ minLength: 1, maxLength: 40 }), { nil: undefined }),
         fc.option(fc.nat(86_400), { nil: undefined }),
-        (status, detail, retryAfter) => {
+        (detail, retryAfter) => {
           captureException.mockReset();
           const body = detail === undefined ? "<html>error</html>" : JSON.stringify({ error: detail });
 
@@ -130,7 +130,8 @@ describe("reportToolError", () => {
           if (info.retryable && retryAfter !== undefined) expect(info.retry_after_seconds).toBe(retryAfter);
           else expect(info).not.toHaveProperty("retry_after_seconds");
         }
-      )
+      ),
+      { numRuns: 8 }
     );
   });
 

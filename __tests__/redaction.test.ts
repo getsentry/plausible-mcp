@@ -168,7 +168,7 @@ describe("stripRequestAttributes", () => {
     fc.assert(
       fc.property(fc.webUrl({ withQueryParameters: true, withFragments: true }), (url) => {
         const stripped = stripUrlQuery(url);
-        expect(url.startsWith(stripped)).toBe(true);
+        expect(stripped).toBe(url.split(/[?#]/)[0]);
         expect(stripped).not.toMatch(/[?#]/);
         expect(stripUrlQuery(stripped)).toBe(stripped);
       })

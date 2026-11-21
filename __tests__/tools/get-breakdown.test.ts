@@ -40,6 +40,10 @@ describe("get_breakdown", () => {
     ["visit:entry_page", ["visitors", "visits", "bounce_rate"]],
     ["visit:exit_page", ["visitors", "visits", "bounce_rate"]],
     ["event:page", ["visitors", "pageviews", "bounce_rate"]],
+    // Issue #3: the human-readable geo names.
+    ["visit:country_name", ["visitors", "pageviews", "bounce_rate"]],
+    ["visit:region_name", ["visitors", "pageviews", "bounce_rate"]],
+    ["visit:city_name", ["visitors", "pageviews", "bounce_rate"]],
   ])("defaults %s to metrics Plausible accepts with it", async (dimension, metrics) => {
     await h.call("get_breakdown", { date_range: "30d", dimension });
 
