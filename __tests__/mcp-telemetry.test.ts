@@ -1,72 +1,54 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import * as Sentry from "@sentry/cloudflare";
 import { CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
-
-const setAttribute = vi.hoisted(() => vi.fn());
-
-vi.mock("@sentry/cloudflare", () => ({
-  getActiveSpan: () => ({ setAttribute }),
-}));
-
 import { recordMcpClientInfo } from "../src/mcp-telemetry.js";
+import { captureSentry } from "./harness.js";
 
-describe("recordMcpClientInfo", () => {
-  beforeEach(() => {
-    setAttribute.mockClear();
-  });
+let sentry: ReturnType<typeof captureSentry>;
+beforeAll(() => {
+  sentry = captureSentry();
+});
+beforeEach(() => {
+  sentry.spans.length = 0;
+});
 
-  it("adds modern per-request client identity to the active MCP span", () => {
+/** Attributes Sentry exports for a span in which the tool recorded the given request context. */
+async function exportedSpan(optIn: boolean) {
+  Sentry.startSpan({ name: "tools/call get_timeseries" }, () =>
     recordMcpClientInfo({
       http: {
         authInfo: {
           token: "access-token",
-          clientId: "user@sentry.io",
+          clientId: "user@example.com",
           scopes: ["plausible:read"],
-          extra: { recordMcpClientInfo: true },
+          extra: optIn ? { recordMcpClientInfo: true } : {},
         },
       },
       mcpReq: {
         envelope: {
-          [CLIENT_INFO_META_KEY]: {
-            name: "modern-client",
-            title: "Modern Client",
-            version: "1.2.3",
-          },
+          [CLIENT_INFO_META_KEY]: { name: "modern-client", title: "Ada's Laptop", version: "1.2.3" },
         },
       },
-    } as never);
+    } as never)
+  );
+  await sentry.flush();
+  expect(sentry.spans).toHaveLength(1);
+  return sentry.spans[0];
+}
 
-    expect(setAttribute).toHaveBeenCalledWith("mcp.client.name", "modern-client");
-    expect(setAttribute).toHaveBeenCalledWith("mcp.client.version", "1.2.3");
-    expect(setAttribute).not.toHaveBeenCalledWith("mcp.client.title", expect.anything());
+describe("recordMcpClientInfo", () => {
+  it("exports the per-request client name and version, never the title, when the endpoint opts in", async () => {
+    const span = await exportedSpan(true);
+
+    expect(span).toMatchObject({ "mcp.client.name": "modern-client", "mcp.client.version": "1.2.3" });
+    expect(JSON.stringify(sentry.envelopes)).not.toContain("Ada's Laptop");
   });
 
-  it("does nothing for legacy contexts without an envelope", () => {
-    recordMcpClientInfo({} as never);
-    expect(setAttribute).not.toHaveBeenCalled();
-  });
+  // Opt-in rather than opt-out, so an entry point that never sets the flag (STDIO today, any
+  // endpoint added later) records nothing until it says otherwise.
+  it("exports no client identity when the endpoint does not opt in", async () => {
+    const span = await exportedSpan(false);
 
-  // The flag is opt-in rather than opt-out so an entry point that never sets it — STDIO
-  // today, any endpoint added later — records nothing until it says otherwise.
-  it("records nothing when an entry point does not opt in", () => {
-    recordMcpClientInfo({
-      http: {
-        authInfo: {
-          token: "plausible-key",
-          clientId: "plausible-api-key",
-          scopes: ["plausible:read"],
-          extra: {},
-        },
-      },
-      mcpReq: {
-        envelope: {
-          [CLIENT_INFO_META_KEY]: {
-            name: "user@example.com",
-            version: "personal-machine",
-          },
-        },
-      },
-    } as never);
-
-    expect(setAttribute).not.toHaveBeenCalled();
+    expect(Object.keys(span).filter((key) => key.startsWith("mcp.client."))).toEqual([]);
   });
 });
