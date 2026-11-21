@@ -2,7 +2,7 @@ MCP server wrapping the Plausible Stats API v2. Two entry points — STDIO (`src
 
 ## Before calling a change green
 
-`pnpm build` does not typecheck the Worker. `worker.ts`, `env.ts` and `cf-access.ts` use Workers globals rather than Node ones, so `tsconfig.json` excludes them and `pnpm typecheck` covers them through `tsconfig.worker.json`, and the tests through `__tests__/tsconfig.json`. Run both, plus `pnpm test`.
+`pnpm build` does not typecheck the Worker. `worker.ts`, `env.ts` and `cf-access.ts` use Workers globals rather than Node ones, so `tsconfig.json` excludes them and `pnpm typecheck` covers them through `tsconfig.worker.json`, and the tests through `__tests__/tsconfig.json`. Run both, plus `pnpm lint`, `pnpm format:check` and `pnpm test`.
 
 craft owns the version in `package.json` and every `CHANGELOG.md` line — leave both to the release pipeline.
 

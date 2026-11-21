@@ -20,6 +20,18 @@ pnpm test:coverage # With coverage report
 
 Tests use [Vitest](https://vitest.dev) with mocked `fetch` — no Plausible account needed to run them.
 
+## Linting and Formatting
+
+```bash
+pnpm lint          # Oxlint, with type-aware rules and the anti-slop plugin
+pnpm format        # Format with oxfmt
+pnpm format:check  # What CI runs
+```
+
+`pnpm lint` runs [Oxlint](https://oxc.rs/docs/guide/usage/linter) with type-aware rules (through `oxlint-tsgolint`), the complexity limits in `.oxlintrc.json`, and the [anti-slop](https://github.com/dmmulroy/anti-slop) rules vendored in `tools/oxlint/anti-slop/`. A finding is a unit to split or a value to parse at its boundary, not a threshold to raise or a rule to turn off. A type assertion needs a `SAFETY:` comment that states the invariant it relies on.
+
+oxfmt formats like Prettier, at width 100. The commit that first formatted the repository is listed in `.git-blame-ignore-revs`; run `git config blame.ignoreRevsFile .git-blame-ignore-revs` to skip it locally. GitHub skips it already.
+
 ## Writing tests
 
 A test earns its place when it fails for a bug a user would notice and passes for every refactor that keeps the behavior.
@@ -93,7 +105,7 @@ prints a pre-authed `http://localhost:6274/?...` URL); `inspect:cli` just prints
 
 ## Pull Requests
 
-- Make sure `pnpm test` passes
+- Make sure `pnpm lint`, `pnpm format:check` and `pnpm test` pass
 - Make sure `pnpm build` compiles cleanly
 - Keep PRs focused — one feature or fix per PR
 - Your **PR title becomes the changelog line** for the next release, so write it for a reader (see Releasing below)
