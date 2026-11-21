@@ -77,9 +77,10 @@ export function sanitizeClientAttribute(value: string): string | undefined {
   const trimmed = value.trim();
   if (trimmed.length === 0) return undefined;
   if (IDENTITY_SHAPES.some((shape) => shape.test(trimmed))) return "[redacted]";
-  return trimmed.length > CLIENT_ATTRIBUTE_MAX_LENGTH
-    ? trimmed.slice(0, CLIENT_ATTRIBUTE_MAX_LENGTH)
-    : trimmed;
+  if (trimmed.length <= CLIENT_ATTRIBUTE_MAX_LENGTH) return trimmed;
+  // The cut can end on a shape the whole value did not have, such as a hex run that ran into
+  // letters, so the truncated value is checked again.
+  return sanitizeClientAttribute(trimmed.slice(0, CLIENT_ATTRIBUTE_MAX_LENGTH));
 }
 
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi;

@@ -248,6 +248,43 @@ describe("sanitizeClientAttribute", () => {
     const value = "a".repeat(100);
     expect(sanitizeClientAttribute(value)).toBe("a".repeat(64));
   });
+
+  // Truncation can end a value on an identity shape the full value did not have: 47 letters
+  // then "-0123456789abcdef" then "zzz" ends in a 16-hex session id once cut to 64 characters.
+  it.each([
+    ["x".repeat(47) + "-0123456789abcdef" + "zzz"],
+    ["y".repeat(60) + ".comet"],
+  ])("redacts an identity shape that truncation exposes in %j", (value) => {
+    expect(sanitizeClientAttribute(value)).toBe("[redacted]");
+  });
+
+  it("returns at most 64 characters, and the same value when applied to its own output", () => {
+    const shaped = fc.oneof(
+      fc.string(),
+      fc.emailAddress(),
+      fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 16, maxLength: 20 }).map((hex) => `-${hex}1`),
+      fc.constantFrom(".com", ".internal", "/Users/ada", " ", "-", "@")
+    );
+    fc.assert(
+      // A clean lead of 30-63 characters puts the 64-character cut inside the shaped tail.
+      fc.property(fc.string({ unit: fc.constantFrom(..."abcxyz"), minLength: 30, maxLength: 63 }), fc.array(shaped, { maxLength: 8 }), (lead, parts) => {
+        const value = lead + parts.join("");
+        const once = sanitizeClientAttribute(value);
+        if (once === undefined) return;
+        expect(once.length).toBeLessThanOrEqual(64);
+        expect(sanitizeClientAttribute(once)).toBe(once);
+      }),
+      { numRuns: 2000 }
+    );
+  });
+
+  it("never stores an email address it was given, wherever it sits", () => {
+    fc.assert(
+      fc.property(fc.string(), fc.emailAddress(), fc.string(), (before, email, after) => {
+        expect(sanitizeClientAttribute(`${before}${email} ${after}`) ?? "").not.toContain(email);
+      })
+    );
+  });
 });
 
 describe("stripRequestAttributes (client identifiers)", () => {
