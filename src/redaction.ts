@@ -18,7 +18,7 @@ import type { CloudflareOptions, User } from "@sentry/cloudflare";
 import { z } from "zod";
 
 /** A span as the Sentry SDK hands it to `beforeSendSpan`. */
-export type SentryStreamedSpan = Parameters<NonNullable<CloudflareOptions["beforeSendSpan"]>>[0];
+type SentryStreamedSpan = Parameters<NonNullable<CloudflareOptions["beforeSendSpan"]>>[0];
 /** The attribute map of a streamed span, also used for event trace and span data. */
 export type SentryAttributes = SentryStreamedSpan["attributes"];
 
@@ -202,7 +202,7 @@ const identifiedSpanUser = z.union([
   z.object({ "user.username": identifier }),
 ]);
 
-export function isIdentifiedUser(user: User | null | undefined): boolean {
+function isIdentifiedUser(user: User | null | undefined): boolean {
   return identifiedUser.safeParse(user).success;
 }
 

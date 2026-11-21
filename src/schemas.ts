@@ -142,7 +142,7 @@ export function buildResultNotes(metrics: string[], dimensions: string[]): strin
  * Build a Plausible filter for a page path.
  * Trailing * → contains match, otherwise exact match.
  */
-export function buildPageFilter(page: string): unknown[] {
+function buildPageFilter(page: string): unknown[] {
   if (page.endsWith("*")) {
     const prefix = page.slice(0, -1);
     return ["contains", "event:page", [prefix]];
@@ -153,7 +153,7 @@ export function buildPageFilter(page: string): unknown[] {
 /**
  * Build a Plausible filter for a goal name.
  */
-export function buildGoalFilter(goal: string): unknown[] {
+function buildGoalFilter(goal: string): unknown[] {
   return ["is", "event:goal", [goal]];
 }
 
@@ -273,7 +273,7 @@ export function assertNoShortcutOverlap(
 }
 
 /** The filter arguments every query tool accepts. */
-export interface QueryFilterArgs {
+interface QueryFilterArgs {
   page?: string;
   goal?: string;
   property_filters?: PropertyFilter[];
