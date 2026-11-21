@@ -47,7 +47,7 @@ export function register(server: McpServer, apiKey: string) {
         kind: z
           .enum(["missing", "broken", "confusing", "idea"])
           .describe(
-            "missing: no tool or argument for it; broken: an error or wrong data; confusing: an unclear description, error, or result; idea: an improvement"
+            "missing: no tool or argument for it; broken: an error or wrong data; confusing: an unclear description, error, or result; idea: an improvement",
           ),
         impact: z.enum(["blocked", "worked_around", "friction"]),
         description: z
@@ -65,7 +65,7 @@ export function register(server: McpServer, apiKey: string) {
         : `Task: ${args.task}`;
       const message = scrubFeedbackText(`${header}\n\n${args.description}`, apiKey).slice(
         0,
-        FEEDBACK_MAX_LENGTH
+        FEEDBACK_MAX_LENGTH,
       );
       const feedbackId = Sentry.withScope((scope) => {
         scope.addEventProcessor((event) => {
@@ -88,6 +88,6 @@ export function register(server: McpServer, apiKey: string) {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
         structuredContent: result,
       };
-    }
+    },
   );
 }

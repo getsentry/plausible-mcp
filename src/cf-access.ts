@@ -1,6 +1,6 @@
 function base64UrlDecode(input: string): string {
-  const padded = input.replace(/-/g, "+").replace(/_/g, "/") +
-    "=".repeat((4 - (input.length % 4)) % 4);
+  const padded =
+    input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (input.length % 4)) % 4);
   return atob(padded);
 }
 
@@ -110,10 +110,7 @@ export async function verifyCloudflareAccessJwt(
   }
 }
 
-async function verifyInner(
-  jwt: string,
-  config: AccessConfig,
-): Promise<AccessIdentity | null> {
+async function verifyInner(jwt: string, config: AccessConfig): Promise<AccessIdentity | null> {
   const parts = jwt.split(".");
   if (parts.length !== 3) return null;
 
@@ -150,18 +147,10 @@ async function verifyInner(
     ["verify"],
   );
 
-  const signatureBytes = Uint8Array.from(
-    base64UrlDecode(parts[2]),
-    (c) => c.charCodeAt(0),
-  );
+  const signatureBytes = Uint8Array.from(base64UrlDecode(parts[2]), (c) => c.charCodeAt(0));
   const dataBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
 
-  const valid = await crypto.subtle.verify(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    signatureBytes,
-    dataBytes,
-  );
+  const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signatureBytes, dataBytes);
   if (!valid) return null;
 
   const payload = JSON.parse(base64UrlDecode(parts[1])) as AccessJwtPayload;

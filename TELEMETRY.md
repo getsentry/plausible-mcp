@@ -17,7 +17,7 @@ internet vulnerability scanners hit it constantly. Two rules keep the signal cle
 1. **Count with metrics, debug with spans.** Volume, status mix, and client mix come
    from the `app.server.response` **counter**, not from grouping raw spans. Metrics are
    cheap and bounded, so we can aggressively drop noise spans without losing dashboards.
-2. **Every dimension is bounded.** Client attribution is a fixed-set *family* derived
+2. **Every dimension is bounded.** Client attribution is a fixed-set _family_ derived
    from the User-Agent, never the caller-controlled `mcp.client.name`. Routes are
    normalized templates. A scanner or monitor can't invent a new dimension value.
 
@@ -32,16 +32,16 @@ classification/bucketing logic is in `src/telemetry.ts` (unit-tested in
 Recorded for `/mcp` and `/internal` only — untracked scanner paths are skipped so their
 volume never enters dashboards. All attributes are low-cardinality:
 
-| Attribute | Meaning | Example values |
-| --- | --- | --- |
-| `http.request.method` | HTTP method | `POST`, `GET` |
-| `http.route` | Normalized route | `/mcp`, `/internal` |
-| `app.route.group` | Route family | `mcp`, `internal` |
-| `http.response.status_code` | Final status | `200`, `401`, `429` |
-| `app.response.status_class` | Status bucket | `2xx`, `4xx`, `5xx` |
-| `app.client.family` | Bucketed client (see below) | `claude-code`, `cursor`, `codex`, `mcp-remote`, `claude`, `openai`, `python`, `node`, `go`, `java`, `other`, `unknown` |
-| `mcp.method.name` | Protocol method from a fixed allow-list | `server/discover`, `initialize`, `tools/call`, `other`, `unknown` |
-| `app.mcp.request.kind` | Bounded request classification | `heartbeat`, `tool_call`, `control`, `unknown` |
+| Attribute                   | Meaning                                 | Example values                                                                                                         |
+| --------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `http.request.method`       | HTTP method                             | `POST`, `GET`                                                                                                          |
+| `http.route`                | Normalized route                        | `/mcp`, `/internal`                                                                                                    |
+| `app.route.group`           | Route family                            | `mcp`, `internal`                                                                                                      |
+| `http.response.status_code` | Final status                            | `200`, `401`, `429`                                                                                                    |
+| `app.response.status_class` | Status bucket                           | `2xx`, `4xx`, `5xx`                                                                                                    |
+| `app.client.family`         | Bucketed client (see below)             | `claude-code`, `cursor`, `codex`, `mcp-remote`, `claude`, `openai`, `python`, `node`, `go`, `java`, `other`, `unknown` |
+| `mcp.method.name`           | Protocol method from a fixed allow-list | `server/discover`, `initialize`, `tools/call`, `other`, `unknown`                                                      |
+| `app.mcp.request.kind`      | Bounded request classification          | `heartbeat`, `tool_call`, `control`, `unknown`                                                                         |
 
 ### Metric: `mcp.tool.error` (counter, one per failed tool call)
 
@@ -49,11 +49,11 @@ Tool failures are returned to MCP clients as `isError: true` inside a successful
 response, so the outer HTTP status is normally 200. This counter preserves visibility without
 turning expected caller failures into exception issues:
 
-| Attribute | Meaning | Example values |
-| --- | --- | --- |
-| `mcp.tool.name` | Fixed registered tool name | `get_timeseries`, `compare_periods` |
-| `error.kind` | Bounded failure category | `user_input`, `plausible_api`, `plausible_unreachable`, `unexpected` |
-| `http.response.status_code` | Plausible status, when applicable | `400`, `401`, `429`, `503` |
+| Attribute                   | Meaning                           | Example values                                                       |
+| --------------------------- | --------------------------------- | -------------------------------------------------------------------- |
+| `mcp.tool.name`             | Fixed registered tool name        | `get_timeseries`, `compare_periods`                                  |
+| `error.kind`                | Bounded failure category          | `user_input`, `plausible_api`, `plausible_unreachable`, `unexpected` |
+| `http.response.status_code` | Plausible status, when applicable | `400`, `401`, `429`, `503`                                           |
 
 Unexpected failures and Plausible 5xx responses are also captured as exceptions. User input
 failures and Plausible 4xx responses remain visible through this metric only.
@@ -200,7 +200,7 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
   it and `stripRequestAttributes` removes it if the SDK does.
 
   Both surviving fields still pass through `sanitizeClientAttribute` (`src/redaction.ts`),
-  applied where `recordMcpClientInfo` writes them *and* inside `stripRequestAttributes`, which
+  applied where `recordMcpClientInfo` writes them _and_ inside `stripRequestAttributes`, which
   is what catches the SDK's own legacy-handshake write. A value carrying an email, a URL, an
   absolute or Windows path, a UUID or long hex id, or a trailing hostname is replaced whole
   with `[redacted]`; anything else is trimmed to 64 characters. Replacing the whole value
@@ -213,6 +213,7 @@ data before any hook runs and routes feedback events around `beforeSend` entirel
   writes a person's name in prose still gets it through. Only an allow-list would close that,
   at the cost of dropping every client we have not seen. The field remains a per-trace
   debugging attribute; `app.client.family` stays the dashboard dimension.
+
 - Only `/internal` attaches `Sentry.setUser({ email })` and records tool I/O, remaining
   attributed to the authenticated user. The `app.client.family` attribute is a bounded bucket,
   not PII.

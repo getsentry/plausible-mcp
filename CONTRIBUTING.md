@@ -103,7 +103,7 @@ prints a pre-authed `http://localhost:6274/?...` URL); `inspect:cli` just prints
 Releases are automated with [craft](https://github.com/getsentry/craft). **Don't bump the version in `package.json` or edit `CHANGELOG.md` by hand** — both are generated.
 
 1. Merge your PR to `main`. The changelog is auto-generated from merged PR titles since the last tag (`.craft.yml` → `changelog.policy: auto`).
-2. A maintainer runs the **Release** workflow (Actions → Release → *Run workflow*) and selects the bump type (`patch` / `minor` / `major`).
+2. A maintainer runs the **Release** workflow (Actions → Release → _Run workflow_) and selects the bump type (`patch` / `minor` / `major`).
 3. craft cuts a `release/X.Y.Z` branch, then publishes a git tag and GitHub release once CI is green.
 4. The published GitHub release starts the **Deploy** workflow. It deploys the Worker from the tag and uploads its sourcemaps to Sentry, using the `CLOUDFLARE_API_TOKEN` and `SENTRY_AUTH_TOKEN` secrets of the `production` environment.
 

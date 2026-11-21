@@ -21,7 +21,10 @@ export interface PlausibleRequest {
 export type PlausibleReply = (body: Record<string, any>) => PlausibleResult[] | Response;
 
 /** A 200 from Plausible. `query` is Plausible's echo of the resolved query, such as its date_range. */
-export function plausibleOk(results: PlausibleResult[], query: Record<string, unknown> = {}): Response {
+export function plausibleOk(
+  results: PlausibleResult[],
+  query: Record<string, unknown> = {},
+): Response {
   return Response.json({ results, meta: {}, query });
 }
 
@@ -99,7 +102,10 @@ export const QUERY_TOOLS = [
   { name: "get_timeseries", args: { date_range: "30d" } },
   { name: "get_breakdown", args: { date_range: "30d", dimension: "visit:source" } },
   { name: "get_conversions", args: { date_range: "30d" } },
-  { name: "compare_periods", args: { period_a: "2026-01-01,2026-01-07", period_b: "2026-01-08,2026-01-14" } },
+  {
+    name: "compare_periods",
+    args: { period_a: "2026-01-01,2026-01-07", period_b: "2026-01-08,2026-01-14" },
+  },
 ] as const;
 
 /**
@@ -118,7 +124,12 @@ export function captureSentry() {
       Sentry.createTransport(options, (request) => {
         const text =
           typeof request.body === "string" ? request.body : new TextDecoder().decode(request.body);
-        envelopes.push(text.split("\n").filter(Boolean).map((line) => JSON.parse(line)));
+        envelopes.push(
+          text
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line)),
+        );
         return Promise.resolve({});
       }),
     beforeSendSpan: (span) => {

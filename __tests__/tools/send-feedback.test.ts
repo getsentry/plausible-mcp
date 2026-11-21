@@ -33,7 +33,10 @@ async function sentFeedback(args: Record<string, unknown>) {
 
 describe("send_feedback", () => {
   it("sends the task, tool and description to Sentry as agent feedback and returns its id", async () => {
-    const { result, event, feedback } = await sentFeedback({ ...baseArgs, tool_name: "compare_periods" });
+    const { result, event, feedback } = await sentFeedback({
+      ...baseArgs,
+      tool_name: "compare_periods",
+    });
 
     expect(feedback).toMatchObject({
       message:

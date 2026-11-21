@@ -26,25 +26,33 @@ describe("MCP server", () => {
     const { tools } = await h.client.listTools();
     for (const tool of tools) {
       expect(tool.outputSchema?.type, tool.name).toBe("object");
-      expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true, idempotentHint: true });
+      expect(tool.annotations, tool.name).toMatchObject({
+        readOnlyHint: true,
+        idempotentHint: true,
+      });
     }
   });
 
   // Regression (42e1b20): serverInfo.version once stayed behind the released package.
   it("reports the package version as its serverInfo version", () => {
-    const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const { version } = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
     expect(h.client.getServerVersion()?.version).toBe(version);
   });
 
   // Regression (f9bc0e8): a misspelled argument was silently dropped.
-  it.each(QUERY_TOOLS)("$name rejects an argument it does not know, without a Plausible request", async ({ name, args }) => {
-    h.requests.length = 0;
-    const result = await h.call(name, { ...args, goals: "Signup" });
+  it.each(QUERY_TOOLS)(
+    "$name rejects an argument it does not know, without a Plausible request",
+    async ({ name, args }) => {
+      h.requests.length = 0;
+      const result = await h.call(name, { ...args, goals: "Signup" });
 
-    expect(result.isError).toBe(true);
-    expect(result.content.map((block) => block.text).join("\n")).toContain("goals");
-    expect(h.requests).toHaveLength(0);
-  });
+      expect(result.isError).toBe(true);
+      expect(result.content.map((block) => block.text).join("\n")).toContain("goals");
+      expect(h.requests).toHaveLength(0);
+    },
+  );
 
   it("declares in each input schema that other arguments are not allowed", async () => {
     const { tools } = await h.client.listTools();
@@ -87,10 +95,12 @@ describe("MCP server with the feedback tool enabled", () => {
 });
 
 describe("MCP HTTP protocol eras", () => {
-  const handler = createMcpHandler(() => createServer({
-    apiKey: "test-key-123",
-    defaultSiteId: "example.com",
-  }));
+  const handler = createMcpHandler(() =>
+    createServer({
+      apiKey: "test-key-123",
+      defaultSiteId: "example.com",
+    }),
+  );
 
   afterAll(async () => {
     await handler.close();
@@ -100,16 +110,13 @@ describe("MCP HTTP protocol eras", () => {
   // "serves modern and legacy clients from the BYOK endpoint".
   it("serves the 2026-07-28 era through server/discover", async () => {
     const methods: Array<string | null> = [];
-    const transport = new StreamableHTTPClientTransport(
-      new URL("https://test.local/mcp"),
-      {
-        fetch: (url, init) => {
-          const request = new Request(url, init);
-          methods.push(request.headers.get("Mcp-Method"));
-          return handler.fetch(request);
-        },
+    const transport = new StreamableHTTPClientTransport(new URL("https://test.local/mcp"), {
+      fetch: (url, init) => {
+        const request = new Request(url, init);
+        methods.push(request.headers.get("Mcp-Method"));
+        return handler.fetch(request);
       },
-    );
+    });
     const modernClient = new Client(
       { name: "modern-test-client", version: "0.0.1" },
       { versionNegotiation: { mode: { pin: "2026-07-28" } } },
@@ -124,16 +131,16 @@ describe("MCP HTTP protocol eras", () => {
         ttlMs: number;
         cacheScope: string;
       };
-      expect(discover).toMatchObject({ capabilities: { extensions: { "io.modelcontextprotocol/ui": {} } } });
+      expect(discover).toMatchObject({
+        capabilities: { extensions: { "io.modelcontextprotocol/ui": {} } },
+      });
       expect(discover.ttlMs).toBe(60 * 60 * 1000);
       expect(discover.cacheScope).toBe("public");
 
       const toolList = await modernClient.listTools();
       expect(methods).toContain("tools/list");
-      expect((toolList as unknown as { ttlMs: number }).ttlMs)
-        .toBe(60 * 60 * 1000);
-      expect((toolList as unknown as { cacheScope: string }).cacheScope)
-        .toBe("public");
+      expect((toolList as unknown as { ttlMs: number }).ttlMs).toBe(60 * 60 * 1000);
+      expect((toolList as unknown as { cacheScope: string }).cacheScope).toBe("public");
       expect(toolList.tools.map((tool) => tool.name)).toEqual([
         "get_timeseries",
         "get_breakdown",

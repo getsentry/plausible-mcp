@@ -12,7 +12,11 @@ it("sends nothing to Sentry when no DSN is configured, even for a captured failu
     return new Response(null, { status: 200 });
   });
   const pending: Promise<unknown>[] = [];
-  const ctx = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
+  const ctx = {
+    waitUntil: (p: Promise<unknown>) => pending.push(p),
+    passThroughOnException() {},
+    props: {},
+  } as unknown as ExecutionContext;
   // An HTTP Plausible base URL makes server creation throw, which is reported when Sentry runs.
   const env = {
     CF_ACCESS_TEAM_DOMAIN: "https://team.cloudflareaccess.com",

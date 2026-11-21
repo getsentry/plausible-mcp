@@ -24,7 +24,7 @@ describe("dateRangeSchema", () => {
     fc.assert(
       fc.property(fc.nat(100_000), fc.constantFrom("h", "d", "mo"), (n, unit) => {
         expect(dateRangeSchema.safeParse(`${n}${unit}`).success).toBe(true);
-      })
+      }),
     );
     for (const period of ["day", "month", "year", "all"]) {
       expect(dateRangeSchema.safeParse(period).success).toBe(true);
@@ -85,34 +85,28 @@ describe("propertyFilterSchema", () => {
 
   it("rejects a filter value longer than the cap", () => {
     expect(
-      propertyFilterSchema.safeParse({ property: "plan", values: ["x".repeat(1025)] })
-        .success
+      propertyFilterSchema.safeParse({ property: "plan", values: ["x".repeat(1025)] }).success,
     ).toBe(false);
     expect(
-      propertyFilterSchema.safeParse({ property: "plan", values: ["x".repeat(1024)] })
-        .success
+      propertyFilterSchema.safeParse({ property: "plan", values: ["x".repeat(1024)] }).success,
     ).toBe(true);
   });
 
   it("rejects an empty values array", () => {
-    expect(
-      propertyFilterSchema.safeParse({ property: "plan", values: [] }).success
-    ).toBe(false);
+    expect(propertyFilterSchema.safeParse({ property: "plan", values: [] }).success).toBe(false);
   });
 
   it("accepts a 300-character property name", () => {
     const property = "p".repeat(300);
 
-    expect(propertyFilterSchema.safeParse({ property, values: ["enterprise"] }).success).toBe(
-      true
-    );
+    expect(propertyFilterSchema.safeParse({ property, values: ["enterprise"] }).success).toBe(true);
   });
 
   it("rejects a property name longer than 300 characters", () => {
     const property = "p".repeat(301);
 
     expect(propertyFilterSchema.safeParse({ property, values: ["enterprise"] }).success).toBe(
-      false
+      false,
     );
   });
 
@@ -121,7 +115,7 @@ describe("propertyFilterSchema", () => {
       propertyFilterSchema.safeParse({
         property: "event:props:plan",
         values: ["enterprise"],
-      }).success
+      }).success,
     ).toBe(true);
   });
 
@@ -138,10 +132,17 @@ describe("propertyFilterSchema", () => {
   });
 
   // Plausible rejects negated goal filters.
-  it.each(PROPERTY_FILTER_OPERATORS)("accepts event:goal with %s only if it is not negated", (operator) => {
-    const result = propertyFilterSchema.safeParse({ property: "event:goal", operator, values: ["Signup"] });
-    expect(result.success).toBe(operator === "is" || operator === "contains");
-  });
+  it.each(PROPERTY_FILTER_OPERATORS)(
+    "accepts event:goal with %s only if it is not negated",
+    (operator) => {
+      const result = propertyFilterSchema.safeParse({
+        property: "event:goal",
+        operator,
+        values: ["Signup"],
+      });
+      expect(result.success).toBe(operator === "is" || operator === "contains");
+    },
+  );
 });
 
 describe("buildPropertyFilters", () => {
@@ -155,14 +156,14 @@ describe("buildPropertyFilters", () => {
     expect(
       buildPropertyFilters([
         { property: "destination_host", operator: "contains", values: ["github", "gitlab"] },
-      ])
+      ]),
     ).toEqual([["contains", "event:props:destination_host", ["github", "gitlab"]]]);
   });
 
   it("does not double-prefix a fully-qualified event:props: property", () => {
-    expect(
-      buildPropertyFilters([{ property: "event:props:plan", values: ["pro"] }])
-    ).toEqual([["is", "event:props:plan", ["pro"]]]);
+    expect(buildPropertyFilters([{ property: "event:props:plan", values: ["pro"] }])).toEqual([
+      ["is", "event:props:plan", ["pro"]],
+    ]);
   });
 
   it("builds the same filter from a bare name and from the target it produced", () => {
@@ -170,9 +171,9 @@ describe("buildPropertyFilters", () => {
       fc.property(fc.stringMatching(/^[a-z_]{1,20}$/), (name) => {
         const [[, target]] = buildPropertyFilters([{ property: name, values: ["x"] }]);
         expect(buildPropertyFilters([{ property: target as string, values: ["x"] }])).toEqual(
-          buildPropertyFilters([{ property: name, values: ["x"] }])
+          buildPropertyFilters([{ property: name, values: ["x"] }]),
         );
-      })
+      }),
     );
   });
 });
@@ -180,7 +181,7 @@ describe("buildPropertyFilters", () => {
 describe("assertNoShortcutOverlap", () => {
   it("passes when the shortcut param is absent", () => {
     expect(() =>
-      assertNoShortcutOverlap([{ property: "event:page", values: ["/docs"] }], {})
+      assertNoShortcutOverlap([{ property: "event:page", values: ["/docs"] }], {}),
     ).not.toThrow();
   });
 });
@@ -190,9 +191,7 @@ describe("buildResultNotes", () => {
     expect(buildResultNotes(["visitors", "conversion_rate"], ["visit:entry_page"])).toEqual([
       CONVERSION_RATES_MEANING,
     ]);
-    expect(buildResultNotes(["conversion_rate"], ["time:day"])).toEqual([
-      CONVERSION_RATES_MEANING,
-    ]);
+    expect(buildResultNotes(["conversion_rate"], ["time:day"])).toEqual([CONVERSION_RATES_MEANING]);
     expect(buildResultNotes(["conversion_rate"], ["event:goal", "event:page"])).toEqual([
       CONVERSION_RATES_MEANING,
     ]);

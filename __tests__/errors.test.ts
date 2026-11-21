@@ -13,7 +13,9 @@ beforeAll(() => {
 /** Report the error inside a tool span and return what Sentry received for it. */
 async function report(error: unknown) {
   sentry.clear();
-  const info = Sentry.startSpan({ name: "tools/call get_timeseries" }, () => reportToolError(error, toolName));
+  const info = Sentry.startSpan({ name: "tools/call get_timeseries" }, () =>
+    reportToolError(error, toolName),
+  );
   await sentry.flush();
   return {
     info,
@@ -38,7 +40,9 @@ describe("reportToolError", () => {
     const { span } = await report(error);
 
     expect(span["app.tool.error.code"]).toBe(code);
-    expect(Object.keys(span).filter((key) => !key.startsWith("sentry."))).toEqual(["app.tool.error.code"]);
+    expect(Object.keys(span).filter((key) => !key.startsWith("sentry."))).toEqual([
+      "app.tool.error.code",
+    ]);
   });
 
   it("records user-facing failures without creating an exception issue", async () => {
@@ -50,13 +54,19 @@ describe("reportToolError", () => {
       retryable: false,
     });
     expect(metrics).toEqual([
-      { name: "mcp.tool.error", value: 1, attributes: { "mcp.tool.name": toolName, "error.kind": "user_input" } },
+      {
+        name: "mcp.tool.error",
+        value: 1,
+        attributes: { "mcp.tool.name": toolName, "error.kind": "user_input" },
+      },
     ]);
     expect(exceptions).toEqual([]);
   });
 
   it("records expected Plausible 4xx responses without creating an exception issue", async () => {
-    const { info, metrics, exceptions } = await report(new PlausibleApiError(401, "Invalid API key or site ID"));
+    const { info, metrics, exceptions } = await report(
+      new PlausibleApiError(401, "Invalid API key or site ID"),
+    );
 
     expect(info).toEqual({
       code: "unauthorized",
@@ -67,7 +77,11 @@ describe("reportToolError", () => {
       {
         name: "mcp.tool.error",
         value: 1,
-        attributes: { "mcp.tool.name": toolName, "error.kind": "plausible_api", "http.response.status_code": 401 },
+        attributes: {
+          "mcp.tool.name": toolName,
+          "error.kind": "plausible_api",
+          "http.response.status_code": 401,
+        },
       },
     ]);
     expect(exceptions).toEqual([]);
@@ -82,12 +96,14 @@ describe("reportToolError", () => {
       retryable: true,
     });
     expect(metrics).toHaveLength(1);
-    expect(exceptions).toMatchObject([{ type: "PlausibleApiError", value: "Plausible API error 503" }]);
+    expect(exceptions).toMatchObject([
+      { type: "PlausibleApiError", value: "Plausible API error 503" },
+    ]);
   });
 
   it("returns the Plausible error message to the caller", async () => {
     const { info, exceptions } = await report(
-      new PlausibleApiError(400, JSON.stringify({ error: "Invalid metric \"pagevies\"" }))
+      new PlausibleApiError(400, JSON.stringify({ error: 'Invalid metric "pagevies"' })),
     );
 
     expect(info).toEqual({
@@ -107,32 +123,39 @@ describe("reportToolError", () => {
         fc.option(fc.string({ minLength: 1, maxLength: 40 }), { nil: undefined }),
         fc.option(fc.nat(86_400), { nil: undefined }),
         async (detail, retryAfter) => {
-          const body = detail === undefined ? "<html>error</html>" : JSON.stringify({ error: detail });
+          const body =
+            detail === undefined ? "<html>error</html>" : JSON.stringify({ error: detail });
 
-          const { info, exceptions } = await report(new PlausibleApiError(status, body, retryAfter));
+          const { info, exceptions } = await report(
+            new PlausibleApiError(status, body, retryAfter),
+          );
 
           const expected =
-            status === 401 || status === 402 || status === 403 ? "unauthorized"
-            : status === 429 ? "rate_limited"
-            : status >= 500 ? "upstream_unavailable"
-            : "invalid_query";
+            status === 401 || status === 402 || status === 403
+              ? "unauthorized"
+              : status === 429
+                ? "rate_limited"
+                : status >= 500
+                  ? "upstream_unavailable"
+                  : "invalid_query";
           expect(info.code).toBe(expected);
           expect(info.retryable).toBe(status === 429 || status >= 500);
           expect(exceptions).toHaveLength(status >= 500 ? 1 : 0);
           expect(info.message).toContain(String(status));
           if (detail !== undefined) expect(info.message.endsWith(`: ${detail}`)).toBe(true);
           else expect(info.message).not.toContain(":");
-          if (info.retryable && retryAfter !== undefined) expect(info.retry_after_seconds).toBe(retryAfter);
+          if (info.retryable && retryAfter !== undefined)
+            expect(info.retry_after_seconds).toBe(retryAfter);
           else expect(info).not.toHaveProperty("retry_after_seconds");
-        }
+        },
       ),
-      { numRuns: 5 }
+      { numRuns: 5 },
     );
   });
 
   it("gives the caller a 5xx detail while nothing sent to Sentry contains it", async () => {
     const { info, exceptions } = await report(
-      new PlausibleApiError(503, JSON.stringify({ error: "failed filter customer@example.com" }))
+      new PlausibleApiError(503, JSON.stringify({ error: "failed filter customer@example.com" })),
     );
 
     expect(info.message).toBe("Plausible API returned 503: failed filter customer@example.com");
@@ -141,7 +164,9 @@ describe("reportToolError", () => {
   });
 
   it("classifies an unreachable Plausible API as retryable upstream_unavailable", async () => {
-    const { info, metrics, exceptions } = await report(new PlausibleUnreachableError(new TypeError("fetch failed")));
+    const { info, metrics, exceptions } = await report(
+      new PlausibleUnreachableError(new TypeError("fetch failed")),
+    );
 
     expect(info).toEqual({
       code: "upstream_unavailable",
@@ -164,7 +189,6 @@ describe("reportToolError", () => {
     // The exception keeps its detail for debugging; only the caller's message is generic.
     expect(exceptions).toMatchObject([{ value: "secret implementation detail" }]);
   });
-
 });
 
 describe("toolErrorResult", () => {
@@ -174,7 +198,7 @@ describe("toolErrorResult", () => {
       .tuple(fc.integer({ min: 400, max: 599 }), fc.option(fc.nat(600), { nil: undefined }))
       .map(([status, wait]) => new PlausibleApiError(status, "", wait)),
     fc.constant(new PlausibleUnreachableError(new TypeError("fetch failed"))),
-    fc.string().map((message) => new Error(message))
+    fc.string().map((message) => new Error(message)),
   );
 
   it("returns the readable message first and the same error as JSON second, for any error", () => {
@@ -189,10 +213,10 @@ describe("toolErrorResult", () => {
         const text = result.content[0].text;
         expect(text.startsWith(`Error: ${info.message}`)).toBe(true);
         expect(text.includes("send_feedback")).toBe(
-          offerFeedback && (info.code === "invalid_query" || info.code === "internal")
+          offerFeedback && (info.code === "invalid_query" || info.code === "internal"),
         );
         expect(/retry/i.test(text.slice(`Error: ${info.message}`.length))).toBe(info.retryable);
-      })
+      }),
     );
   });
 
@@ -233,5 +257,4 @@ describe("toolErrorResult", () => {
     );
     expect(JSON.parse(result.content[1].text).error.message).toBe("Plausible API returned 400");
   });
-
 });

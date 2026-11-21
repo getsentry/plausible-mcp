@@ -168,21 +168,13 @@ export function resolveClientFamily(userAgent: string | null | undefined): strin
   if (ua.startsWith("cursor/")) return "cursor";
   if (ua.includes("codex")) return "codex";
   if (ua.includes("mcp-remote")) return "mcp-remote";
-  if (
-    ua.startsWith("claude-user") ||
-    ua.includes("claude-ai") ||
-    ua.includes("anthropic")
-  ) {
+  if (ua.startsWith("claude-user") || ua.includes("claude-ai") || ua.includes("anthropic")) {
     return "claude";
   }
   if (ua.includes("openai")) return "openai";
   if (ua.startsWith("go-http-client/")) return "go";
   if (ua.startsWith("java") || ua.startsWith("reactornetty/")) return "java";
-  if (
-    ua.startsWith("python") ||
-    ua.startsWith("aiohttp/") ||
-    ua.includes("httpx")
-  ) {
+  if (ua.startsWith("python") || ua.startsWith("aiohttp/") || ua.includes("httpx")) {
     return "python";
   }
   if (

@@ -36,7 +36,7 @@ async function getEvalContext() {
     const { tools } = await client.listTools();
     return {
       instructions,
-      tools: tools.map(tool => ({
+      tools: tools.map((tool) => ({
         type: "function" as const,
         function: {
           name: tool.name,
@@ -53,7 +53,7 @@ async function getEvalContext() {
 
 async function runEval(
   context: Awaited<ReturnType<typeof getEvalContext>>,
-  evalCase: (typeof cases)[0]
+  evalCase: (typeof cases)[0],
 ): Promise<{ pass: boolean; errors: string[] }> {
   const response = await openrouter.chat.completions.create({
     model,
@@ -63,7 +63,8 @@ async function runEval(
       {
         role: "system",
         content:
-          "You are a marketing analytics assistant. Use example.com unless the user names another site.\n\n" + context.instructions,
+          "You are a marketing analytics assistant. Use example.com unless the user names another site.\n\n" +
+          context.instructions,
       },
       { role: "user", content: evalCase.prompt },
     ],
@@ -84,9 +85,7 @@ async function runEval(
   const errors: string[] = [];
 
   if (toolCall.function.name !== evalCase.expectedTool) {
-    errors.push(
-      `Wrong tool: expected "${evalCase.expectedTool}", got "${toolCall.function.name}"`
-    );
+    errors.push(`Wrong tool: expected "${evalCase.expectedTool}", got "${toolCall.function.name}"`);
   }
 
   // Arguments arrive as a JSON string, unlike Anthropic's already-parsed input.
@@ -96,10 +95,7 @@ async function runEval(
   } catch {
     return {
       pass: false,
-      errors: [
-        ...errors,
-        `Tool arguments were not valid JSON: ${toolCall.function.arguments}`,
-      ],
+      errors: [...errors, `Tool arguments were not valid JSON: ${toolCall.function.arguments}`],
     };
   }
 
@@ -113,9 +109,7 @@ async function main() {
   console.log("Loading tool schemas from MCP server...\n");
   const context = await getEvalContext();
   const { tools } = context;
-  console.log(
-    `Found ${tools.length} tools: ${tools.map((t) => t.function.name).join(", ")}`
-  );
+  console.log(`Found ${tools.length} tools: ${tools.map((t) => t.function.name).join(", ")}`);
   console.log(`Model: ${model}\n`);
 
   // A model picks tools differently from run to run, so one run per case cannot show
@@ -130,8 +124,8 @@ async function main() {
   for (const evalCase of selected) {
     const results = await Promise.all(
       Array.from({ length: runs }, () =>
-        runEval(context, evalCase).catch((err: Error) => ({ pass: false, errors: [err.message] }))
-      )
+        runEval(context, evalCase).catch((err: Error) => ({ pass: false, errors: [err.message] })),
+      ),
     );
     const casePassed = results.filter((r) => r.pass).length;
     const failures = results.flatMap((r) => r.errors);

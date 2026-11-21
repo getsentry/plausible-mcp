@@ -65,7 +65,7 @@ export class PlausibleApiError extends Error {
   constructor(
     public readonly status: number,
     body: string,
-    public readonly retryAfterSeconds?: number
+    public readonly retryAfterSeconds?: number,
   ) {
     super(`Plausible API error ${status}`);
     Object.defineProperty(this, "detail", {
@@ -184,7 +184,7 @@ export class PlausibleClient {
       throw new PlausibleApiError(
         response.status,
         text,
-        parseRetryAfterSeconds(response.headers.get("Retry-After"))
+        parseRetryAfterSeconds(response.headers.get("Retry-After")),
       );
     }
 

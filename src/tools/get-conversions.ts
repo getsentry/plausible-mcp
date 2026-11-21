@@ -25,7 +25,7 @@ export function register(
   server: McpServer,
   client: PlausibleClient,
   defaultSiteId?: string,
-  offerFeedback = false
+  offerFeedback = false,
 ) {
   server.registerTool(
     "get_conversions",
@@ -46,7 +46,7 @@ export function register(
           .boolean()
           .default(false)
           .describe(
-            "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted"
+            "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted",
           )
           .optional(),
       }),
@@ -71,9 +71,7 @@ export function register(
           filters.push(...buildPropertyFilters(args.property_filters));
         }
 
-        const dimensions = args.breakdown_by_page
-          ? ["event:goal", "event:page"]
-          : ["event:goal"];
+        const dimensions = args.breakdown_by_page ? ["event:goal", "event:page"] : ["event:goal"];
 
         // Plausible's own group_conversion_rate is always 0 when grouped by event:goal, so
         // the per-page rate is computed here the way Plausible computes it: converting
@@ -97,22 +95,18 @@ export function register(
               })
             : undefined,
         ]);
-        const result = pageTotals
-          ? withPageConversionRates(conversions, pageTotals)
-          : conversions;
+        const result = pageTotals ? withPageConversionRates(conversions, pageTotals) : conversions;
 
         const structuredContent = buildQueryStructuredContent(result, metrics, dimensions);
         const { notes } = structuredContent;
         return {
-          content: [
-            { type: "text" as const, text: JSON.stringify({ ...result, notes }, null, 2) },
-          ],
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, notes }, null, 2) }],
           structuredContent,
         };
       } catch (error) {
         return toolErrorResult(error, "get_conversions", offerFeedback);
       }
-    }
+    },
   );
 }
 
@@ -128,10 +122,10 @@ function isGoalOrPropsFilter(filter: unknown[]): boolean {
  */
 function withPageConversionRates(
   conversions: PlausibleResponse,
-  pageTotals: PlausibleResponse
+  pageTotals: PlausibleResponse,
 ): PlausibleResponse {
   const visitorsByPage = new Map(
-    pageTotals.results.map((row) => [row.dimensions[0], row.metrics[0]])
+    pageTotals.results.map((row) => [row.dimensions[0], row.metrics[0]]),
   );
   // The text block labels each row's values from query.metrics, so it names the new one too.
   const queriedMetrics = conversions.query.metrics;

@@ -59,7 +59,7 @@ export function register(
   server: McpServer,
   client: PlausibleClient,
   defaultSiteId?: string,
-  offerFeedback = false
+  offerFeedback = false,
 ) {
   server.registerTool(
     "get_breakdown",
@@ -85,7 +85,7 @@ export function register(
           .max(1000)
           .default(20)
           .describe(
-            "Max results to return per page. Use offset to fetch further pages; pagination.has_more in the result says whether more rows exist."
+            "Max results to return per page. Use offset to fetch further pages; pagination.has_more in the result says whether more rows exist.",
           )
           .optional(),
         offset: z
@@ -106,7 +106,7 @@ export function register(
         // Plausible accepts this pair but every row comes back 0.
         if (args.dimension === "event:goal" && metrics.includes("group_conversion_rate")) {
           throw new UserFacingError(
-            "group_conversion_rate is always 0 when grouped by event:goal. Use conversion_rate, which is each goal's percent of all visitors."
+            "group_conversion_rate is always 0 when grouped by event:goal. Use conversion_rate, which is each goal's percent of all visitors.",
           );
         }
         const limit = args.limit ?? 20;
@@ -154,7 +154,7 @@ export function register(
           trimmed,
           metrics,
           [args.dimension],
-          pagination
+          pagination,
         );
         const { notes } = structuredContent;
 
@@ -170,6 +170,6 @@ export function register(
       } catch (error) {
         return toolErrorResult(error, "get_breakdown", offerFeedback);
       }
-    }
+    },
   );
 }

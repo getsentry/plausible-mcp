@@ -49,15 +49,24 @@ describe("get_timeseries", () => {
 
   // Regression (5dcd2a6): Plausible stops at 10,000 rows without saying so.
   it("returns 9,999 buckets but rejects a series that reaches Plausible's 10,000-row limit", async () => {
-    const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ dimensions: [String(i)], metrics: [i] }));
+    const rows = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ dimensions: [String(i)], metrics: [i] }));
 
     h.reply(() => rows(9_999));
-    const under = await h.call("get_timeseries", { date_range: "all", granularity: "hour", metrics: ["visitors"] });
+    const under = await h.call("get_timeseries", {
+      date_range: "all",
+      granularity: "hour",
+      metrics: ["visitors"],
+    });
     expect(under.isError).toBeFalsy();
     expect(under.structuredContent.results).toHaveLength(9_999);
 
     h.reply(() => rows(10_000));
-    const at = await h.call("get_timeseries", { date_range: "all", granularity: "hour", metrics: ["visitors"] });
+    const at = await h.call("get_timeseries", {
+      date_range: "all",
+      granularity: "hour",
+      metrics: ["visitors"],
+    });
     expect(at.isError).toBe(true);
     expect(errorOf(at).code).toBe("invalid_input");
   });

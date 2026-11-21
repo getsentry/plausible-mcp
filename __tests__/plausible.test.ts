@@ -36,14 +36,18 @@ describe("PlausibleClient", () => {
   it("sends correct request to /api/v2/query", async () => {
     mockOk();
 
-    await client.query({ site_id: "example.com", metrics: ["visitors", "pageviews"], date_range: "30d" });
+    await client.query({
+      site_id: "example.com",
+      metrics: ["visitors", "pageviews"],
+      date_range: "30d",
+    });
 
     expect(mockFetch).toHaveBeenCalledWith(
       "https://plausible.io/api/v2/query",
       expect.objectContaining({
         method: "POST",
         headers: { Authorization: "Bearer test-key", "Content-Type": "application/json" },
-      })
+      }),
     );
     expect(sentBody()).toEqual({
       site_id: "example.com",
@@ -59,7 +63,9 @@ describe("PlausibleClient", () => {
     const offset = fc.constantFrom("Z", "+02:00", "-05:30");
     const range = fc.oneof(
       fc.tuple(date, date).map(([a, b]) => `${a.slice(0, 10)},${b.slice(0, 10)}`),
-      fc.tuple(date, date, offset).map(([a, b, o]) => `${a.slice(0, 19)}${o},${b.slice(0, 19)}${o}`)
+      fc
+        .tuple(date, date, offset)
+        .map(([a, b, o]) => `${a.slice(0, 19)}${o},${b.slice(0, 19)}${o}`),
     );
     await fc.assert(
       fc.asyncProperty(range, async (dateRange) => {
@@ -72,7 +78,7 @@ describe("PlausibleClient", () => {
         const sent = sentBody().date_range;
         expect(sent).toHaveLength(2);
         expect(sent.join(",")).toBe(dateRange);
-      })
+      }),
     );
   });
 
@@ -93,7 +99,11 @@ describe("PlausibleClient", () => {
       await fc.assert(
         fc.asyncProperty(
           fc.integer({ min: 1, max: 9999 }),
-          fc.date({ min: new Date("2020-01-01"), max: new Date("2030-01-01"), noInvalidDate: true }),
+          fc.date({
+            min: new Date("2020-01-01"),
+            max: new Date("2030-01-01"),
+            noInvalidDate: true,
+          }),
           async (hours, now) => {
             vi.setSystemTime(now);
             mockFetch.mockReset();
@@ -105,8 +115,8 @@ describe("PlausibleClient", () => {
             expect(end).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
             expect(Date.parse(end)).toBe(Math.floor(now.getTime() / 1000) * 1000);
             expect(Date.parse(end) - Date.parse(start)).toBe(hours * 3_600_000);
-          }
-        )
+          },
+        ),
       );
     } finally {
       vi.useRealTimers();
@@ -138,8 +148,17 @@ describe("PlausibleClient", () => {
 
   it("includes order_by when provided and omits it when empty", async () => {
     mockOk();
-    await client.query({ ...base, order_by: [["visitors", "desc"], ["event:page", "asc"]] });
-    expect(sentBody(0).order_by).toEqual([["visitors", "desc"], ["event:page", "asc"]]);
+    await client.query({
+      ...base,
+      order_by: [
+        ["visitors", "desc"],
+        ["event:page", "asc"],
+      ],
+    });
+    expect(sentBody(0).order_by).toEqual([
+      ["visitors", "desc"],
+      ["event:page", "asc"],
+    ]);
 
     mockOk();
     await client.query({ ...base, order_by: [] });
@@ -163,7 +182,7 @@ describe("PlausibleClient", () => {
     "refuses the base URL %s",
     (baseUrl) => {
       expect(() => new PlausibleClient({ apiKey: "key", baseUrl })).toThrow(/HTTPS/);
-    }
+    },
   );
 
   it.each([400, 401, 402, 403, 404, 429, 500, 502, 503])(
@@ -176,7 +195,7 @@ describe("PlausibleClient", () => {
       expect(error).toBeInstanceOf(PlausibleApiError);
       expect(error.status).toBe(status);
       expect(error.detail).toBe("Invalid metric");
-    }
+    },
   );
 
   describe("Retry-After", () => {
@@ -201,7 +220,7 @@ describe("PlausibleClient", () => {
           const date = new Date(Date.now() + seconds * 1000).toUTCString();
           expect(await retryAfterFor(String(seconds))).toBe(seconds);
           expect(await retryAfterFor(date)).toBe(seconds);
-        })
+        }),
       );
     });
 
@@ -218,12 +237,22 @@ describe("PlausibleClient", () => {
       "reads the obsolete HTTP-date form %j",
       async (header) => {
         expect(await retryAfterFor(header)).toBe(30);
-      }
+      },
     );
 
     // Not valid Retry-After values, but Date.parse reads most of them as dates in 2001, which
     // would have told the caller to retry at once.
-    it.each(["soon", "1.5", "-5", "5x", "1e3", "Monday 5", "January 1, 2001", "Monkeys 1 Jan 2001", "2026-10-21T07:00:30Z"])("ignores the invalid value %j", async (header) => {
+    it.each([
+      "soon",
+      "1.5",
+      "-5",
+      "5x",
+      "1e3",
+      "Monday 5",
+      "January 1, 2001",
+      "Monkeys 1 Jan 2001",
+      "2026-10-21T07:00:30Z",
+    ])("ignores the invalid value %j", async (header) => {
       expect(await retryAfterFor(header)).toBeUndefined();
     });
 
@@ -238,12 +267,16 @@ describe("parsePlausibleErrorDetail", () => {
     expect(parsePlausibleErrorDetail('{"error":"bad metric"}')).toBe("bad metric");
   });
 
-  it.each(["<html>502</html>", '{"errors":["bad"]}', '{"error":""}', '{"error":{"detail":"bad"}}', "null", '"bad"'])(
-    "returns undefined for %s, which is not the documented shape",
-    (body) => {
-      expect(parsePlausibleErrorDetail(body)).toBeUndefined();
-    }
-  );
+  it.each([
+    "<html>502</html>",
+    '{"errors":["bad"]}',
+    '{"error":""}',
+    '{"error":{"detail":"bad"}}',
+    "null",
+    '"bad"',
+  ])("returns undefined for %s, which is not the documented shape", (body) => {
+    expect(parsePlausibleErrorDetail(body)).toBeUndefined();
+  });
 
   it("keeps a message of up to 500 characters and truncates a longer one", () => {
     const of = (n: number) => parsePlausibleErrorDetail(JSON.stringify({ error: "x".repeat(n) }));

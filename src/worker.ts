@@ -55,29 +55,25 @@ function corsResponse(response: Response): Response {
 }
 
 function jsonError(message: string, status: number): Response {
-  return new Response(
-    JSON.stringify({ error: message }),
-    { status, headers: { "Content-Type": "application/json" } },
-  );
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
-function bearerAuthError(
-  message: string,
-  error: "invalid_request" | "invalid_token",
-): Response {
+function bearerAuthError(message: string, error: "invalid_request" | "invalid_token"): Response {
   const response = jsonError(message, 401);
-  response.headers.set(
-    "WWW-Authenticate",
-    `Bearer realm="plausible-mcp", error="${error}"`,
-  );
+  response.headers.set("WWW-Authenticate", `Bearer realm="plausible-mcp", error="${error}"`);
   return response;
 }
 
 function parseHostnameList(value: string | undefined): string[] {
-  return value
-    ?.split(",")
-    .map((hostname) => hostname.trim())
-    .filter(Boolean) ?? [];
+  return (
+    value
+      ?.split(",")
+      .map((hostname) => hostname.trim())
+      .filter(Boolean) ?? []
+  );
 }
 
 function mcpRequestValidationResponse(
@@ -97,10 +93,7 @@ function mcpRequestValidationResponse(
   if (!origin) return undefined;
 
   if (route.group === "internal") {
-    return originValidationResponse(
-      request,
-      parseHostnameList(env.MCP_ALLOWED_ORIGIN_HOSTNAMES),
-    );
+    return originValidationResponse(request, parseHostnameList(env.MCP_ALLOWED_ORIGIN_HOSTNAMES));
   }
 
   // BYOK has no ambient credentials: callers must explicitly supply their Plausible key,
@@ -141,9 +134,7 @@ function buildAuthInfo(
 // One handler owns the subscription bus; its factory still creates an isolated server per request.
 const workerMcpHandler = createMcpHandler(
   ({ authInfo }) => {
-    const serverConfig = authInfo?.extra?.serverConfig as
-      | RequestServerConfig
-      | undefined;
+    const serverConfig = authInfo?.extra?.serverConfig as RequestServerConfig | undefined;
     if (!serverConfig || typeof serverConfig.apiKey !== "string") {
       throw new Error("Missing authenticated MCP server configuration.");
     }
@@ -203,9 +194,7 @@ function sentryConfig(env: Env): Sentry.CloudflareOptions {
     // span name, which embeds the binding name. 429s stay visible via the
     // app.server.response metric. beforeSendSpan cannot do this: returning null there
     // only logs a warning and keeps the span.
-    ignoreSpans: [
-      { attributes: { "sentry.origin": "auto.faas.cloudflare.rate_limit" } },
-    ],
+    ignoreSpans: [{ attributes: { "sentry.origin": "auto.faas.cloudflare.rate_limit" } }],
     // The Cloudflare SDK captures the incoming request body and headers onto the isolation
     // scope before any beforeSend* hook runs; dataCollection alone is not trusted to gate
     // either, so the integrations are overridden explicitly as well. On /mcp
@@ -255,9 +244,7 @@ function hasInspectableContentLength(request: Request): boolean {
  * bounded method classification as its MCP child segment.
  * Never retain request ids, params, tool arguments, or unknown method names.
  */
-async function inspectMcpRequest(
-  request: Request,
-): Promise<McpRequestTelemetry | null> {
+async function inspectMcpRequest(request: Request): Promise<McpRequestTelemetry | null> {
   if (request.method !== "POST") return null;
   if (!isJsonContentType(request.headers.get("Content-Type"))) {
     return null;
@@ -310,10 +297,10 @@ async function rateLimited(request: Request, env: Env): Promise<Response | null>
   const clientIp = request.headers.get("CF-Connecting-IP") ?? "unknown";
   const { success } = await env.RATE_LIMITER.limit({ key: clientIp });
   if (success) return null;
-  return new Response(
-    JSON.stringify({ error: "Rate limit exceeded. Try again later." }),
-    { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "60" } },
-  );
+  return new Response(JSON.stringify({ error: "Rate limit exceeded. Try again later." }), {
+    status: 429,
+    headers: { "Content-Type": "application/json", "Retry-After": "60" },
+  });
 }
 
 /**
@@ -325,10 +312,7 @@ async function rateLimited(request: Request, env: Env): Promise<Response | null>
  * aud/iss/exp + email-domain or service-token allowlist gate), then serve MCP against the shared server-side
  * Plausible API key. The Worker itself runs no OAuth server.
  */
-async function handleInternalMcp(
-  request: Request,
-  env: Env,
-): Promise<Response> {
+async function handleInternalMcp(request: Request, env: Env): Promise<Response> {
   if (!env.CF_ACCESS_TEAM_DOMAIN || !env.CF_ACCESS_AUD) {
     return jsonError("Server misconfigured: missing Cloudflare Access verification config.", 500);
   }
@@ -384,10 +368,7 @@ async function handleInternalMcp(
  * Cursor, MCP Inspector). Each caller passes their own Plausible API key as a Bearer
  * token. Unchanged from the original public contract — not Access-protected.
  */
-async function handleDirectMcp(
-  request: Request,
-  env: Env,
-): Promise<Response> {
+async function handleDirectMcp(request: Request, env: Env): Promise<Response> {
   // Require a well-formed `Bearer <key>` header — a bare token with no scheme is
   // rejected rather than silently accepted, so an accidentally-pasted value fails loudly.
   const authHeader = request.headers.get("Authorization") ?? "";
@@ -448,11 +429,7 @@ function recordResponseMetric(
 }
 
 const handler = {
-  async fetch(
-    request: Request,
-    env: Env,
-    _ctx: ExecutionContext,
-  ): Promise<Response> {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/" && url.hostname === env.LANDING_HOSTNAME) {
       const limited = await rateLimited(request, env);
@@ -488,14 +465,10 @@ const handler = {
       }
     }
 
-    const rejected = tracked
-      ? mcpRequestValidationResponse(request, env, tracked)
-      : undefined;
+    const rejected = tracked ? mcpRequestValidationResponse(request, env, tracked) : undefined;
     const limited = rejected ? null : await rateLimited(request, env);
     const earlyResponse = rejected ?? limited;
-    const mcpRequest = earlyResponse || !tracked
-      ? null
-      : await inspectMcpRequest(request);
+    const mcpRequest = earlyResponse || !tracked ? null : await inspectMcpRequest(request);
 
     if (mcpRequest) {
       const span = Sentry.getActiveSpan();

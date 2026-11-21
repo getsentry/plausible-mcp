@@ -171,7 +171,7 @@ describe("stripRequestAttributes", () => {
         expect(stripped).toBe(url.split(/[?#]/)[0]);
         expect(stripped).not.toMatch(/[?#]/);
         expect(stripUrlQuery(stripped)).toBe(stripped);
-      })
+      }),
     );
   });
 
@@ -179,29 +179,39 @@ describe("stripRequestAttributes", () => {
   // and stripping twice gives the same result as stripping once.
   it("removes every caller-controlled request attribute from any attribute map", () => {
     const key = fc.oneof(
-      fc.constantFrom("http.request.header.", "http.response.header.", "HTTP.Request.Header.").chain((prefix) =>
-        fc.string({ minLength: 1, maxLength: 12 }).map((name) => prefix + name)
+      fc
+        .constantFrom("http.request.header.", "http.response.header.", "HTTP.Request.Header.")
+        .chain((prefix) => fc.string({ minLength: 1, maxLength: 12 }).map((name) => prefix + name)),
+      fc.constantFrom(
+        "user_agent.original",
+        "mcp.client.title",
+        "url.query",
+        "url.path",
+        "mcp.tool.name",
       ),
-      fc.constantFrom("user_agent.original", "mcp.client.title", "url.query", "url.path", "mcp.tool.name"),
-      fc.string({ maxLength: 12 })
+      fc.string({ maxLength: 12 }),
     );
     const value = fc.oneof(fc.string(), fc.webUrl({ withQueryParameters: true }), fc.integer());
     fc.assert(
-      fc.property(fc.dictionary(key, value), fc.option(fc.webUrl({ withQueryParameters: true }), { nil: undefined }), (input, url) => {
-        const data: Record<string, unknown> = { ...input, ...(url && { "url.full": url }) };
-        stripRequestAttributes(data);
+      fc.property(
+        fc.dictionary(key, value),
+        fc.option(fc.webUrl({ withQueryParameters: true }), { nil: undefined }),
+        (input, url) => {
+          const data: Record<string, unknown> = { ...input, ...(url && { "url.full": url }) };
+          stripRequestAttributes(data);
 
-        for (const k of Object.keys(data)) {
-          expect(k.toLowerCase()).not.toMatch(/^http\.(request|response)\.header\./);
-        }
-        for (const k of ["user_agent.original", "mcp.client.title", "url.query"]) {
-          expect(data).not.toHaveProperty(k);
-        }
-        if (typeof data["url.full"] === "string") expect(data["url.full"]).not.toMatch(/[?#]/);
-        const again = { ...data };
-        stripRequestAttributes(again);
-        expect(again).toEqual(data);
-      })
+          for (const k of Object.keys(data)) {
+            expect(k.toLowerCase()).not.toMatch(/^http\.(request|response)\.header\./);
+          }
+          for (const k of ["user_agent.original", "mcp.client.title", "url.query"]) {
+            expect(data).not.toHaveProperty(k);
+          }
+          if (typeof data["url.full"] === "string") expect(data["url.full"]).not.toMatch(/[?#]/);
+          const again = { ...data };
+          stripRequestAttributes(again);
+          expect(again).toEqual(data);
+        },
+      ),
     );
   });
 });
@@ -251,30 +261,36 @@ describe("sanitizeClientAttribute", () => {
 
   // Truncation can end a value on an identity shape the full value did not have: 47 letters
   // then "-0123456789abcdef" then "zzz" ends in a 16-hex session id once cut to 64 characters.
-  it.each([
-    ["x".repeat(47) + "-0123456789abcdef" + "zzz"],
-    ["y".repeat(60) + ".comet"],
-  ])("redacts an identity shape that truncation exposes in %j", (value) => {
-    expect(sanitizeClientAttribute(value)).toBe("[redacted]");
-  });
+  it.each([["x".repeat(47) + "-0123456789abcdef" + "zzz"], ["y".repeat(60) + ".comet"]])(
+    "redacts an identity shape that truncation exposes in %j",
+    (value) => {
+      expect(sanitizeClientAttribute(value)).toBe("[redacted]");
+    },
+  );
 
   it("returns at most 64 characters, and the same value when applied to its own output", () => {
     const shaped = fc.oneof(
       fc.string(),
       fc.emailAddress(),
-      fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 16, maxLength: 20 }).map((hex) => `-${hex}1`),
-      fc.constantFrom(".com", ".internal", "/Users/ada", " ", "-", "@")
+      fc
+        .string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 16, maxLength: 20 })
+        .map((hex) => `-${hex}1`),
+      fc.constantFrom(".com", ".internal", "/Users/ada", " ", "-", "@"),
     );
     fc.assert(
       // A clean lead of 30-63 characters puts the 64-character cut inside the shaped tail.
-      fc.property(fc.string({ unit: fc.constantFrom(..."abcxyz"), minLength: 30, maxLength: 63 }), fc.array(shaped, { maxLength: 8 }), (lead, parts) => {
-        const value = lead + parts.join("");
-        const once = sanitizeClientAttribute(value);
-        if (once === undefined) return;
-        expect(once.length).toBeLessThanOrEqual(64);
-        expect(sanitizeClientAttribute(once)).toBe(once);
-      }),
-      { numRuns: 2000 }
+      fc.property(
+        fc.string({ unit: fc.constantFrom(..."abcxyz"), minLength: 30, maxLength: 63 }),
+        fc.array(shaped, { maxLength: 8 }),
+        (lead, parts) => {
+          const value = lead + parts.join("");
+          const once = sanitizeClientAttribute(value);
+          if (once === undefined) return;
+          expect(once.length).toBeLessThanOrEqual(64);
+          expect(sanitizeClientAttribute(once)).toBe(once);
+        },
+      ),
+      { numRuns: 2000 },
     );
   });
 
@@ -282,7 +298,7 @@ describe("sanitizeClientAttribute", () => {
     fc.assert(
       fc.property(fc.string(), fc.emailAddress(), fc.string(), (before, email, after) => {
         expect(sanitizeClientAttribute(`${before}${email} ${after}`) ?? "").not.toContain(email);
-      })
+      }),
     );
   });
 });
@@ -368,8 +384,15 @@ describe("anonymizeEventWithoutEmail (request headers)", () => {
   it("filters every credential header, whatever its case, and keeps the others", () => {
     const credential = fc
       .tuple(
-        fc.constantFrom("authorization", "cookie", "cf-access-jwt-assertion", "cf-access-client-id", "proxy-authorization", "set-cookie"),
-        fc.boolean()
+        fc.constantFrom(
+          "authorization",
+          "cookie",
+          "cf-access-jwt-assertion",
+          "cf-access-client-id",
+          "proxy-authorization",
+          "set-cookie",
+        ),
+        fc.boolean(),
       )
       .map(([name, upper]) => (upper ? name.toUpperCase() : name));
     const other = fc.constantFrom("accept", "content-type", "mcp-method", "x-request-id");
@@ -387,10 +410,12 @@ describe("anonymizeEventWithoutEmail (request headers)", () => {
 
           anonymizeEventWithoutEmail(event);
 
-          for (const name of Object.keys(secrets)) expect(event.request?.headers?.[name]).toBe("[Filtered]");
-          for (const [name, value] of Object.entries(rest)) expect(event.request?.headers?.[name]).toBe(value);
-        }
-      )
+          for (const name of Object.keys(secrets))
+            expect(event.request?.headers?.[name]).toBe("[Filtered]");
+          for (const [name, value] of Object.entries(rest))
+            expect(event.request?.headers?.[name]).toBe(value);
+        },
+      ),
     );
   });
 });

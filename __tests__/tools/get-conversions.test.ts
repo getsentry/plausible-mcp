@@ -43,9 +43,9 @@ describe("get_conversions with breakdown_by_page", () => {
               { dimensions: ["Purchase", "/pricing"], metrics: [9, 12, 0.04] },
               { dimensions: ["Purchase", "/gone"], metrics: [1, 1, 0.01] },
             ],
-            { metrics: ["visitors", "events", "conversion_rate"] }
+            { metrics: ["visitors", "events", "conversion_rate"] },
           )
-        : [{ dimensions: ["/pricing"], metrics: [1150] }]
+        : [{ dimensions: ["/pricing"], metrics: [1150] }],
     );
   });
 
@@ -61,7 +61,9 @@ describe("get_conversions with breakdown_by_page", () => {
       ],
       notes: [CONVERSION_RATES_MEANING],
     });
-    expect(JSON.parse(result.content[0].text).query.metrics).toEqual(result.structuredContent.metrics);
+    expect(JSON.parse(result.content[0].text).query.metrics).toEqual(
+      result.structuredContent.metrics,
+    );
   });
 
   it("counts page visitors without the goal and custom-property filters", async () => {
@@ -82,7 +84,7 @@ describe("get_conversions with breakdown_by_page", () => {
         dimensions: ["event:page"],
         filters: [["is", "visit:channel", ["Organic Search"]]],
         pagination: { limit: 10_000 },
-      })
+      }),
     );
   });
 });

@@ -89,18 +89,32 @@ describe("get_breakdown", () => {
 
 describe("get_breakdown conversion rates", () => {
   it.each([
-    ["the goal shortcut", { dimension: "visit:entry_page", goal: "Purchase" }, ["visitors", "visits", "bounce_rate", "group_conversion_rate"]],
+    [
+      "the goal shortcut",
+      { dimension: "visit:entry_page", goal: "Purchase" },
+      ["visitors", "visits", "bounce_rate", "group_conversion_rate"],
+    ],
     [
       "an event:goal property filter",
-      { dimension: "visit:source", property_filters: [{ property: "event:goal", values: ["Purchase"] }] },
+      {
+        dimension: "visit:source",
+        property_filters: [{ property: "event:goal", values: ["Purchase"] }],
+      },
       ["visitors", "pageviews", "bounce_rate", "group_conversion_rate"],
     ],
-    ["a goal, grouped by event:goal", { dimension: "event:goal", goal: "Purchase" }, ["visitors", "pageviews", "events"]],
-  ])("with %s, asks for the default metrics plus a per-row rate where it means something", async (_case, args, metrics) => {
-    await h.call("get_breakdown", { date_range: "30d", ...args });
+    [
+      "a goal, grouped by event:goal",
+      { dimension: "event:goal", goal: "Purchase" },
+      ["visitors", "pageviews", "events"],
+    ],
+  ])(
+    "with %s, asks for the default metrics plus a per-row rate where it means something",
+    async (_case, args, metrics) => {
+      await h.call("get_breakdown", { date_range: "30d", ...args });
 
-    expect(h.requests[0].body.metrics).toEqual(metrics);
-  });
+      expect(h.requests[0].body.metrics).toEqual(metrics);
+    },
+  );
 
   it("rejects group_conversion_rate grouped by event:goal, where it is always 0", async () => {
     const result = await h.call("get_breakdown", {
@@ -142,7 +156,10 @@ function rowsOf(names: string[]): PlausibleResult[] {
 
 /** Rows with distinct names and few distinct metric values, so ties are common. */
 const dataset = fc.uniqueArray(
-  fc.record({ name: fc.stringMatching(/^\/[a-z]{1,6}$/), visitors: fc.integer({ min: 0, max: 3 }) }),
+  fc.record({
+    name: fc.stringMatching(/^\/[a-z]{1,6}$/),
+    visitors: fc.integer({ min: 0, max: 3 }),
+  }),
   { selector: (row) => row.name, maxLength: 30 },
 );
 
@@ -211,22 +228,27 @@ describe("get_breakdown paging", () => {
   // different order on each request and pages skipped or repeated them.
   it("pages goals over a stable order however Plausible orders tied rows", async () => {
     await fc.assert(
-      fc.asyncProperty(dataset, fc.integer({ min: 1, max: 7 }), fc.infiniteStream(fc.integer()), async (rows, limit, seeds) => {
-        const seed = seeds[Symbol.iterator]();
-        h.reply((body) => {
-          expect(body.pagination).toEqual({ limit: 10_000 });
-          // Visitors descending, but ties shuffled differently on every request.
-          const shuffled = rows
-            .map((row) => ({ row, key: seed.next().value as number }))
-            .sort((a, b) => b.row.visitors - a.row.visitors || a.key - b.key)
-            .map(({ row }) => row);
-          return shuffled.map((row) => ({ dimensions: [row.name], metrics: [row.visitors] }));
-        });
+      fc.asyncProperty(
+        dataset,
+        fc.integer({ min: 1, max: 7 }),
+        fc.infiniteStream(fc.integer()),
+        async (rows, limit, seeds) => {
+          const seed = seeds[Symbol.iterator]();
+          h.reply((body) => {
+            expect(body.pagination).toEqual({ limit: 10_000 });
+            // Visitors descending, but ties shuffled differently on every request.
+            const shuffled = rows
+              .map((row) => ({ row, key: seed.next().value as number }))
+              .sort((a, b) => b.row.visitors - a.row.visitors || a.key - b.key)
+              .map(({ row }) => row);
+            return shuffled.map((row) => ({ dimensions: [row.name], metrics: [row.visitors] }));
+          });
 
-        const { names } = await walkPages("event:goal", limit);
+          const { names } = await walkPages("event:goal", limit);
 
-        expect(names).toEqual(expectedOrder(rows));
-      }),
+          expect(names).toEqual(expectedOrder(rows));
+        },
+      ),
       { numRuns: 40 },
     );
   });
