@@ -28,7 +28,7 @@ A test earns its place when it fails for a bug a user would notice and passes fo
 - **State the rule, not an example.** When a claim holds for all input (a mapping, a round-trip, a bound, a page walk), write it as a [fast-check](https://fast-check.dev) property. Keep a hand-picked example for a boundary or a past bug.
 - **Name the bug a regression test guards.** Put the fix commit in a comment above it, and check that the test fails with the fix reverted.
 - **Test once.** Behavior that every query tool shares goes in `__tests__/tools/query-tools.test.ts`. Before you add a test, search for one that already covers the behavior.
-- **Assert the contract.** Error codes, request bodies and output schemas are contracts. Description text, copy and CSS values are not; the evals and the screenshot checks cover them.
+- **Assert the contract.** Error codes, request bodies and output schemas are contracts; assert them in the test that exercises them. Leave description text out of other tests: the tool-list snapshot holds all of it for review (see "Running LLM Evals"). Leave copy and CSS values to the screenshot and readability checks.
 
 There is no coverage target. `pnpm test:coverage` shows untested code to look at, not a number to reach.
 
