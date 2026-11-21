@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { connect, type Harness } from "../harness.js";
+import { connect, CONVERSION_RATES_MEANING, errorOf, type Harness } from "../harness.js";
 import type { PlausibleResult } from "../../src/plausible.js";
 
 let h: Harness;
@@ -84,6 +84,55 @@ describe("get_breakdown", () => {
     const text = JSON.parse(result.content[0].text);
     expect(text.results).toEqual(result.structuredContent.results);
     expect(text.pagination).toEqual(result.structuredContent.pagination);
+  });
+});
+
+describe("get_breakdown conversion rates", () => {
+  it.each([
+    ["the goal shortcut", { dimension: "visit:entry_page", goal: "Purchase" }, ["visitors", "visits", "bounce_rate", "group_conversion_rate"]],
+    [
+      "an event:goal property filter",
+      { dimension: "visit:source", property_filters: [{ property: "event:goal", values: ["Purchase"] }] },
+      ["visitors", "pageviews", "bounce_rate", "group_conversion_rate"],
+    ],
+    ["a goal, grouped by event:goal", { dimension: "event:goal", goal: "Purchase" }, ["visitors", "pageviews", "events"]],
+  ])("with %s, asks for the default metrics plus a per-row rate where it means something", async (_case, args, metrics) => {
+    await h.call("get_breakdown", { date_range: "30d", ...args });
+
+    expect(h.requests[0].body.metrics).toEqual(metrics);
+  });
+
+  it("rejects group_conversion_rate grouped by event:goal, where it is always 0", async () => {
+    const result = await h.call("get_breakdown", {
+      date_range: "30d",
+      dimension: "event:goal",
+      metrics: ["visitors", "group_conversion_rate"],
+    });
+
+    expect(errorOf(result).code).toBe("invalid_input");
+    expect(result.content[0].text).toContain("Use conversion_rate");
+    expect(h.requests).toHaveLength(0);
+  });
+
+  it("explains conversion_rate's shared denominator in both result blocks", async () => {
+    h.reply(() => [{ dimensions: ["/"], metrics: [4, 0.46] }]);
+
+    const result = await h.call("get_breakdown", {
+      date_range: "30d",
+      dimension: "visit:entry_page",
+      goal: "Purchase",
+      metrics: ["visitors", "conversion_rate"],
+    });
+
+    expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+    expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
+  });
+
+  it("adds no notes when the result has no conversion_rate", async () => {
+    const result = await h.call("get_breakdown", { date_range: "30d", dimension: "event:page" });
+
+    expect(result.structuredContent).not.toHaveProperty("notes");
+    expect(JSON.parse(result.content[0].text)).not.toHaveProperty("notes");
   });
 });
 

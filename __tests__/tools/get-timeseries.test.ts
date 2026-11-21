@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { connect, errorOf, type Harness } from "../harness.js";
+import { connect, CONVERSION_RATES_MEANING, errorOf, type Harness } from "../harness.js";
 
 let h: Harness;
 beforeEach(async () => {
@@ -60,6 +60,19 @@ describe("get_timeseries", () => {
     const at = await h.call("get_timeseries", { date_range: "all", granularity: "hour", metrics: ["visitors"] });
     expect(at.isError).toBe(true);
     expect(errorOf(at).code).toBe("invalid_input");
+  });
+
+  it("explains that a bucket's conversion_rate divides by the whole period", async () => {
+    h.reply(() => [{ dimensions: ["2026-01-01"], metrics: [4, 0.5] }]);
+
+    const result = await h.call("get_timeseries", {
+      date_range: "7d",
+      goal: "Signup",
+      metrics: ["visitors", "conversion_rate"],
+    });
+
+    expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+    expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
   });
 
   it("treats an empty site_id as missing", async () => {

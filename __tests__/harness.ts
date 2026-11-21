@@ -8,6 +8,7 @@ import { vi } from "vitest";
 import * as Sentry from "@sentry/cloudflare";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createServer, type ServerConfig } from "../src/server.js";
+export { CONVERSION_RATES_MEANING } from "../src/schemas.js";
 import type { PlausibleResult } from "../src/plausible.js";
 
 export interface PlausibleRequest {
@@ -19,8 +20,9 @@ export interface PlausibleRequest {
 /** Answer one Plausible request: rows for a 200, or a `Response` for anything else. */
 export type PlausibleReply = (body: Record<string, any>) => PlausibleResult[] | Response;
 
-export function plausibleOk(results: PlausibleResult[]): Response {
-  return Response.json({ results, meta: {}, query: {} });
+/** A 200 from Plausible. `query` is Plausible's echo of the resolved query, such as its date_range. */
+export function plausibleOk(results: PlausibleResult[], query: Record<string, unknown> = {}): Response {
+  return Response.json({ results, meta: {}, query });
 }
 
 export function plausibleError(status: number, body = "", headers: Record<string, string> = {}) {
