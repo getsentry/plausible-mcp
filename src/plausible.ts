@@ -76,11 +76,17 @@ export class PlausibleApiError extends Error {
   }
 }
 
-/** Retry-After is either delta-seconds or an HTTP-date; both are normalized to seconds from now. */
+/**
+ * Retry-After is either delta-seconds or an HTTP-date; both are normalized to seconds from now.
+ * Every HTTP-date form starts with a day name. Anything else goes to `Date.parse` only after
+ * that check, because `Date.parse` reads "1.5" or "-5" as a date in 2001, which would tell the
+ * caller to retry at once.
+ */
 function parseRetryAfterSeconds(header: string | null): number | undefined {
   const value = header?.trim();
   if (!value) return undefined;
   if (/^\d+$/.test(value)) return Number(value);
+  if (!/^[A-Za-z]{3}/.test(value)) return undefined;
   const date = Date.parse(value);
   return Number.isFinite(date) ? Math.max(0, Math.ceil((date - Date.now()) / 1000)) : undefined;
 }
