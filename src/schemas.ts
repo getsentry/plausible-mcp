@@ -272,6 +272,26 @@ export function assertNoShortcutOverlap(
   }
 }
 
+/** The filter arguments every query tool accepts. */
+export interface QueryFilterArgs {
+  page?: string;
+  goal?: string;
+  property_filters?: PropertyFilter[];
+}
+
+/**
+ * The Plausible filters for a query tool's page, goal and property_filters arguments.
+ * Rejects a page or goal shortcut that a property filter also targets.
+ */
+export function buildQueryFilters(args: QueryFilterArgs): unknown[][] {
+  assertNoShortcutOverlap(args.property_filters, { page: args.page, goal: args.goal });
+  const filters: unknown[][] = [];
+  if (args.page) filters.push(buildPageFilter(args.page));
+  if (args.goal) filters.push(buildGoalFilter(args.goal));
+  filters.push(...buildPropertyFilters(args.property_filters ?? []));
+  return filters;
+}
+
 /**
  * Build Plausible Stats API v2 filters from filter entries. Built-in dimensions and
  * fully-qualified `event:props:<name>` targets pass through verbatim; bare custom

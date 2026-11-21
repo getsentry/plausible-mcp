@@ -13,17 +13,19 @@ import {
   metricsSchema,
   propertyFiltersSchema,
   DEFAULT_METRICS,
-  buildPageFilter,
-  buildGoalFilter,
-  buildPropertyFilters,
-  assertNoShortcutOverlap,
+  buildQueryFilters,
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
+/** Each requested metric's aggregate value for one period. */
+type PeriodMetrics = Record<string, number | null>;
+/** Each metric's change from period_a to period_b. */
+type PeriodDeltas = Record<string, { absolute: number | null; percent: number | null }>;
+
 type PeriodComparison = {
-  period_a: { range: string; metrics: Record<string, number | null> };
-  period_b: { range: string; metrics: Record<string, number | null> };
-  deltas: Record<string, { absolute: number | null; percent: number | null }>;
+  period_a: { range: string; metrics: PeriodMetrics };
+  period_b: { range: string; metrics: PeriodMetrics };
+  deltas: PeriodDeltas;
 };
 
 const nullableNumber = z.union([z.number(), z.null()]);
@@ -45,40 +47,25 @@ const comparePeriodsOutputSchema = z.object({
     ),
 });
 
-function extractAggregateMetrics(
-  response: PlausibleResponse,
-  metricNames: string[],
-): Record<string, number | null> {
-  const result: Record<string, number | null> = {};
-  if (response.results.length > 0) {
-    const row = response.results[0];
-    for (let i = 0; i < metricNames.length; i++) {
-      result[metricNames[i]] = row.metrics[i];
-    }
-  }
-  return result;
+function extractAggregateMetrics(response: PlausibleResponse, metricNames: string[]) {
+  const [row] = response.results;
+  if (!row) return {};
+  return Object.fromEntries(metricNames.map((name, i) => [name, row.metrics[i]]));
 }
 
-function computeDeltas(
-  a: Record<string, number | null>,
-  b: Record<string, number | null>,
-): Record<string, { absolute: number | null; percent: number | null }> {
-  const deltas: Record<string, { absolute: number | null; percent: number | null }> = {};
-  for (const key of Object.keys(a)) {
-    const va = a[key];
-    const vb = b[key];
-    if (va == null || vb == null) {
-      deltas[key] = { absolute: null, percent: null };
-    } else {
-      const abs = vb - va;
-      const pct = va !== 0 ? (abs / va) * 100 : null;
-      deltas[key] = {
-        absolute: Math.round(abs * 100) / 100,
-        percent: pct != null ? Math.round(pct * 100) / 100 : null,
-      };
-    }
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/** A metric is missing (undefined) from a period whose query returned no rows. */
+function deltaOf(a: number | null | undefined, b: number | null | undefined) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return { absolute: null, percent: null };
   }
-  return deltas;
+  const change = b - a;
+  return { absolute: round2(change), percent: a === 0 ? null : round2((change / a) * 100) };
+}
+
+function computeDeltas(a: PeriodMetrics, b: PeriodMetrics) {
+  return Object.fromEntries(Object.keys(a).map((key) => [key, deltaOf(a[key], b[key])]));
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -182,16 +169,7 @@ export function register(
         const siteId = resolveSiteId(args.site_id, defaultSiteId);
         const metrics = args.metrics ?? DEFAULT_METRICS;
 
-        assertNoShortcutOverlap(args.property_filters, {
-          page: args.page,
-          goal: args.goal,
-        });
-        const filters: unknown[][] = [];
-        if (args.page) filters.push(buildPageFilter(args.page));
-        if (args.goal) filters.push(buildGoalFilter(args.goal));
-        if (args.property_filters?.length) {
-          filters.push(...buildPropertyFilters(args.property_filters));
-        }
+        const filters = buildQueryFilters(args);
 
         const queryBase = {
           site_id: siteId,

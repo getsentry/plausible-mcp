@@ -13,10 +13,7 @@ import {
   rowMetricsSchema,
   propertyFiltersSchema,
   DEFAULT_METRICS,
-  buildPageFilter,
-  buildGoalFilter,
-  buildPropertyFilters,
-  assertNoShortcutOverlap,
+  buildQueryFilters,
   queryResultOutputSchema,
   buildQueryStructuredContent,
 } from "../schemas.js";
@@ -69,16 +66,7 @@ export function register(
         const metrics = args.metrics ?? DEFAULT_METRICS;
         const timeKey = `time:${args.granularity ?? "day"}`;
 
-        assertNoShortcutOverlap(args.property_filters, {
-          page: args.page,
-          goal: args.goal,
-        });
-        const filters: unknown[][] = [];
-        if (args.page) filters.push(buildPageFilter(args.page));
-        if (args.goal) filters.push(buildGoalFilter(args.goal));
-        if (args.property_filters?.length) {
-          filters.push(...buildPropertyFilters(args.property_filters));
-        }
+        const filters = buildQueryFilters(args);
 
         const result = await client.query({
           site_id: siteId,

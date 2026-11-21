@@ -11,10 +11,7 @@ import {
   pageSchema,
   goalSchema,
   propertyFiltersSchema,
-  buildPageFilter,
-  buildGoalFilter,
-  buildPropertyFilters,
-  assertNoShortcutOverlap,
+  buildQueryFilters,
   queryResultOutputSchema,
   buildQueryStructuredContent,
   CUSTOM_PROPERTY_PREFIX,
@@ -60,16 +57,7 @@ export function register(
           ? [...queriedMetrics, "group_conversion_rate"]
           : queriedMetrics;
 
-        assertNoShortcutOverlap(args.property_filters, {
-          page: args.page,
-          goal: args.goal,
-        });
-        const filters: unknown[][] = [];
-        if (args.goal) filters.push(buildGoalFilter(args.goal));
-        if (args.page) filters.push(buildPageFilter(args.page));
-        if (args.property_filters?.length) {
-          filters.push(...buildPropertyFilters(args.property_filters));
-        }
+        const filters = buildQueryFilters(args);
 
         const dimensions = args.breakdown_by_page ? ["event:goal", "event:page"] : ["event:goal"];
 

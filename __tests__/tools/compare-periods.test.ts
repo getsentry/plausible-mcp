@@ -71,6 +71,16 @@ describe("compare_periods", () => {
     });
   });
 
+  it("gives null deltas when only one period has rows", async () => {
+    replyWith([100, 200, 45, 120], null);
+
+    const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent.period_b.metrics).toEqual({});
+    expect(result.structuredContent.deltas.visitors).toEqual({ absolute: null, percent: null });
+  });
+
   it("computes each delta from period_a to period_b, rounded to cents", async () => {
     const value = fc.oneof(
       { weight: 1, arbitrary: fc.constant(null) },
