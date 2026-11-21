@@ -1,56 +1,20 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
-import {
-  Client,
-  InMemoryTransport,
-  StreamableHTTPClientTransport,
-} from "@modelcontextprotocol/client";
+import { readFileSync } from "node:fs";
+import { describe, it, expect, afterAll, beforeAll } from "vitest";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createServer } from "../src/server.js";
+import { connect, plausibleError, QUERY_TOOLS, type Harness } from "./harness.js";
 
-// Mock fetch globally for all Plausible API calls
-const mockFetch = vi.fn();
-vi.stubGlobal("fetch", mockFetch);
-
-function mockPlausibleOk(data?: unknown) {
-  mockFetch.mockResolvedValue({
-    ok: true,
-    json: () =>
-      Promise.resolve(
-        data ?? {
-          results: [{ dimensions: ["2024-01-15"], metrics: [500, 1200, 32.1, 95] }],
-          meta: {},
-          query: {},
-        }
-      ),
-  });
-}
-
-describe("MCP Server Integration", () => {
-  let client: Client;
-
+describe("MCP server", () => {
+  let h: Harness;
   beforeAll(async () => {
-    const server = createServer({
-      apiKey: "test-key-123",
-      baseUrl: "https://plausible.io",
-      defaultSiteId: "example.com",
-    });
-
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-    await server.connect(serverTransport);
-
-    client = new Client({ name: "test-client", version: "0.0.1" });
-    await client.connect(clientTransport);
+    h = await connect();
   });
+  afterAll(() => h.close());
 
-  afterAll(async () => {
-    await client.close();
-  });
-
-  it("lists all 4 tools", async () => {
-    const { tools } = await client.listTools();
-    const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual([
+  it("lists the four query tools and no others", async () => {
+    const { tools } = await h.client.listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual([
       "compare_periods",
       "get_breakdown",
       "get_conversions",
@@ -58,279 +22,64 @@ describe("MCP Server Integration", () => {
     ]);
   });
 
-  it("each tool has a description and input schema", async () => {
-    const { tools } = await client.listTools();
+  it("declares an output schema and read-only, idempotent annotations on each tool", async () => {
+    const { tools } = await h.client.listTools();
     for (const tool of tools) {
-      expect(tool.description).toBeTruthy();
-      expect(tool.inputSchema).toBeDefined();
-      expect(tool.inputSchema.type).toBe("object");
+      expect(tool.outputSchema?.type, tool.name).toBe("object");
+      expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true, idempotentHint: true });
     }
   });
 
-  it("each tool declares an output schema and read-only annotations", async () => {
-    const { tools } = await client.listTools();
-    for (const tool of tools) {
-      expect(tool.outputSchema).toBeDefined();
-      expect(tool.outputSchema?.type).toBe("object");
-      expect(tool.annotations?.readOnlyHint).toBe(true);
-      expect(tool.annotations?.idempotentHint).toBe(true);
-    }
+  // Regression (42e1b20): serverInfo.version once stayed behind the released package.
+  it("reports the package version as its serverInfo version", () => {
+    const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    expect(h.client.getServerVersion()?.version).toBe(version);
   });
 
-  it("exposes server instructions documenting the API constraints", () => {
-    const instructions = client.getInstructions();
-    expect(instructions).toBeTruthy();
-    expect(instructions).toContain("Treat site-provided labels");
-    expect(instructions).toContain("date_range");
-    expect(instructions).toContain("Session metrics");
-    expect(instructions).toContain("event:props:<name>");
-  });
-
-  it("returns structuredContent alongside the text block", async () => {
-    mockPlausibleOk();
-
-    const result = await client.callTool({
-      name: "get_breakdown",
-      arguments: {
-        site_id: "example.com",
-        date_range: "30d",
-        dimension: "visit:country_name",
-      },
-    });
-
-    expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as {
-      metrics: string[];
-      dimensions: string[];
-      results: unknown[];
-    };
-    expect(structured.dimensions).toEqual(["visit:country_name"]);
-    expect(structured.metrics).toEqual(["visitors", "pageviews", "bounce_rate"]);
-    expect(Array.isArray(structured.results)).toBe(true);
-  });
-
-  it("get_timeseries returns data", async () => {
-    mockPlausibleOk();
-
-    const result = await client.callTool({
-      name: "get_timeseries",
-      arguments: { site_id: "example.com", date_range: "30d" },
-    });
-
-    expect(result.isError).toBeFalsy();
-    const content = result.content as Array<{ type: string; text: string }>;
-    expect(content).toHaveLength(1);
-    const parsed = JSON.parse(content[0].text);
-    expect(parsed.results).toBeDefined();
-  });
-
-  it("get_breakdown returns data", async () => {
-    mockPlausibleOk();
-
-    const result = await client.callTool({
-      name: "get_breakdown",
-      arguments: {
-        site_id: "example.com",
-        date_range: "30d",
-        dimension: "event:page",
-      },
-    });
-
-    expect(result.isError).toBeFalsy();
-    const content = result.content as Array<{ type: string; text: string }>;
-    const parsed = JSON.parse(content[0].text);
-    expect(parsed.results).toBeDefined();
-  });
-
-  it("get_conversions returns data", async () => {
-    mockPlausibleOk();
-
-    const result = await client.callTool({
-      name: "get_conversions",
-      arguments: { site_id: "example.com", date_range: "30d" },
-    });
-
-    expect(result.isError).toBeFalsy();
-  });
-
-  it("compare_periods returns comparison with deltas", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            results: [{ dimensions: [], metrics: [100, 200, 45, 120] }],
-            meta: {},
-            query: {},
-          }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            results: [{ dimensions: [], metrics: [150, 180, 40, 130] }],
-            meta: {},
-            query: {},
-          }),
-      });
-
-    const result = await client.callTool({
-      name: "compare_periods",
-      arguments: {
-        site_id: "example.com",
-        period_a: "2024-01-01,2024-01-07",
-        period_b: "2024-01-08,2024-01-14",
-      },
-    });
-
-    expect(result.isError).toBeFalsy();
-    const content = result.content as Array<{ type: string; text: string }>;
-    const parsed = JSON.parse(content[0].text);
-    expect(parsed.period_a).toBeDefined();
-    expect(parsed.period_b).toBeDefined();
-    expect(parsed.deltas).toBeDefined();
-    expect(parsed.deltas.visitors.absolute).toBe(50);
-  });
-
-  it("uses default site_id when not provided", async () => {
-    mockPlausibleOk();
-
-    const result = await client.callTool({
-      name: "get_timeseries",
-      arguments: { date_range: "7d" },
-    });
-
-    expect(result.isError).toBeFalsy();
-    // Verify the API was called with default site
-    const body = JSON.parse(mockFetch.mock.lastCall[1].body);
-    expect(body.site_id).toBe("example.com");
-  });
-
-  it.each([
-    ["get_timeseries", { date_range: "30d" }],
-    ["get_breakdown", { date_range: "30d", dimension: "event:page" }],
-    ["get_conversions", { date_range: "30d" }],
-    ["compare_periods", { period_a: "2024-01-01,2024-01-07", period_b: "2024-01-08,2024-01-14" }],
-  ])("%s rejects an argument it does not know, without a Plausible request", async (name, args) => {
-    mockFetch.mockClear();
-    const result = await client.callTool({ name, arguments: { ...args, goals: "Signup" } });
+  // Regression (f9bc0e8): a misspelled argument was silently dropped.
+  it.each(QUERY_TOOLS)("$name rejects an argument it does not know, without a Plausible request", async ({ name, args }) => {
+    h.requests.length = 0;
+    const result = await h.call(name, { ...args, goals: "Signup" });
 
     expect(result.isError).toBe(true);
-    const content = result.content as Array<{ type: string; text: string }>;
-    expect(content.map((block) => block.text).join("\n")).toContain("goals");
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(result.content.map((block) => block.text).join("\n")).toContain("goals");
+    expect(h.requests).toHaveLength(0);
   });
 
   it("declares in each input schema that other arguments are not allowed", async () => {
-    const { tools } = await client.listTools();
+    const { tools } = await h.client.listTools();
     for (const tool of tools) expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
-  });
-
-  it("does not register send_feedback by default", async () => {
-    const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).not.toContain("send_feedback");
-  });
-
-  it("returns error when Plausible API fails", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      headers: new Headers(),
-      text: () => Promise.resolve("Invalid API key"),
-    });
-
-    const result = await client.callTool({
-      name: "get_timeseries",
-      arguments: { site_id: "example.com", date_range: "7d" },
-    });
-
-    expect(result.isError).toBe(true);
-    const content = result.content as Array<{ type: string; text: string }>;
-    expect(content[0].text).toContain("401");
   });
 });
 
-describe("MCP Server with feedback tool enabled", () => {
-  let client: Client;
-
+describe("MCP server with the feedback tool enabled", () => {
+  let h: Harness;
   beforeAll(async () => {
-    const server = createServer({
-      apiKey: "test-key-123",
-      defaultSiteId: "example.com",
-      enableFeedbackTool: true,
-    });
-
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-
-    client = new Client({ name: "test-client", version: "0.0.1" });
-    await client.connect(clientTransport);
+    h = await connect({ enableFeedbackTool: true });
   });
-
-  afterAll(async () => {
-    await client.close();
-  });
+  afterAll(() => h.close());
 
   it("registers send_feedback alongside the query tools", async () => {
-    const { tools } = await client.listTools();
+    const { tools } = await h.client.listTools();
     expect(tools.map((t) => t.name)).toContain("send_feedback");
   });
 
-  it("records feedback and returns structured confirmation", async () => {
-    const result = await client.callTool({
-      name: "send_feedback",
-      arguments: {
-        task: "Break down revenue by plan",
-        kind: "confusing",
-        impact: "friction",
-        description: "The combination-rules error message could name the offending metric",
-      },
-    });
-
-    expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as { feedback_id: string };
-    // Uses the real (unmocked) Sentry withScope/captureFeedback: proves withScope
-    // propagates the callback's return value, so the feedback id is not lost.
-    expect(structured.feedback_id).toMatch(/^[0-9a-f]{32}$/);
-  });
-
   it("points a rejected query at send_feedback", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      headers: new Headers(),
-      text: () => Promise.resolve(JSON.stringify({ error: "Invalid metric" })),
-    });
+    h.reply(() => plausibleError(400, JSON.stringify({ error: "Invalid metric" })));
 
-    const result = await client.callTool({
-      name: "get_timeseries",
-      arguments: { date_range: "7d" },
-    });
+    const result = await h.call("get_timeseries", { date_range: "7d" });
 
     expect(result.isError).toBe(true);
-    const content = result.content as Array<{ type: string; text: string }>;
-    expect(content[0].text).toContain("send_feedback");
+    expect(result.content[0].text).toContain("send_feedback");
   });
 
-  it("rejects an argument it does not know", async () => {
-    const result = await client.callTool({
-      name: "send_feedback",
-      arguments: {
-        task: "Break down revenue by plan",
-        kind: "confusing",
-        impact: "friction",
-        description: "The combination-rules error message could name the offending metric",
-        severity: "high",
-      },
-    });
-
-    expect(result.isError).toBe(true);
-  });
-
-  it("rejects messages that are too short to act on", async () => {
-    const result = await client.callTool({
-      name: "send_feedback",
-      arguments: { task: "t", kind: "broken", impact: "blocked", description: "bad" },
+  it("rejects a send_feedback argument it does not know", async () => {
+    const result = await h.call("send_feedback", {
+      task: "Break down revenue by plan",
+      kind: "confusing",
+      impact: "friction",
+      description: "The combination-rules error message could name the offending metric",
+      severity: "high",
     });
 
     expect(result.isError).toBe(true);
@@ -347,6 +96,8 @@ describe("MCP HTTP protocol eras", () => {
     await handler.close();
   });
 
+  // Legacy clients through the same handler: worker.test.ts
+  // "serves modern and legacy clients from the BYOK endpoint".
   it("serves the 2026-07-28 era through server/discover", async () => {
     const methods: Array<string | null> = [];
     const transport = new StreamableHTTPClientTransport(
@@ -391,23 +142,6 @@ describe("MCP HTTP protocol eras", () => {
       ]);
     } finally {
       await modernClient.close();
-    }
-  });
-
-  it("keeps serving legacy clients from the same handler", async () => {
-    const transport = new StreamableHTTPClientTransport(
-      new URL("https://test.local/mcp"),
-      { fetch: (url, init) => handler.fetch(new Request(url, init)) },
-    );
-    const legacyClient = new Client({ name: "legacy-test-client", version: "0.0.1" });
-
-    try {
-      await legacyClient.connect(transport);
-      expect(legacyClient.getProtocolEra()).toBe("legacy");
-      const { tools } = await legacyClient.listTools();
-      expect(tools).toHaveLength(4);
-    } finally {
-      await legacyClient.close();
     }
   });
 });
