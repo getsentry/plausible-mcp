@@ -100,16 +100,14 @@ function mockCertsEndpoint(jwk: JsonWebKey) {
   );
 }
 
-/**
- * Attributes of every span in the given Sentry envelopes, values unwrapped. A string may hold
- * several envelopes joined by newlines, so span items are found by their item header.
- */
+/** Attributes of every span in the given Sentry envelopes (one envelope per string), values unwrapped. */
 function exportedSpans(envelopes: string[]): Array<Record<string, unknown>> {
   return envelopes.flatMap((text) => {
     const lines = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
     const spans: Array<Record<string, unknown>> = [];
-    for (let i = 0; i + 1 < lines.length; i++) {
-      if (lines[i].type !== "span" || !Array.isArray(lines[i + 1].items)) continue;
+    // An envelope is a header line, then item-header and payload lines in pairs.
+    for (let i = 1; i + 1 < lines.length; i += 2) {
+      if (lines[i].type !== "span") continue;
       for (const span of lines[i + 1].items) {
         spans.push({
           is_segment: span.is_segment,
@@ -851,10 +849,10 @@ describe("MCP Worker entry", () => {
 
     // Sends one request, drains ctx.waitUntil, and returns the envelopes it flushed —
     // resetting both so the next request in this test starts from a clean slate.
-    const sendAndFlush = async (request: Request): Promise<string> => {
+    const sendAndFlush = async (request: Request): Promise<string[]> => {
       await (await instrumentedWorker.fetch!(request, env, ctx)).text();
       for (const promise of pending) await promise;
-      const flushed = envelopes.join("\n");
+      const flushed = [...envelopes];
       envelopes.length = 0;
       pending.length = 0;
       return flushed;
@@ -864,13 +862,13 @@ describe("MCP Worker entry", () => {
       const pingEnvelope = await sendAndFlush(
         mcpPost({ jsonrpc: "2.0", id: 1, method: "ping" }, { "Mcp-Method": "ping" }),
       );
-      expect(pingEnvelope).not.toContain('"type":"span"');
+      expect(exportedSpans(pingEnvelope)).toEqual([]);
 
       // Legacy client: no Mcp-Method header at all — proves withMcpMethodHeader.
       const legacyPingEnvelope = await sendAndFlush(
         mcpPost({ jsonrpc: "2.0", id: 1, method: "ping" }),
       );
-      expect(legacyPingEnvelope).not.toContain('"type":"span"');
+      expect(exportedSpans(legacyPingEnvelope)).toEqual([]);
 
       // Legacy client calling a real tool: still classified and sampled at 100%.
       const legacyToolEnvelope = await sendAndFlush(
@@ -884,7 +882,7 @@ describe("MCP Worker entry", () => {
           },
         }),
       );
-      const legacyToolSpans = exportedSpans([legacyToolEnvelope]);
+      const legacyToolSpans = exportedSpans(legacyToolEnvelope);
       expect(legacyToolSpans.some((span) => span["mcp.method.name"] === "tools/call")).toBe(true);
       expect(legacyToolSpans.some((span) => span.is_segment)).toBe(true);
 
@@ -893,7 +891,7 @@ describe("MCP Worker entry", () => {
       const keptPingEnvelope = await sendAndFlush(
         mcpPost({ jsonrpc: "2.0", id: 2, method: "ping" }),
       );
-      expect(exportedSpans([keptPingEnvelope])).toContainEqual(
+      expect(exportedSpans(keptPingEnvelope)).toContainEqual(
         expect.objectContaining({ "mcp.method.name": "ping" }),
       );
     } finally {
