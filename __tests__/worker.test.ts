@@ -977,6 +977,14 @@ describe("public landing hostname", () => {
     expect((await read("https://test.local/unknown")).status).toBe(404);
     expect((await read("https://elsewhere.example/")).status).toBe(404);
   });
+  it("applies the rate limiter to untracked paths too", async () => {
+    const response = await workerFetch(new Request("https://test.local/wp-admin"), {
+      ...WORKER_ENV,
+      RATE_LIMITER: { limit: async () => ({ success: false }) },
+    });
+    expect(response.status).toBe(429);
+  });
+
   it("applies the existing rate limiter to the public page", async () => {
     const response = await workerFetch(new Request("https://test.local/"), {
       ...env,

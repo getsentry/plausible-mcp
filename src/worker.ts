@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/cloudflare";
+import { z } from "zod";
 import {
   createMcpHandler,
   hostHeaderValidationResponse,
@@ -29,22 +30,22 @@ import {
 import { landingHtml, landingSecurityPolicy } from "./landing.js";
 import type { Env } from "./env.js";
 
-const SECURITY_HEADERS: Record<string, string> = {
+const SECURITY_HEADERS = {
   "X-Frame-Options": "DENY",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
   "Cache-Control": "no-store",
-};
+} as const;
 
-const CORS_HEADERS: Record<string, string> = {
+const CORS_HEADERS = {
   ...SECURITY_HEADERS,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, Accept, Mcp-Method, Mcp-Name, MCP-Protocol-Version",
   "Access-Control-Expose-Headers": "WWW-Authenticate",
-};
+} as const;
 
 function corsResponse(response: Response): Response {
   const patched = new Response(response.body, response);
@@ -108,12 +109,14 @@ function mcpRequestValidationResponse(
   return originValidationResponse(request, originHostname ? [originHostname] : []);
 }
 
-interface RequestServerConfig {
-  apiKey: string;
-  baseUrl?: string;
-  defaultSiteId?: string;
-  recordToolIO: boolean;
-}
+/** The server settings an endpoint hands the MCP handler in its AuthInfo. */
+const requestServerConfigSchema = z.object({
+  apiKey: z.string(),
+  baseUrl: z.string().optional(),
+  defaultSiteId: z.string().optional(),
+  recordToolIO: z.boolean(),
+});
+type RequestServerConfig = z.infer<typeof requestServerConfigSchema>;
 
 function buildAuthInfo(
   token: string,
@@ -134,13 +137,13 @@ function buildAuthInfo(
 // One handler owns the subscription bus; its factory still creates an isolated server per request.
 const workerMcpHandler = createMcpHandler(
   ({ authInfo }) => {
-    const serverConfig = authInfo?.extra?.serverConfig as RequestServerConfig | undefined;
-    if (!serverConfig || typeof serverConfig.apiKey !== "string") {
+    const serverConfig = requestServerConfigSchema.safeParse(authInfo?.extra?.serverConfig);
+    if (!serverConfig.success) {
       throw new Error("Missing authenticated MCP server configuration.");
     }
 
     return createServer({
-      ...serverConfig,
+      ...serverConfig.data,
       enableFeedbackTool: true,
     });
   },
@@ -268,28 +271,31 @@ async function inspectMcpRequest(request: Request): Promise<McpRequestTelemetry 
  * shape. Only known method names are copied; the header is never set from unknown input.
  */
 async function withMcpMethodHeader(request: Request): Promise<Request> {
-  if (request.method !== "POST") return request;
-  const { pathname } = new URL(request.url);
-  if (classifyRoute(pathname) === null) return request;
-  if (!isJsonContentType(request.headers.get("Content-Type"))) return request;
-  if (request.headers.get("Mcp-Method")) return request;
-  if (!hasInspectableContentLength(request)) return request;
-
+  if (!isInspectableLegacyPost(request)) return request;
   try {
-    const body: unknown = await request.clone().json();
-    const method =
-      body && typeof body === "object" && !Array.isArray(body)
-        ? (body as Record<string, unknown>).method
-        : undefined;
-    if (typeof method === "string" && isKnownMcpMethod(method)) {
+    const body = jsonRpcMethod.safeParse(await request.clone().json());
+    if (body.success && isKnownMcpMethod(body.data.method)) {
       const headers = new Headers(request.headers);
-      headers.set("Mcp-Method", method);
+      headers.set("Mcp-Method", body.data.method);
       return new Request(request, { headers });
     }
   } catch {
     // fall through to the unmodified request
   }
   return request;
+}
+
+const jsonRpcMethod = z.object({ method: z.string() });
+
+/** A small JSON POST to a tracked endpoint that does not name its MCP method in a header. */
+function isInspectableLegacyPost(request: Request): boolean {
+  return (
+    request.method === "POST" &&
+    classifyRoute(new URL(request.url).pathname) !== null &&
+    isJsonContentType(request.headers.get("Content-Type")) &&
+    !request.headers.get("Mcp-Method") &&
+    hasInspectableContentLength(request)
+  );
 }
 
 async function rateLimited(request: Request, env: Env): Promise<Response | null> {
@@ -400,97 +406,103 @@ async function handleDirectMcp(request: Request, env: Env): Promise<Response> {
   }
 }
 
+/** What the Worker learned about a request to a tracked endpoint, for spans and metrics. */
+interface TrackedRequest {
+  tracked: TrackedRoute;
+  clientFamily: string;
+  mcpRequest: McpRequestTelemetry | null;
+}
+
 /**
  * Emit the `app.server.response` counter for tracked endpoints. Low-cardinality
  * attributes only (normalized route, status class, bucketed client family) so it's
  * safe to group by. This is the volume/health signal that replaces counting off raw
  * spans; untracked scanner routes are skipped so their noise never enters dashboards.
  */
-function recordResponseMetric(
-  request: Request,
-  response: Response,
-  tracked: TrackedRoute | null,
-  clientFamily: string,
-  mcpRequest: McpRequestTelemetry | null,
-): void {
-  if (!tracked) return;
+function recordResponseMetric(request: Request, response: Response, info: TrackedRequest): void {
   Sentry.metrics.count("app.server.response", 1, {
     attributes: {
       "http.request.method": request.method,
-      "http.route": tracked.route,
-      "app.route.group": tracked.group,
+      "http.route": info.tracked.route,
+      "app.route.group": info.tracked.group,
       "http.response.status_code": response.status,
       "app.response.status_class": statusClass(response.status),
-      "app.client.family": clientFamily,
-      "mcp.method.name": mcpRequest?.method ?? "unknown",
-      "app.mcp.request.kind": mcpRequest?.kind ?? "unknown",
+      "app.client.family": info.clientFamily,
+      "mcp.method.name": info.mcpRequest?.method ?? "unknown",
+      "app.mcp.request.kind": info.mcpRequest?.kind ?? "unknown",
     },
   });
+}
+
+async function serveLanding(request: Request, env: Env, url: URL): Promise<Response> {
+  const limited = await rateLimited(request, env);
+  if (limited) return limited;
+  if (request.method !== "GET" && request.method !== "HEAD")
+    return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+  return new Response(request.method === "HEAD" ? null : landingHtml(url.origin + "/mcp"), {
+    headers: {
+      ...SECURITY_HEADERS,
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": landingSecurityPolicy,
+    },
+  });
+}
+
+/**
+ * Stamp the root request span with a bounded client family and route group, so real
+ * tool-call traces are groupable without relying on caller-controlled mcp.client.name.
+ * Scanner-route requests are never sampled (rootSampleRate), so only tracked routes get it.
+ */
+function stampRootSpan(info: TrackedRequest): void {
+  const span = Sentry.getActiveSpan();
+  if (!span) return;
+  span.setAttribute("http.route", info.tracked.route);
+  span.setAttribute("app.route.group", info.tracked.group);
+  span.setAttribute("app.client.family", info.clientFamily);
+  if (info.mcpRequest) {
+    span.setAttribute("mcp.method.name", info.mcpRequest.method);
+    span.setAttribute("app.mcp.request.kind", info.mcpRequest.kind);
+  }
+}
+
+function routeTo(request: Request, env: Env, pathname: string): Promise<Response> | Response {
+  if (pathname === "/internal" || pathname.startsWith("/internal/")) {
+    return handleInternalMcp(request, env);
+  }
+  if (pathname === "/mcp" || pathname.startsWith("/mcp/")) return handleDirectMcp(request, env);
+  return jsonError("Not found.", 404);
+}
+
+/** Validate, rate-limit, classify and serve a request to /mcp or /internal. */
+async function serveTracked(request: Request, env: Env, tracked: TrackedRoute): Promise<Response> {
+  const clientFamily = resolveClientFamily(request.headers.get("User-Agent"));
+  const rejected = mcpRequestValidationResponse(request, env, tracked);
+  const earlyResponse = rejected ?? (await rateLimited(request, env));
+  const info: TrackedRequest = {
+    tracked,
+    clientFamily,
+    mcpRequest: earlyResponse ? null : await inspectMcpRequest(request),
+  };
+  stampRootSpan(info);
+  const response = earlyResponse ?? (await routeTo(request, env, new URL(request.url).pathname));
+  recordResponseMetric(request, response, info);
+  return response;
 }
 
 const handler = {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/" && url.hostname === env.LANDING_HOSTNAME) {
-      const limited = await rateLimited(request, env);
-      if (limited) return limited;
-      if (request.method !== "GET" && request.method !== "HEAD")
-        return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
-      return new Response(request.method === "HEAD" ? null : landingHtml(url.origin + "/mcp"), {
-        headers: {
-          ...SECURITY_HEADERS,
-          "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": landingSecurityPolicy,
-        },
-      });
+      return serveLanding(request, env, url);
     }
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
-
-    const { pathname } = url;
-    const tracked = classifyRoute(pathname);
-    const clientFamily = resolveClientFamily(request.headers.get("User-Agent"));
-
-    // Stamp the root request span with a bounded client family + route group so real
-    // tool-call traces are groupable without relying on caller-controlled
-    // mcp.client.name. Only for tracked routes — scanner-route requests are never sampled
-    // (rootSampleRate) regardless.
-    if (tracked) {
-      const span = Sentry.getActiveSpan();
-      if (span) {
-        span.setAttribute("http.route", tracked.route);
-        span.setAttribute("app.route.group", tracked.group);
-        span.setAttribute("app.client.family", clientFamily);
-      }
-    }
-
-    const rejected = tracked ? mcpRequestValidationResponse(request, env, tracked) : undefined;
-    const limited = rejected ? null : await rateLimited(request, env);
-    const earlyResponse = rejected ?? limited;
-    const mcpRequest = earlyResponse || !tracked ? null : await inspectMcpRequest(request);
-
-    if (mcpRequest) {
-      const span = Sentry.getActiveSpan();
-      if (span) {
-        span.setAttribute("mcp.method.name", mcpRequest.method);
-        span.setAttribute("app.mcp.request.kind", mcpRequest.kind);
-      }
-    }
-
-    let response: Response;
-    if (earlyResponse) {
-      response = earlyResponse;
-    } else if (pathname === "/internal" || pathname.startsWith("/internal/")) {
-      response = await handleInternalMcp(request, env);
-    } else if (pathname === "/mcp" || pathname.startsWith("/mcp/")) {
-      response = await handleDirectMcp(request, env);
-    } else {
-      response = jsonError("Not found.", 404);
-    }
-
-    recordResponseMetric(request, response, tracked, clientFamily, mcpRequest);
-
+    const tracked = classifyRoute(url.pathname);
+    if (tracked) return corsResponse(await serveTracked(request, env, tracked));
+    // Untracked paths share the per-IP rate limit, and get no span attributes or metric.
+    const response =
+      (await rateLimited(request, env)) ?? (await routeTo(request, env, url.pathname));
     return corsResponse(response);
   },
 } satisfies ExportedHandler<Env>;
