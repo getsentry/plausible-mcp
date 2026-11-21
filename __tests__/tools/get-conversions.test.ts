@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { connect, CONVERSION_RATES_MEANING, plausibleOk, type Harness } from "../harness.js";
+import {
+  connect,
+  CONVERSION_RATES_MEANING,
+  dataOf,
+  plausibleOk,
+  type Harness,
+} from "../harness.js";
 
 let h: Harness;
 beforeEach(async () => {
@@ -17,7 +23,7 @@ describe("get_conversions", () => {
       metrics: ["visitors", "events", "conversion_rate"],
       dimensions: ["event:goal"],
     });
-    expect(result.structuredContent).toEqual({
+    expect(dataOf(result)).toEqual({
       metrics: ["visitors", "events", "conversion_rate"],
       dimensions: ["event:goal"],
       results: [{ dimensions: ["Signup"], metrics: [40, 55, 4.2] }],
@@ -37,7 +43,7 @@ describe("get_conversions", () => {
 describe("get_conversions with breakdown_by_page", () => {
   beforeEach(() => {
     h.reply((body) =>
-      body.dimensions.includes("event:goal")
+      (body.dimensions ?? []).includes("event:goal")
         ? plausibleOk(
             [
               { dimensions: ["Purchase", "/pricing"], metrics: [9, 12, 0.04] },
@@ -52,7 +58,7 @@ describe("get_conversions with breakdown_by_page", () => {
   it("divides each page's conversions by that page's visitors", async () => {
     const result = await h.call("get_conversions", { date_range: "30d", breakdown_by_page: true });
 
-    expect(result.structuredContent).toMatchObject({
+    expect(dataOf(result)).toMatchObject({
       metrics: ["visitors", "events", "conversion_rate", "group_conversion_rate"],
       dimensions: ["event:goal", "event:page"],
       results: [
@@ -61,9 +67,7 @@ describe("get_conversions with breakdown_by_page", () => {
       ],
       notes: [CONVERSION_RATES_MEANING],
     });
-    expect(JSON.parse(result.content[0].text).query.metrics).toEqual(
-      result.structuredContent.metrics,
-    );
+    expect(JSON.parse(result.content[0].text).query.metrics).toEqual(dataOf(result).metrics);
   });
 
   it("counts page visitors without the goal and custom-property filters", async () => {

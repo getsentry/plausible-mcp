@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import * as Sentry from "@sentry/cloudflare";
+import { z } from "zod";
 import { captureSentry, connect, type Harness } from "../harness.js";
+import type { JsonObject } from "../../src/json.js";
 import { TOOL_NAMES } from "../../src/errors.js";
 
 const API_KEY = "plausible-key-abc123";
@@ -22,11 +24,20 @@ beforeEach(() => {
   sentry.envelopes.length = 0;
 });
 
+/** The fields of a Sentry feedback event that these tests read. */
+const feedbackEvent = z.object({
+  event_id: z.string(),
+  tags: z.record(z.string(), z.string()).optional(),
+  user: z.json().optional(),
+  request: z.object({ data: z.json().optional() }).optional(),
+  contexts: z.object({ feedback: z.object({ message: z.string(), source: z.string() }) }),
+});
+
 /** The one feedback event this call sent to Sentry. */
-async function sentFeedback(args: Record<string, unknown>) {
+async function sentFeedback(args: JsonObject) {
   const result = await h.call("send_feedback", args);
   await sentry.flush();
-  const events = sentry.items("feedback");
+  const events = sentry.items("feedback", feedbackEvent);
   expect(events).toHaveLength(1);
   return { result, event: events[0], feedback: events[0].contexts.feedback };
 }
@@ -99,7 +110,10 @@ describe("send_feedback", () => {
     const tool = tools.find((t) => t.name === "send_feedback")!;
     const queryTools = tools.filter((t) => t.name !== "send_feedback").map((t) => t.name);
 
-    expect((tool.inputSchema.properties as any).tool_name.enum.sort()).toEqual(queryTools.sort());
+    const { tool_name } = z
+      .object({ tool_name: z.object({ enum: z.array(z.string()) }) })
+      .parse(tool.inputSchema.properties);
+    expect(tool_name.enum.sort()).toEqual(queryTools.sort());
     expect([...TOOL_NAMES].sort()).toEqual(queryTools.sort());
     expect(tool.annotations).toMatchObject({
       readOnlyHint: false,

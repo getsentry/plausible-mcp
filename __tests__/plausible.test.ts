@@ -7,11 +7,14 @@ import {
   PlausibleUnreachableError,
 } from "../src/plausible.js";
 import { dateRangeSchema } from "../src/schemas.js";
+import { z } from "zod";
+import type { JsonObject } from "../src/json.js";
+import type { PlausibleQueryBody } from "../src/plausible.js";
 
-const mockFetch = vi.fn();
+const mockFetch = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", mockFetch);
 
-function mockOk(data: unknown = { results: [], meta: {}, query: {} }) {
+function mockOk(data: JsonObject = { results: [], meta: {}, query: {} }) {
   mockFetch.mockResolvedValueOnce(Response.json(data));
 }
 
@@ -21,8 +24,19 @@ function mockError(status: number, body: string, headers: Record<string, string>
 
 const base = { site_id: "example.com", metrics: ["visitors"], date_range: "7d" };
 
-function sentBody(call = 0) {
-  return JSON.parse(mockFetch.mock.calls[call][1].body);
+function sentBody(call = 0): PlausibleQueryBody {
+  // SAFETY: PlausibleClient sends JSON.stringify of a PlausibleQueryBody as the body.
+  return JSON.parse(z.string().parse(mockFetch.mock.calls[call][1]?.body)) as PlausibleQueryBody;
+}
+
+/** The error a query rejects with; throws if it resolves. */
+async function rejectionOf(query: Promise<unknown>): Promise<Error> {
+  return query.then(
+    () => {
+      throw new Error("Expected the query to reject");
+    },
+    (cause: Error) => cause,
+  );
 }
 
 describe("PlausibleClient", () => {
@@ -75,8 +89,7 @@ describe("PlausibleClient", () => {
 
         await client.query({ ...base, date_range: dateRange });
 
-        const sent = sentBody().date_range;
-        expect(sent).toHaveLength(2);
+        const sent = z.tuple([z.string(), z.string()]).parse(sentBody().date_range);
         expect(sent.join(",")).toBe(dateRange);
       }),
     );
@@ -89,7 +102,7 @@ describe("PlausibleClient", () => {
     const error = await client.query(base).catch((e) => e);
 
     expect(error).toBeInstanceOf(PlausibleUnreachableError);
-    expect((error as Error).cause).toBe(cause);
+    expect(error).toHaveProperty("cause", cause);
   });
 
   // Regression (bab4cf7): Plausible's only hour shorthand is "24h".
@@ -111,7 +124,7 @@ describe("PlausibleClient", () => {
 
             await client.query({ ...base, date_range: `${hours}h` });
 
-            const [start, end] = sentBody().date_range as [string, string];
+            const [start, end] = z.tuple([z.string(), z.string()]).parse(sentBody().date_range);
             expect(end).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
             expect(Date.parse(end)).toBe(Math.floor(now.getTime() / 1000) * 1000);
             expect(Date.parse(end) - Date.parse(start)).toBe(hours * 3_600_000);
@@ -210,8 +223,9 @@ describe("PlausibleClient", () => {
 
     async function retryAfterFor(header?: string) {
       mockError(429, "Rate limit exceeded", header === undefined ? {} : { "Retry-After": header });
-      const error = await client.query(base).catch((e) => e);
-      return (error as PlausibleApiError).retryAfterSeconds;
+      const error = await rejectionOf(client.query(base));
+      if (!(error instanceof PlausibleApiError)) throw error;
+      return error.retryAfterSeconds;
     }
 
     it("reads delta-seconds and an HTTP-date for the same moment as the same wait", async () => {

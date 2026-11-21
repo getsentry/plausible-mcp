@@ -15,6 +15,7 @@ beforeEach(() => {
 /** Attributes Sentry exports for a span in which the tool recorded the given request context. */
 async function exportedSpan(optIn: boolean) {
   Sentry.startSpan({ name: "tools/call get_timeseries" }, () =>
+    // SAFETY: the context holds only the ServerContext fields recordMcpClientInfo reads.
     recordMcpClientInfo({
       http: {
         authInfo: {

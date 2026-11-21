@@ -7,7 +7,9 @@ import {
   stripRequestAttributes,
   stripUrlQuery,
   type RedactableEvent,
+  type SentryAttributes,
 } from "../src/redaction.js";
+import { z } from "zod";
 
 describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
   it("strips an IP-only user (anonymous / BYOK event)", () => {
@@ -140,7 +142,7 @@ describe("anonymizeEventWithoutEmail (BYOK privacy guardrail)", () => {
 
 describe("stripRequestAttributes", () => {
   it("removes header, user-agent and query attributes and leaves other keys alone", () => {
-    const data: Record<string, unknown> = {
+    const data: SentryAttributes = {
       "http.request.header.x_openai_subject": "user-123",
       "http.response.header.set_cookie": "id=1",
       "user_agent.original": "SomeClient/1.0 (user@example.com)",
@@ -197,7 +199,7 @@ describe("stripRequestAttributes", () => {
         fc.dictionary(key, value),
         fc.option(fc.webUrl({ withQueryParameters: true }), { nil: undefined }),
         (input, url) => {
-          const data: Record<string, unknown> = { ...input, ...(url && { "url.full": url }) };
+          const data: SentryAttributes = { ...input, ...(url && { "url.full": url }) };
           stripRequestAttributes(data);
 
           for (const k of Object.keys(data)) {
@@ -206,7 +208,7 @@ describe("stripRequestAttributes", () => {
           for (const k of ["user_agent.original", "mcp.client.title", "url.query"]) {
             expect(data).not.toHaveProperty(k);
           }
-          if (typeof data["url.full"] === "string") expect(data["url.full"]).not.toMatch(/[?#]/);
+          expect(z.string().safeParse(data["url.full"]).data ?? "").not.toMatch(/[?#]/);
           const again = { ...data };
           stripRequestAttributes(again);
           expect(again).toEqual(data);
@@ -269,19 +271,23 @@ describe("sanitizeClientAttribute", () => {
   );
 
   it("returns at most 64 characters, and the same value when applied to its own output", () => {
-    const shaped = fc.oneof(
+    const identityParts = fc.oneof(
       fc.string(),
       fc.emailAddress(),
       fc
-        .string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 16, maxLength: 20 })
+        .string({
+          unit: fc.constantFrom(..."0123456789abcdef".split("")),
+          minLength: 16,
+          maxLength: 20,
+        })
         .map((hex) => `-${hex}1`),
       fc.constantFrom(".com", ".internal", "/Users/ada", " ", "-", "@"),
     );
     fc.assert(
       // A clean lead of 30-63 characters puts the 64-character cut inside the shaped tail.
       fc.property(
-        fc.string({ unit: fc.constantFrom(..."abcxyz"), minLength: 30, maxLength: 63 }),
-        fc.array(shaped, { maxLength: 8 }),
+        fc.string({ unit: fc.constantFrom(..."abcxyz".split("")), minLength: 30, maxLength: 63 }),
+        fc.array(identityParts, { maxLength: 8 }),
         (lead, parts) => {
           const value = lead + parts.join("");
           const once = sanitizeClientAttribute(value);
@@ -305,7 +311,7 @@ describe("sanitizeClientAttribute", () => {
 
 describe("stripRequestAttributes (client identifiers)", () => {
   it("sanitizes the client attributes the SDK writes from a legacy handshake", () => {
-    const data: Record<string, unknown> = {
+    const data: SentryAttributes = {
       "mcp.client.name": "ada@example.com",
       "mcp.client.version": "0.0.0-dev+/Users/ada/src",
       "mcp.tool.name": "get_breakdown",
@@ -321,7 +327,7 @@ describe("stripRequestAttributes (client identifiers)", () => {
   });
 
   it("drops a client attribute that is empty after trimming", () => {
-    const data: Record<string, unknown> = { "mcp.client.name": "  " };
+    const data: SentryAttributes = { "mcp.client.name": "  " };
 
     stripRequestAttributes(data);
 

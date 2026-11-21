@@ -3,7 +3,12 @@ import fc from "fast-check";
 import * as Sentry from "@sentry/cloudflare";
 import { PlausibleApiError, PlausibleUnreachableError } from "../src/plausible.js";
 import { reportToolError, toolErrorResult, UserFacingError } from "../src/errors.js";
+import { z } from "zod";
 import { captureSentry } from "./harness.js";
+
+const errorEvent = z.object({
+  exception: z.object({ values: z.array(z.object({ type: z.string(), value: z.string() })) }),
+});
 
 let sentry: ReturnType<typeof captureSentry>;
 beforeAll(() => {
@@ -11,21 +16,28 @@ beforeAll(() => {
 });
 
 /** Report the error inside a tool span and return what Sentry received for it. */
-async function report(error: unknown) {
+async function report(cause: Error) {
   sentry.clear();
   const info = Sentry.startSpan({ name: "tools/call get_timeseries" }, () =>
-    reportToolError(error, toolName),
+    reportToolError(cause, toolName),
   );
   await sentry.flush();
   return {
     info,
     span: sentry.spans[0],
-    exceptions: sentry.items("event").map((event) => event.exception.values[0]),
+    exceptions: sentry.items("event", errorEvent).map((event) => event.exception.values[0]),
     metrics: sentry.metrics(),
   };
 }
 
 const toolName = "get_timeseries";
+
+/** The documented code for each Plausible status. */
+function expectedCode(status: number): string {
+  if (status === 401 || status === 402 || status === 403) return "unauthorized";
+  if (status === 429) return "rate_limited";
+  return status >= 500 ? "upstream_unavailable" : "invalid_query";
+}
 
 describe("reportToolError", () => {
   it.each([
@@ -130,23 +142,16 @@ describe("reportToolError", () => {
             new PlausibleApiError(status, body, retryAfter),
           );
 
-          const expected =
-            status === 401 || status === 402 || status === 403
-              ? "unauthorized"
-              : status === 429
-                ? "rate_limited"
-                : status >= 500
-                  ? "upstream_unavailable"
-                  : "invalid_query";
-          expect(info.code).toBe(expected);
-          expect(info.retryable).toBe(status === 429 || status >= 500);
+          const retryable = status === 429 || status >= 500;
+          expect(info.code).toBe(expectedCode(status));
+          expect(info.retryable).toBe(retryable);
           expect(exceptions).toHaveLength(status >= 500 ? 1 : 0);
           expect(info.message).toContain(String(status));
-          if (detail !== undefined) expect(info.message.endsWith(`: ${detail}`)).toBe(true);
-          else expect(info.message).not.toContain(":");
-          if (info.retryable && retryAfter !== undefined)
-            expect(info.retry_after_seconds).toBe(retryAfter);
-          else expect(info).not.toHaveProperty("retry_after_seconds");
+          // The summary has no ": ", so everything after the first one is Plausible's message.
+          expect(info.message.split(": ").slice(1).join(": ")).toBe(detail ?? "");
+          const wait = retryable ? retryAfter : undefined;
+          expect(info.retry_after_seconds).toBe(wait);
+          expect("retry_after_seconds" in info).toBe(wait !== undefined);
         },
       ),
       { numRuns: 5 },

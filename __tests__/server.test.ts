@@ -3,7 +3,11 @@ import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createServer } from "../src/server.js";
+import { z } from "zod";
 import { connect, plausibleError, QUERY_TOOLS, type Harness } from "./harness.js";
+
+/** The cache hints a modern-era result carries next to its payload. */
+const cacheHint = z.object({ ttlMs: z.number(), cacheScope: z.string() });
 
 describe("MCP server", () => {
   let h: Harness;
@@ -24,13 +28,15 @@ describe("MCP server", () => {
 
   it("declares an output schema and read-only, idempotent annotations on each tool", async () => {
     const { tools } = await h.client.listTools();
-    for (const tool of tools) {
-      expect(tool.outputSchema?.type, tool.name).toBe("object");
-      expect(tool.annotations, tool.name).toMatchObject({
-        readOnlyHint: true,
-        idempotentHint: true,
-      });
-    }
+    expect(tools.map((tool) => [tool.name, tool.outputSchema?.type])).toEqual(
+      tools.map((tool) => [tool.name, "object"]),
+    );
+    expect(tools.map((tool) => [tool.name, tool.annotations])).toEqual(
+      tools.map((tool) => [
+        tool.name,
+        expect.objectContaining({ readOnlyHint: true, idempotentHint: true }),
+      ]),
+    );
   });
 
   // Regression (42e1b20): serverInfo.version once stayed behind the released package.
@@ -56,7 +62,9 @@ describe("MCP server", () => {
 
   it("declares in each input schema that other arguments are not allowed", async () => {
     const { tools } = await h.client.listTools();
-    for (const tool of tools) expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
+    expect(tools.map((tool) => [tool.name, tool.inputSchema.additionalProperties])).toEqual(
+      tools.map((tool) => [tool.name, false]),
+    );
   });
 });
 
@@ -127,20 +135,15 @@ describe("MCP HTTP protocol eras", () => {
       expect(modernClient.getProtocolEra()).toBe("modern");
       expect(methods).toContain("server/discover");
 
-      const discover = modernClient.getDiscoverResult() as unknown as {
-        ttlMs: number;
-        cacheScope: string;
-      };
+      const discover = modernClient.getDiscoverResult();
       expect(discover).toMatchObject({
         capabilities: { extensions: { "io.modelcontextprotocol/ui": {} } },
       });
-      expect(discover.ttlMs).toBe(60 * 60 * 1000);
-      expect(discover.cacheScope).toBe("public");
+      expect(cacheHint.parse(discover)).toEqual({ ttlMs: 60 * 60 * 1000, cacheScope: "public" });
 
       const toolList = await modernClient.listTools();
       expect(methods).toContain("tools/list");
-      expect((toolList as unknown as { ttlMs: number }).ttlMs).toBe(60 * 60 * 1000);
-      expect((toolList as unknown as { cacheScope: string }).cacheScope).toBe("public");
+      expect(cacheHint.parse(toolList)).toEqual({ ttlMs: 60 * 60 * 1000, cacheScope: "public" });
       expect(toolList.tools.map((tool) => tool.name)).toEqual([
         "get_timeseries",
         "get_breakdown",

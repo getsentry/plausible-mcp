@@ -108,7 +108,7 @@ function parseRetryAfterSeconds(header: string | null): number | undefined {
 }
 
 /** The JSON body of a Stats API v2 query. */
-interface PlausibleQueryBody {
+export interface PlausibleQueryBody {
   site_id: string;
   metrics: string[];
   date_range: string | [string, string];

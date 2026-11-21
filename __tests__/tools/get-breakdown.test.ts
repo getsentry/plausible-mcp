@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { connect, CONVERSION_RATES_MEANING, errorOf, type Harness } from "../harness.js";
+import { connect, CONVERSION_RATES_MEANING, dataOf, errorOf, type Harness } from "../harness.js";
 import type { PlausibleResult } from "../../src/plausible.js";
 
 let h: Harness;
@@ -24,7 +24,7 @@ describe("get_breakdown", () => {
       dimensions: ["visit:country_name"],
       metrics: ["visitors", "pageviews", "bounce_rate"],
     });
-    expect(result.structuredContent).toEqual({
+    expect(dataOf(result)).toEqual({
       metrics: ["visitors", "pageviews", "bounce_rate"],
       dimensions: ["visit:country_name"],
       results: [{ dimensions: ["Germany"], metrics: [10, 20, 30] }],
@@ -80,10 +80,10 @@ describe("get_breakdown", () => {
       offset: 4,
     });
 
-    expect(result.structuredContent.pagination).toEqual({ limit: 2, offset: 4, has_more: true });
+    expect(dataOf(result).pagination).toEqual({ limit: 2, offset: 4, has_more: true });
     const text = JSON.parse(result.content[0].text);
-    expect(text.results).toEqual(result.structuredContent.results);
-    expect(text.pagination).toEqual(result.structuredContent.pagination);
+    expect(text.results).toEqual(dataOf(result).results);
+    expect(text.pagination).toEqual(dataOf(result).pagination);
   });
 });
 
@@ -138,7 +138,7 @@ describe("get_breakdown conversion rates", () => {
       metrics: ["visitors", "conversion_rate"],
     });
 
-    expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+    expect(dataOf(result).notes).toEqual([CONVERSION_RATES_MEANING]);
     expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
   });
 
@@ -181,11 +181,12 @@ async function walkPages(dimension: string, limit: number) {
       limit,
       offset,
     });
-    const page = result.structuredContent;
-    expect(page.pagination).toMatchObject({ limit, offset });
-    names.push(...page.results.map((row: PlausibleResult) => String(row.dimensions[0])));
-    hasMore.push(page.pagination.has_more);
-    if (!page.pagination.has_more) return { names, hasMore };
+    const { results, pagination } = dataOf(result);
+    if (pagination === undefined) throw new Error("get_breakdown returned no pagination");
+    expect(pagination).toMatchObject({ limit, offset });
+    names.push(...results.map((row) => String(row.dimensions[0])));
+    hasMore.push(pagination.has_more);
+    if (!pagination.has_more) return { names, hasMore };
   }
 }
 
@@ -201,13 +202,13 @@ describe("get_breakdown paging", () => {
           const sorted = rows
             .map((row) => ({ row, tie: Math.random() }))
             .sort((a, b) => {
-              for (const [field, direction] of body.order_by as [string, string][]) {
+              for (const [field, direction] of body.order_by ?? []) {
                 const [x, y] = [keyOf(a.row, field), keyOf(b.row, field)];
                 if (x !== y) return (x < y ? -1 : 1) * (direction === "asc" ? 1 : -1);
               }
               return a.tie - b.tie;
             });
-          const { limit: take, offset = 0 } = body.pagination;
+          const { limit: take, offset = 0 } = body.pagination ?? { limit: 10_000 };
           return sorted
             .slice(offset, offset + take)
             .map(({ row }) => ({ dimensions: [row.name], metrics: [row.visitors] }));
@@ -231,14 +232,16 @@ describe("get_breakdown paging", () => {
       fc.asyncProperty(
         dataset,
         fc.integer({ min: 1, max: 7 }),
-        fc.infiniteStream(fc.integer()),
-        async (rows, limit, seeds) => {
-          const seed = seeds[Symbol.iterator]();
+        fc.integer({ min: 1, max: 2 ** 30 }),
+        async (rows, limit, seed) => {
+          // A small linear congruential generator, so each request gets fresh tie keys.
+          let state = seed;
+          const nextKey = () => (state = (state * 1_103_515_245 + 12_345) % 2 ** 31);
           h.reply((body) => {
             expect(body.pagination).toEqual({ limit: 10_000 });
             // Visitors descending, but ties shuffled differently on every request.
             const shuffled = rows
-              .map((row) => ({ row, key: seed.next().value as number }))
+              .map((row) => ({ row, key: nextKey() }))
               .sort((a, b) => b.row.visitors - a.row.visitors || a.key - b.key)
               .map(({ row }) => row);
             return shuffled.map((row) => ({ dimensions: [row.name], metrics: [row.visitors] }));

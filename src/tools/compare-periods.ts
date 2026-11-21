@@ -37,7 +37,7 @@ const periodSchema = z.object({
 });
 
 /** `outputSchema` for compare_periods — two period aggregates plus per-metric deltas. */
-const comparePeriodsOutputSchema = z.object({
+export const comparePeriodsOutputSchema = z.object({
   period_a: periodSchema,
   period_b: periodSchema,
   deltas: z

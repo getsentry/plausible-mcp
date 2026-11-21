@@ -5,31 +5,55 @@
  * result the client receives, rather than on the tool internals in between.
  */
 import { vi } from "vitest";
+import { z } from "zod";
 import * as Sentry from "@sentry/cloudflare";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createServer, type ServerConfig } from "../src/server.js";
+import { queryResultOutputSchema } from "../src/schemas.js";
+import { comparePeriodsOutputSchema } from "../src/tools/compare-periods.js";
+import type { JsonObject, JsonValue } from "../src/json.js";
+import type { PlausibleQueryBody, PlausibleResult } from "../src/plausible.js";
 export { CONVERSION_RATES_MEANING } from "../src/schemas.js";
-import type { PlausibleResult } from "../src/plausible.js";
 
 export interface PlausibleRequest {
   url: string;
   authorization: string | null;
-  body: Record<string, any>;
+  body: PlausibleQueryBody;
 }
 
 /** Answer one Plausible request: rows for a 200, or a `Response` for anything else. */
-export type PlausibleReply = (body: Record<string, any>) => PlausibleResult[] | Response;
+export type PlausibleReply = (body: PlausibleQueryBody) => PlausibleResult[] | Response;
 
 /** A 200 from Plausible. `query` is Plausible's echo of the resolved query, such as its date_range. */
-export function plausibleOk(
-  results: PlausibleResult[],
-  query: Record<string, unknown> = {},
-): Response {
+export function plausibleOk(results: PlausibleResult[], query: JsonObject = {}): Response {
   return Response.json({ results, meta: {}, query });
 }
 
-export function plausibleError(status: number, body = "", headers: Record<string, string> = {}) {
+export function plausibleError(status: number, body = "", headers: HeadersInit = {}) {
   return new Response(body, { status, headers });
+}
+
+/** Each tool's structuredContent, parsed with the output schema the tool declares. */
+const OUTPUT_SCHEMAS = {
+  get_timeseries: queryResultOutputSchema,
+  get_breakdown: queryResultOutputSchema,
+  get_conversions: queryResultOutputSchema,
+  compare_periods: comparePeriodsOutputSchema,
+  send_feedback: z.object({ feedback_id: z.string() }),
+};
+export type ToolName = keyof typeof OUTPUT_SCHEMAS;
+type StructuredContent<N extends ToolName> = z.infer<(typeof OUTPUT_SCHEMAS)[N]>;
+
+const toolResultSchema = z.object({
+  isError: z.boolean().optional(),
+  content: z.array(z.object({ type: z.string(), text: z.string() })),
+  structuredContent: z.json().optional(),
+});
+
+export interface ToolResult<N extends ToolName = ToolName> {
+  isError?: boolean;
+  content: Array<{ type: string; text: string }>;
+  structuredContent?: StructuredContent<N>;
 }
 
 export interface Harness {
@@ -38,14 +62,8 @@ export interface Harness {
   requests: PlausibleRequest[];
   /** Set how Plausible answers the following requests. */
   reply(handler: PlausibleReply): void;
-  call(name: string, args: Record<string, unknown>): Promise<ToolResult>;
+  call<N extends ToolName>(name: N, args: JsonObject): Promise<ToolResult<N>>;
   close(): Promise<void>;
-}
-
-export interface ToolResult {
-  isError?: boolean;
-  content: Array<{ type: string; text: string }>;
-  structuredContent?: any;
 }
 
 export async function connect(config: Partial<ServerConfig> = {}): Promise<Harness> {
@@ -54,10 +72,12 @@ export async function connect(config: Partial<ServerConfig> = {}): Promise<Harne
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body));
+      const request = new Request(input, init);
+      // SAFETY: the client under test sends JSON.stringify of a PlausibleQueryBody.
+      const body = (await request.json()) as PlausibleQueryBody;
       requests.push({
-        url: String(input),
-        authorization: new Headers(init?.headers).get("Authorization"),
+        url: request.url,
+        authorization: request.headers.get("Authorization"),
         body,
       });
       const reply = handler(body);
@@ -77,8 +97,14 @@ export async function connect(config: Partial<ServerConfig> = {}): Promise<Harne
     reply(next) {
       handler = next;
     },
-    async call(name, args) {
-      return (await client.callTool({ name, arguments: args })) as ToolResult;
+    async call<N extends ToolName>(name: N, args: JsonObject): Promise<ToolResult<N>> {
+      const result = toolResultSchema.parse(await client.callTool({ name, arguments: args }));
+      const { structuredContent, ...rest } = result;
+      if (structuredContent === undefined) return rest;
+      // SAFETY: OUTPUT_SCHEMAS[name] is the schema for tool N, so its output is N's content;
+      // TypeScript only resolves the lookup to the union over every tool.
+      const parsed = OUTPUT_SCHEMAS[name].parse(structuredContent) as StructuredContent<N>;
+      return { ...rest, structuredContent: parsed };
     },
     async close() {
       await client.close();
@@ -87,14 +113,28 @@ export async function connect(config: Partial<ServerConfig> = {}): Promise<Harne
   };
 }
 
+const toolErrorSchema = z.object({
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+    retryable: z.boolean(),
+    retry_after_seconds: z.number().optional(),
+  }),
+});
+
+/** The structuredContent of a call that succeeded; throws with the error text otherwise. */
+export function dataOf<N extends ToolName>(result: ToolResult<N>): StructuredContent<N> {
+  if (result.structuredContent === undefined) {
+    throw new Error(
+      `Expected structuredContent, got: ${result.content.map((c) => c.text).join(" ")}`,
+    );
+  }
+  return result.structuredContent;
+}
+
 /** The machine-readable error a failed tool call returns in its second text block. */
 export function errorOf(result: ToolResult) {
-  return JSON.parse(result.content[1].text).error as {
-    code: string;
-    message: string;
-    retryable: boolean;
-    retry_after_seconds?: number;
-  };
+  return toolErrorSchema.parse(JSON.parse(result.content[1].text)).error;
 }
 
 /** The four query tools with the smallest valid arguments for each. */
@@ -108,13 +148,34 @@ export const QUERY_TOOLS = [
   },
 ] as const;
 
+/** A span attribute as the SDK writes it: a bare value, or `{ value, type }` once serialized. */
+const spanAttribute = z.union([z.object({ value: z.json() }).transform((a) => a.value), z.json()]);
+const envelopeItemHeader = z.object({ type: z.string() });
+const traceMetricPayload = z.object({
+  items: z.array(
+    z.object({
+      name: z.string(),
+      value: z.number(),
+      attributes: z.record(z.string(), z.object({ value: z.json() })).optional(),
+    }),
+  ),
+});
+
+function decodeEnvelope(body: string | Uint8Array): JsonValue[] {
+  const text = body instanceof Uint8Array ? new TextDecoder().decode(body) : body;
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((line): JsonValue => JSON.parse(line));
+}
+
 /**
  * Install a real Sentry client whose transport keeps every envelope in memory, so a test can
  * read what would leave the process. Streamed spans arrive through `beforeSendSpan`.
  */
 export function captureSentry() {
-  const envelopes: Array<Array<Record<string, any>>> = [];
-  const spans: Array<Record<string, unknown>> = [];
+  const envelopes: JsonValue[][] = [];
+  const spans: JsonObject[] = [];
   const sentryClient = new Sentry.CloudflareClient({
     dsn: "https://public@example.ingest.sentry.io/1",
     tracesSampleRate: 1,
@@ -122,23 +183,13 @@ export function captureSentry() {
     stackParser: () => [],
     transport: (options) =>
       Sentry.createTransport(options, (request) => {
-        const text =
-          typeof request.body === "string" ? request.body : new TextDecoder().decode(request.body);
-        envelopes.push(
-          text
-            .split("\n")
-            .filter(Boolean)
-            .map((line) => JSON.parse(line)),
-        );
+        envelopes.push(decodeEnvelope(request.body));
         return Promise.resolve({});
       }),
     beforeSendSpan: (span) => {
       spans.push(
         Object.fromEntries(
-          Object.entries(span.attributes ?? {}).map(([key, attribute]) => [
-            key,
-            (attribute as { value?: unknown })?.value ?? attribute,
-          ]),
+          Object.entries(span.attributes).map(([key, value]) => [key, spanAttribute.parse(value)]),
         ),
       );
       return span;
@@ -147,30 +198,35 @@ export function captureSentry() {
   Sentry.setAsyncLocalStorageAsyncContextStrategy();
   Sentry.setCurrentClient(sentryClient);
   sentryClient.init();
+
+  /** Payloads of the given envelope item type, e.g. "feedback", parsed with `schema`. */
+  function items<T>(type: string, schema: z.ZodType<T>): T[] {
+    // An envelope is a header line, then item-header and payload lines in pairs.
+    return envelopes.flatMap((lines) => {
+      const payloads: T[] = [];
+      for (let i = 1; i + 1 < lines.length; i += 2) {
+        if (envelopeItemHeader.safeParse(lines[i]).data?.type === type) {
+          payloads.push(schema.parse(lines[i + 1]));
+        }
+      }
+      return payloads;
+    });
+  }
+
   return {
     envelopes,
     spans,
-    /** Event payloads of the given envelope item type, e.g. "feedback". */
-    items(type: string) {
-      // An envelope is a header line, then item-header and payload lines in pairs.
-      return envelopes.flatMap((lines) => {
-        const payloads = [];
-        for (let i = 1; i + 1 < lines.length; i += 2) {
-          if (lines[i].type === type) payloads.push(lines[i + 1]);
-        }
-        return payloads;
-      });
-    },
-    /** Metrics sent, with their attribute values unwrapped. */
+    items,
+    /** Metrics sent, with their attribute values unwrapped and the SDK's own left out. */
     metrics() {
-      return this.items("trace_metric").flatMap((payload) =>
-        payload.items.map((metric: Record<string, any>) => ({
-          name: metric.name as string,
-          value: metric.value as number,
+      return items("trace_metric", traceMetricPayload).flatMap((payload) =>
+        payload.items.map(({ name, value, attributes }) => ({
+          name,
+          value,
           attributes: Object.fromEntries(
-            Object.entries(metric.attributes ?? {})
+            Object.entries(attributes ?? {})
               .filter(([key]) => !key.startsWith("sentry."))
-              .map(([key, attribute]) => [key, (attribute as { value: unknown }).value]),
+              .map(([key, attribute]) => [key, attribute.value]),
           ),
         })),
       );

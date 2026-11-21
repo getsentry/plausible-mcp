@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { connect, CONVERSION_RATES_MEANING, errorOf, type Harness } from "../harness.js";
+import { connect, CONVERSION_RATES_MEANING, dataOf, errorOf, type Harness } from "../harness.js";
 
 let h: Harness;
 beforeEach(async () => {
@@ -21,12 +21,12 @@ describe("get_timeseries", () => {
         dimensions: ["time:day"],
       },
     ]);
-    expect(result.structuredContent).toEqual({
+    expect(dataOf(result)).toEqual({
       metrics: ["visitors", "pageviews", "bounce_rate", "visit_duration"],
       dimensions: ["time:day"],
       results: [{ dimensions: ["2026-01-01"], metrics: [100, 200, 45.5, 120] }],
     });
-    expect(JSON.parse(result.content[0].text).results).toEqual(result.structuredContent.results);
+    expect(JSON.parse(result.content[0].text).results).toEqual(dataOf(result).results);
   });
 
   it.each(["hour", "day", "week", "month"])("buckets by %s", async (granularity) => {
@@ -44,7 +44,7 @@ describe("get_timeseries", () => {
     });
 
     expect(h.requests[0].body.metrics).toEqual(["events", "visitors"]);
-    expect(result.structuredContent.metrics).toEqual(["events", "visitors"]);
+    expect(dataOf(result).metrics).toEqual(["events", "visitors"]);
   });
 
   // Regression (5dcd2a6): Plausible stops at 10,000 rows without saying so.
@@ -59,7 +59,7 @@ describe("get_timeseries", () => {
       metrics: ["visitors"],
     });
     expect(under.isError).toBeFalsy();
-    expect(under.structuredContent.results).toHaveLength(9_999);
+    expect(dataOf(under).results).toHaveLength(9_999);
 
     h.reply(() => rows(10_000));
     const at = await h.call("get_timeseries", {
@@ -80,7 +80,7 @@ describe("get_timeseries", () => {
       metrics: ["visitors", "conversion_rate"],
     });
 
-    expect(result.structuredContent.notes).toEqual([CONVERSION_RATES_MEANING]);
+    expect(dataOf(result).notes).toEqual([CONVERSION_RATES_MEANING]);
     expect(JSON.parse(result.content[0].text).notes).toEqual([CONVERSION_RATES_MEANING]);
   });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
+import { z } from "zod";
 import {
   buildResultNotes,
   CONVERSION_RATES_MEANING,
@@ -170,9 +171,9 @@ describe("buildPropertyFilters", () => {
     fc.assert(
       fc.property(fc.stringMatching(/^[a-z_]{1,20}$/), (name) => {
         const [[, target]] = buildPropertyFilters([{ property: name, values: ["x"] }]);
-        expect(buildPropertyFilters([{ property: target as string, values: ["x"] }])).toEqual(
-          buildPropertyFilters([{ property: name, values: ["x"] }]),
-        );
+        expect(
+          buildPropertyFilters([{ property: z.string().parse(target), values: ["x"] }]),
+        ).toEqual(buildPropertyFilters([{ property: name, values: ["x"] }]));
       }),
     );
   });

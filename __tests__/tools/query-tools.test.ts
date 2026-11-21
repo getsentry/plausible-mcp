@@ -126,7 +126,9 @@ describe("without a default site", () => {
 
   it("lists site_id as required on every query tool", async () => {
     const { tools } = await bare.client.listTools();
-    for (const tool of tools) expect(tool.inputSchema.required, tool.name).toContain("site_id");
+    expect(tools.map((tool) => [tool.name, tool.inputSchema.required])).toEqual(
+      tools.map((tool) => [tool.name, expect.arrayContaining(["site_id"])]),
+    );
   });
 
   it.each(QUERY_TOOLS)(
@@ -144,7 +146,6 @@ describe("without a default site", () => {
 describe("with a default site", () => {
   it("lists site_id as optional", async () => {
     const { tools } = await h.client.listTools();
-    for (const tool of tools)
-      expect(tool.inputSchema.required ?? [], tool.name).not.toContain("site_id");
+    expect(tools.filter((tool) => tool.inputSchema.required?.includes("site_id"))).toEqual([]);
   });
 });

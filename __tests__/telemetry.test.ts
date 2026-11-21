@@ -110,7 +110,7 @@ describe("classifyMcpRequest", () => {
 describe("classifyMcpMethod", () => {
   it("never echoes a method name it does not know, from a header or a body", () => {
     const method = fc.oneof(
-      fc.string(),
+      fc.string({ minLength: 1 }),
       fc.constantFrom("ping", "tools/call", "server/discover", "tools/list"),
     );
     fc.assert(
@@ -119,8 +119,7 @@ describe("classifyMcpMethod", () => {
         expect(fromHeader.method).toBe(isKnownMcpMethod(name) ? name : "other");
         expect(["heartbeat", "tool_call", "control", "unknown"]).toContain(fromHeader.kind);
         expect(fromHeader.kind === "unknown").toBe(fromHeader.method === "other");
-        if (name)
-          expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1, method: name })).toEqual(fromHeader);
+        expect(classifyMcpRequest({ jsonrpc: "2.0", id: 1, method: name })).toEqual(fromHeader);
       }),
     );
   });

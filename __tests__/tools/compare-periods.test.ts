@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { connect, errorOf, plausibleOk, type Harness } from "../harness.js";
+import { connect, dataOf, errorOf, plausibleOk, type Harness } from "../harness.js";
 import { previousPeriod } from "../../src/tools/compare-periods.js";
 
 const PERIOD_A = "2026-01-01,2026-01-07";
@@ -24,12 +24,15 @@ describe("compare_periods", () => {
   it("queries each period with the same metrics and filters", async () => {
     await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B, page: "/pricing" });
 
-    const ranges = h.requests.map((request) => request.body.date_range).sort();
-    expect(ranges).toEqual([
-      ["2026-01-01", "2026-01-07"],
-      ["2026-01-08", "2026-01-14"],
-    ]);
-    const [first, second] = h.requests.map(({ body: { date_range, ...rest } }) => rest);
+    const ranges = h.requests.map((request) => request.body.date_range);
+    expect(ranges).toHaveLength(2);
+    expect(ranges).toEqual(
+      expect.arrayContaining([
+        ["2026-01-01", "2026-01-07"],
+        ["2026-01-08", "2026-01-14"],
+      ]),
+    );
+    const [first, second] = h.requests.map(({ body }) => ({ ...body, date_range: "" }));
     expect(first).toEqual(second);
     expect(first.filters).toEqual([["is", "event:page", ["/pricing"]]]);
   });
@@ -39,7 +42,7 @@ describe("compare_periods", () => {
 
     const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
 
-    expect(result.structuredContent).toEqual({
+    expect(dataOf(result)).toEqual({
       period_a: {
         range: PERIOD_A,
         metrics: { visitors: 100, pageviews: 200, bounce_rate: 45, visit_duration: 120 },
@@ -55,7 +58,7 @@ describe("compare_periods", () => {
         visit_duration: { absolute: 10, percent: 8.33 },
       },
     });
-    expect(JSON.parse(result.content[0].text)).toEqual(result.structuredContent);
+    expect(JSON.parse(result.content[0].text)).toEqual(dataOf(result));
   });
 
   it("returns empty metrics and deltas when Plausible has no rows", async () => {
@@ -64,7 +67,7 @@ describe("compare_periods", () => {
     const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toMatchObject({
+    expect(dataOf(result)).toMatchObject({
       period_a: { metrics: {} },
       period_b: { metrics: {} },
       deltas: {},
@@ -77,47 +80,67 @@ describe("compare_periods", () => {
     const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent.period_b.metrics).toEqual({});
-    expect(result.structuredContent.deltas.visitors).toEqual({ absolute: null, percent: null });
+    expect(dataOf(result).period_b.metrics).toEqual({});
+    expect(dataOf(result).deltas.visitors).toEqual({ absolute: null, percent: null });
   });
 
-  it("computes each delta from period_a to period_b, rounded to cents", async () => {
-    const value = fc.oneof(
-      { weight: 1, arbitrary: fc.constant(null) },
-      { weight: 1, arbitrary: fc.constant(0) },
-      // Plausible reports metrics to at most two decimals.
-      { weight: 3, arbitrary: fc.integer({ min: 0, max: 100_000_000 }).map((n) => n / 100) },
-      { weight: 3, arbitrary: fc.integer({ min: 0, max: 1_000_000 }) },
-    );
+  // Plausible reports metrics to at most two decimals.
+  const metric = fc.oneof(
+    fc.constant(0),
+    fc.integer({ min: 0, max: 100_000_000 }).map((n) => n / 100),
+    fc.integer({ min: 0, max: 1_000_000 }),
+  );
+  const nonZero = metric.filter((value) => value !== 0);
+
+  async function deltaFor(a: number | null, b: number | null) {
+    replyWith([a], [b]);
+    const result = await h.call("compare_periods", {
+      period_a: PERIOD_A,
+      period_b: PERIOD_B,
+      metrics: ["visitors"],
+    });
+    const data = dataOf(result);
+    expect([data.period_a.metrics.visitors, data.period_b.metrics.visitors]).toEqual([a, b]);
+    return data.deltas.visitors;
+  }
+
+  it("gives an absolute change within half a cent of period_b - period_a, in whole cents", async () => {
     await fc.assert(
-      fc.asyncProperty(value, value, async (a, b) => {
-        replyWith([a], [b]);
-
-        const result = await h.call("compare_periods", {
-          period_a: PERIOD_A,
-          period_b: PERIOD_B,
-          metrics: ["visitors"],
-        });
-        const { absolute, percent } = result.structuredContent.deltas.visitors;
-
-        expect(result.structuredContent.period_a.metrics.visitors).toBe(a);
-        expect(result.structuredContent.period_b.metrics.visitors).toBe(b);
-        if (a === null || b === null) {
-          expect({ absolute, percent }).toEqual({ absolute: null, percent: null });
-          return;
-        }
-        const cents = (x: number) => Math.abs(x * 100 - Math.round(x * 100));
-        expect(Math.abs(absolute - (b - a))).toBeLessThanOrEqual(0.005 + 1e-9);
-        expect(cents(absolute)).toBeLessThan(1e-6);
-        if (a === 0) {
-          expect(percent).toBeNull();
-        } else {
-          const exact = ((b - a) / a) * 100;
-          expect(Math.abs(percent - exact)).toBeLessThanOrEqual(0.005 + Math.abs(exact) * 1e-12);
-          if (Math.abs(percent) >= 0.01) expect(Math.sign(percent)).toBe(Math.sign((b - a) / a));
-        }
+      fc.asyncProperty(metric, metric, async (a, b) => {
+        const { absolute } = await deltaFor(a, b);
+        expect(absolute).toBeCloseTo(b - a, 2);
+        expect(Math.round((absolute ?? Number.NaN) * 100) / 100).toBe(absolute);
       }),
-      { numRuns: 100 },
+      { numRuns: 60 },
+    );
+  });
+
+  it("gives the percent change relative to a nonzero period_a, within half a hundredth", async () => {
+    await fc.assert(
+      fc.asyncProperty(nonZero, metric, async (a, b) => {
+        expect((await deltaFor(a, b)).percent).toBeCloseTo(((b - a) / a) * 100, 2);
+      }),
+      { numRuns: 60 },
+    );
+  });
+
+  it("gives no percent change from a zero period_a", async () => {
+    await fc.assert(
+      fc.asyncProperty(metric, async (b) => {
+        expect((await deltaFor(0, b)).percent).toBeNull();
+      }),
+      { numRuns: 20 },
+    );
+  });
+
+  it("gives null deltas when either period's value is null", async () => {
+    const side = fc.oneof(fc.constant(null), metric);
+    const pair = fc.tuple(side, side).filter(([a, b]) => a === null || b === null);
+    await fc.assert(
+      fc.asyncProperty(pair, async ([a, b]) => {
+        expect(await deltaFor(a, b)).toEqual({ absolute: null, percent: null });
+      }),
+      { numRuns: 20 },
     );
   });
 });
@@ -222,11 +245,11 @@ describe("compare_periods without period_a", () => {
       "day",
       ["2024-03-08", "2024-03-14"],
     ]);
-    expect(result.structuredContent.period_a).toEqual({
+    expect(dataOf(result).period_a).toEqual({
       range: "2024-03-08,2024-03-14",
       metrics: { visitors: 40 },
     });
-    expect(result.structuredContent.deltas.visitors).toEqual({ absolute: 10, percent: 25 });
+    expect(dataOf(result).deltas.visitors).toEqual({ absolute: 10, percent: 25 });
   });
 
   it("asks for period_a when Plausible returns no resolved dates", async () => {
