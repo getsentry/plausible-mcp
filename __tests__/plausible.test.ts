@@ -1,28 +1,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fc from "fast-check";
 import {
   PlausibleClient,
   PlausibleApiError,
   parsePlausibleErrorDetail,
   PlausibleUnreachableError,
 } from "../src/plausible.js";
+import { dateRangeSchema } from "../src/schemas.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-function mockOk(data: unknown) {
-  mockFetch.mockResolvedValueOnce({
-    ok: true,
-    json: () => Promise.resolve(data),
-  });
+function mockOk(data: unknown = { results: [], meta: {}, query: {} }) {
+  mockFetch.mockResolvedValueOnce(Response.json(data));
 }
 
 function mockError(status: number, body: string, headers: Record<string, string> = {}) {
-  mockFetch.mockResolvedValueOnce({
-    ok: false,
-    status,
-    headers: new Headers(headers),
-    text: () => Promise.resolve(body),
-  });
+  mockFetch.mockResolvedValueOnce(new Response(body, { status, headers }));
+}
+
+const base = { site_id: "example.com", metrics: ["visitors"], date_range: "7d" };
+
+function sentBody(call = 0) {
+  return JSON.parse(mockFetch.mock.calls[call][1].body);
 }
 
 describe("PlausibleClient", () => {
@@ -30,286 +30,156 @@ describe("PlausibleClient", () => {
 
   beforeEach(() => {
     mockFetch.mockReset();
-    client = new PlausibleClient({
-      apiKey: "test-key",
-      baseUrl: "https://plausible.io",
-    });
+    client = new PlausibleClient({ apiKey: "test-key", baseUrl: "https://plausible.io" });
   });
 
   it("sends correct request to /api/v2/query", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
+    mockOk();
 
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors", "pageviews"],
-      date_range: "30d",
-    });
+    await client.query({ site_id: "example.com", metrics: ["visitors", "pageviews"], date_range: "30d" });
 
     expect(mockFetch).toHaveBeenCalledWith(
       "https://plausible.io/api/v2/query",
       expect.objectContaining({
         method: "POST",
-        headers: {
-          Authorization: "Bearer test-key",
-          "Content-Type": "application/json",
-        },
+        headers: { Authorization: "Bearer test-key", "Content-Type": "application/json" },
       })
     );
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body).toEqual({
+    expect(sentBody()).toEqual({
       site_id: "example.com",
       metrics: ["visitors", "pageviews"],
       date_range: "30d",
     });
   });
 
-  it("encodes an absolute date range as the Plausible v2 tuple", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
+  it("sends every comma range the schema accepts as the Plausible v2 [start, end] tuple", async () => {
+    const date = fc
+      .date({ min: new Date("2000-01-01"), max: new Date("2099-12-31"), noInvalidDate: true })
+      .map((d) => d.toISOString());
+    const offset = fc.constantFrom("Z", "+02:00", "-05:30");
+    const range = fc.oneof(
+      fc.tuple(date, date).map(([a, b]) => `${a.slice(0, 10)},${b.slice(0, 10)}`),
+      fc.tuple(date, date, offset).map(([a, b, o]) => `${a.slice(0, 19)}${o},${b.slice(0, 19)}${o}`)
+    );
+    await fc.assert(
+      fc.asyncProperty(range, async (dateRange) => {
+        expect(dateRangeSchema.safeParse(dateRange).success).toBe(true);
+        mockFetch.mockReset();
+        mockOk();
 
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "2026-07-01,2026-07-07",
-    });
+        await client.query({ ...base, date_range: dateRange });
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.date_range).toEqual(["2026-07-01", "2026-07-07"]);
+        const sent = sentBody().date_range;
+        expect(sent).toHaveLength(2);
+        expect(sent.join(",")).toBe(dateRange);
+      })
+    );
   });
 
   it("wraps a rejected fetch as PlausibleUnreachableError", async () => {
     const cause = new TypeError("fetch failed");
     mockFetch.mockRejectedValueOnce(cause);
 
-    const error = await client
-      .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
-      .catch((e) => e);
+    const error = await client.query(base).catch((e) => e);
 
     expect(error).toBeInstanceOf(PlausibleUnreachableError);
     expect((error as Error).cause).toBe(cause);
   });
 
-  it("encodes a datetime range as the Plausible v2 tuple", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
-
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "2026-07-01T09:00:00+02:00,2026-07-01T12:00:00+02:00",
-    });
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.date_range).toEqual(["2026-07-01T09:00:00+02:00", "2026-07-01T12:00:00+02:00"]);
-  });
-
-  it("sends an hour range as a rolling datetime window ending now", async () => {
+  // Regression (bab4cf7): Plausible's only hour shorthand is "24h".
+  it("sends any Nh range as a rolling datetime window of N hours ending now", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-25T14:58:32.578Z"));
-    mockOk({ results: [], meta: {}, query: {} });
-
     try {
-      await client.query({ site_id: "example.com", metrics: ["events"], date_range: "1h" });
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 1, max: 9999 }),
+          fc.date({ min: new Date("2020-01-01"), max: new Date("2030-01-01"), noInvalidDate: true }),
+          async (hours, now) => {
+            vi.setSystemTime(now);
+            mockFetch.mockReset();
+            mockOk();
+
+            await client.query({ ...base, date_range: `${hours}h` });
+
+            const [start, end] = sentBody().date_range as [string, string];
+            expect(end).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+            expect(Date.parse(end)).toBe(Math.floor(now.getTime() / 1000) * 1000);
+            expect(Date.parse(end) - Date.parse(start)).toBe(hours * 3_600_000);
+          }
+        )
+      );
     } finally {
       vi.useRealTimers();
     }
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.date_range).toEqual(["2026-10-25T13:58:32Z", "2026-10-25T14:58:32Z"]);
   });
 
-  it("includes dimensions when provided", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
+  it("includes dimensions, filters and pagination when provided", async () => {
+    mockOk();
 
     await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
+      ...base,
       dimensions: ["time:day"],
-    });
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.dimensions).toEqual(["time:day"]);
-  });
-
-  it("passes single filter as array", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
-
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
-      filters: [["is", "event:page", ["/pricing"]]],
-    });
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.filters).toEqual([["is", "event:page", ["/pricing"]]]);
-  });
-
-  it("passes multiple filters as array (implicit AND)", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
-
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
       filters: [
         ["is", "event:page", ["/pricing"]],
         ["is", "event:goal", ["Signup"]],
       ],
-    });
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.filters).toEqual([
-      ["is", "event:page", ["/pricing"]],
-      ["is", "event:goal", ["Signup"]],
-    ]);
-  });
-
-  it("includes pagination when provided", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
-
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
       pagination: { limit: 10, offset: 5 },
     });
 
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.pagination).toEqual({ limit: 10, offset: 5 });
+    expect(sentBody()).toMatchObject({
+      dimensions: ["time:day"],
+      filters: [
+        ["is", "event:page", ["/pricing"]],
+        ["is", "event:goal", ["Signup"]],
+      ],
+      pagination: { limit: 10, offset: 5 },
+    });
   });
 
   it("includes order_by when provided and omits it when empty", async () => {
-    mockOk({ results: [], meta: {}, query: {} });
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
-      order_by: [
-        ["visitors", "desc"],
-        ["event:page", "asc"],
-      ],
-    });
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body).order_by).toEqual([
-      ["visitors", "desc"],
-      ["event:page", "asc"],
-    ]);
+    mockOk();
+    await client.query({ ...base, order_by: [["visitors", "desc"], ["event:page", "asc"]] });
+    expect(sentBody(0).order_by).toEqual([["visitors", "desc"], ["event:page", "asc"]]);
 
-    mockOk({ results: [], meta: {}, query: {} });
-    await client.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
-      order_by: [],
-    });
-    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).not.toHaveProperty("order_by");
+    mockOk();
+    await client.query({ ...base, order_by: [] });
+    expect(sentBody(1)).not.toHaveProperty("order_by");
   });
 
-  it("uses self-hosted base URL", async () => {
-    const selfHosted = new PlausibleClient({
-      apiKey: "key",
-      baseUrl: "https://analytics.mycompany.com/",
-    });
+  it.each([
+    [undefined, "https://plausible.io/api/v2/query"],
+    ["https://analytics.mycompany.com/", "https://analytics.mycompany.com/api/v2/query"],
+    ["http://localhost:8000", "http://localhost:8000/api/v2/query"],
+  ])("sends base URL %s requests to %s", async (baseUrl, url) => {
+    mockOk();
 
-    mockOk({ results: [], meta: {}, query: {} });
+    await new PlausibleClient({ apiKey: "key", baseUrl }).query(base);
 
-    await selfHosted.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://analytics.mycompany.com/api/v2/query",
-      expect.anything()
-    );
+    expect(mockFetch).toHaveBeenCalledWith(url, expect.anything());
   });
 
-  it("strips trailing slash from base URL", async () => {
-    const trailing = new PlausibleClient({
-      apiKey: "key",
-      baseUrl: "https://plausible.io/",
-    });
-
-    mockOk({ results: [], meta: {}, query: {} });
-
-    await trailing.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://plausible.io/api/v2/query",
-      expect.anything()
-    );
-  });
-
-  it("defaults base URL to plausible.io", async () => {
-    const defaultClient = new PlausibleClient({ apiKey: "key" });
-
-    mockOk({ results: [], meta: {}, query: {} });
-
-    await defaultClient.query({
-      site_id: "example.com",
-      metrics: ["visitors"],
-      date_range: "7d",
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://plausible.io/api/v2/query",
-      expect.anything()
-    );
-  });
-
-  it("throws PlausibleApiError on 401", async () => {
-    mockError(401, "Invalid API key");
-
-    await expect(
-      client.query({
-        site_id: "example.com",
-        metrics: ["visitors"],
-        date_range: "7d",
-      })
-    ).rejects.toThrow(PlausibleApiError);
-
-    try {
-      mockError(401, "Invalid API key");
-      await client.query({
-        site_id: "example.com",
-        metrics: ["visitors"],
-        date_range: "7d",
-      });
-    } catch (e) {
-      expect(e).toBeInstanceOf(PlausibleApiError);
-      expect((e as PlausibleApiError).status).toBe(401);
+  // The API key travels in the Authorization header, so it must not go over plain HTTP.
+  it.each(["http://analytics.example.com", "ftp://plausible.io", "file:///etc/passwd"])(
+    "refuses the base URL %s",
+    (baseUrl) => {
+      expect(() => new PlausibleClient({ apiKey: "key", baseUrl })).toThrow(/HTTPS/);
     }
-  });
+  );
 
-  it("throws PlausibleApiError on 429 rate limit", async () => {
-    mockError(429, "Rate limit exceeded");
+  it.each([400, 401, 402, 403, 404, 429, 500, 502, 503])(
+    "throws PlausibleApiError carrying status %i and Plausible's error message",
+    async (status) => {
+      mockError(status, JSON.stringify({ error: "Invalid metric" }));
 
-    await expect(
-      client.query({
-        site_id: "example.com",
-        metrics: ["visitors"],
-        date_range: "7d",
-      })
-    ).rejects.toThrow(PlausibleApiError);
-  });
+      const error = await client.query(base).catch((e) => e);
 
-  it("exposes an integer Retry-After header as retryAfterSeconds", async () => {
-    mockError(429, "Rate limit exceeded", { "Retry-After": "30" });
+      expect(error).toBeInstanceOf(PlausibleApiError);
+      expect(error.status).toBe(status);
+      expect(error.detail).toBe("Invalid metric");
+    }
+  );
 
-    const error = await client
-      .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
-      .catch((e) => e);
-
-    expect(error).toBeInstanceOf(PlausibleApiError);
-    expect((error as PlausibleApiError).retryAfterSeconds).toBe(30);
-  });
-
-  describe("HTTP-date Retry-After", () => {
+  describe("Retry-After", () => {
     beforeEach(() => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-10-21T07:00:00Z"));
@@ -319,16 +189,20 @@ describe("PlausibleClient", () => {
       vi.useRealTimers();
     });
 
-    async function retryAfterFor(header: string) {
-      mockError(429, "Rate limit exceeded", { "Retry-After": header });
-      const error = await client
-        .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
-        .catch((e) => e);
+    async function retryAfterFor(header?: string) {
+      mockError(429, "Rate limit exceeded", header === undefined ? {} : { "Retry-After": header });
+      const error = await client.query(base).catch((e) => e);
       return (error as PlausibleApiError).retryAfterSeconds;
     }
 
-    it("converts a future date to seconds from now", async () => {
-      expect(await retryAfterFor("Wed, 21 Oct 2026 07:00:30 GMT")).toBe(30);
+    it("reads delta-seconds and an HTTP-date for the same moment as the same wait", async () => {
+      await fc.assert(
+        fc.asyncProperty(fc.integer({ min: 0, max: 7 * 86_400 }), async (seconds) => {
+          const date = new Date(Date.now() + seconds * 1000).toUTCString();
+          expect(await retryAfterFor(String(seconds))).toBe(seconds);
+          expect(await retryAfterFor(date)).toBe(seconds);
+        })
+      );
     });
 
     it("rounds a fractional wait up", async () => {
@@ -340,49 +214,13 @@ describe("PlausibleClient", () => {
       expect(await retryAfterFor("Wed, 21 Oct 2026 06:00:00 GMT")).toBe(0);
     });
 
-    it("ignores an unparseable value", async () => {
-      expect(await retryAfterFor("soon")).toBeUndefined();
-    });
-  });
-
-  it("leaves retryAfterSeconds undefined without a Retry-After header", async () => {
-    mockError(429, "Rate limit exceeded");
-
-    const error = await client
-      .query({ site_id: "example.com", metrics: ["visitors"], date_range: "7d" })
-      .catch((e) => e);
-
-    expect((error as PlausibleApiError).retryAfterSeconds).toBeUndefined();
-  });
-
-  it("throws PlausibleApiError on 500", async () => {
-    mockError(500, "Internal Server Error");
-
-    await expect(
-      client.query({
-        site_id: "example.com",
-        metrics: ["visitors"],
-        date_range: "7d",
-      })
-    ).rejects.toThrow(PlausibleApiError);
-  });
-
-  it("returns parsed response on success", async () => {
-    const data = {
-      results: [{ dimensions: ["2024-01-01"], metrics: [100, 200] }],
-      meta: { imports_included: false },
-      query: { site_id: "example.com" },
-    };
-    mockOk(data);
-
-    const result = await client.query({
-      site_id: "example.com",
-      metrics: ["visitors", "pageviews"],
-      date_range: "7d",
+    it.each(["soon", "5x", "1e3"])("ignores the invalid value %j", async (header) => {
+      expect(await retryAfterFor(header)).toBeUndefined();
     });
 
-    expect(result.results).toHaveLength(1);
-    expect(result.results[0].metrics).toEqual([100, 200]);
+    it("leaves retryAfterSeconds undefined without a Retry-After header", async () => {
+      expect(await retryAfterFor()).toBeUndefined();
+    });
   });
 });
 
@@ -391,16 +229,17 @@ describe("parsePlausibleErrorDetail", () => {
     expect(parsePlausibleErrorDetail('{"error":"bad metric"}')).toBe("bad metric");
   });
 
-  it("returns undefined for a body that is not the documented shape", () => {
-    expect(parsePlausibleErrorDetail("<html>502</html>")).toBeUndefined();
-    expect(parsePlausibleErrorDetail('{"errors":["bad"]}')).toBeUndefined();
-    expect(parsePlausibleErrorDetail('{"error":""}')).toBeUndefined();
-    expect(parsePlausibleErrorDetail('{"error":{"detail":"bad"}}')).toBeUndefined();
-  });
+  it.each(["<html>502</html>", '{"errors":["bad"]}', '{"error":""}', '{"error":{"detail":"bad"}}', "null", '"bad"'])(
+    "returns undefined for %s, which is not the documented shape",
+    (body) => {
+      expect(parsePlausibleErrorDetail(body)).toBeUndefined();
+    }
+  );
 
-  it("truncates a long error message", () => {
-    const detail = parsePlausibleErrorDetail(JSON.stringify({ error: "x".repeat(900) }));
-    expect(detail).toBe(`${"x".repeat(500)}...`);
+  it("keeps a message of up to 500 characters and truncates a longer one", () => {
+    const of = (n: number) => parsePlausibleErrorDetail(JSON.stringify({ error: "x".repeat(n) }));
+    expect(of(500)).toBe("x".repeat(500));
+    expect(of(900)).toBe(`${"x".repeat(500)}...`);
   });
 });
 
