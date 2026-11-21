@@ -3,13 +3,19 @@ import { test as base, expect } from "@playwright/test";
 const preview = new URL("../coverage/ui-review/index.html", import.meta.url).href;
 const view = page => page.frameLocator('iframe[title="Plausible Analytics"]').frameLocator('iframe[title="Analytics result"]');
 const test = base.extend({
-  app: async ({ page }, use) => {
+  // Every test fails on a page error or console error, including the tests that drive the
+  // page without the app fixture.
+  page: async ({ page }, use) => {
     const errors = [];
-    const network = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {
       if (message.type() === "error") errors.push(message.text());
     });
+    await use(page);
+    expect(errors).toEqual([]);
+  },
+  app: async ({ page }, use) => {
+    const network = [];
     page.on("request", (request) => {
       if (/^https?:/.test(request.url())) network.push(request.url());
     });
@@ -17,7 +23,6 @@ const test = base.extend({
     const app = view(page);
     await expect(app.getByRole("heading", { name: "Traffic over time" })).toBeVisible();
     await use(app);
-    expect(errors).toEqual([]);
     expect(network).toEqual([]);
   },
 });

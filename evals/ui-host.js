@@ -80,7 +80,8 @@ async function openSample() {
     try {
       if (previous.getAppCapabilities()) await previous.teardownResource({}, {timeout: 1000});
     } catch (error) {
-      console.warn("The previous app could not acknowledge teardown.", error);
+      // An error, not a warning, so the browser checks fail when teardown breaks.
+      console.error("The previous app could not acknowledge teardown.", error);
     } finally {
       await previous.close();
     }
