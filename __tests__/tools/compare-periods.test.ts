@@ -61,17 +61,40 @@ describe("compare_periods", () => {
     expect(JSON.parse(result.content[0].text)).toEqual(dataOf(result));
   });
 
-  it("returns empty metrics and deltas when Plausible has no rows", async () => {
+  it("gives a null delta for every metric when Plausible has no rows", async () => {
     replyWith(null, null);
 
-    const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
+    const result = await h.call("compare_periods", {
+      period_a: PERIOD_A,
+      period_b: PERIOD_B,
+      metrics: ["visitors", "pageviews"],
+    });
 
-    expect(result.isError).toBeFalsy();
     expect(dataOf(result)).toMatchObject({
       period_a: { metrics: {} },
       period_b: { metrics: {} },
-      deltas: {},
+      deltas: {
+        visitors: { absolute: null, percent: null },
+        pageviews: { absolute: null, percent: null },
+      },
     });
+  });
+
+  // Bugbot on #96: the deltas walked only the baseline's metrics, so an empty baseline left
+  // the result with no deltas even though period_b had values.
+  it("gives a null delta for every metric when only the baseline has no rows", async () => {
+    replyWith(null, [150, 180, 40, 130]);
+
+    const result = await h.call("compare_periods", { period_a: PERIOD_A, period_b: PERIOD_B });
+
+    expect(dataOf(result).period_b.metrics.visitors).toBe(150);
+    expect(Object.keys(dataOf(result).deltas)).toEqual([
+      "visitors",
+      "pageviews",
+      "bounce_rate",
+      "visit_duration",
+    ]);
+    expect(dataOf(result).deltas.visitors).toEqual({ absolute: null, percent: null });
   });
 
   it("gives null deltas when only one period has rows", async () => {

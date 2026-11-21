@@ -64,8 +64,9 @@ function deltaOf(a: number | null | undefined, b: number | null | undefined) {
   return { absolute: round2(change), percent: a === 0 ? null : round2((change / a) * 100) };
 }
 
-function computeDeltas(a: PeriodMetrics, b: PeriodMetrics) {
-  return Object.fromEntries(Object.keys(a).map((key) => [key, deltaOf(a[key], b[key])]));
+/** A delta for every requested metric, null where either period has no value for it. */
+function computeDeltas(metricNames: string[], a: PeriodMetrics, b: PeriodMetrics) {
+  return Object.fromEntries(metricNames.map((name) => [name, deltaOf(a[name], b[name])]));
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -204,7 +205,7 @@ export function register(
         const comparison: PeriodComparison = {
           period_a: { range: periodA, metrics: metricsA },
           period_b: { range: args.period_b, metrics: metricsB },
-          deltas: computeDeltas(metricsA, metricsB),
+          deltas: computeDeltas(metrics, metricsA, metricsB),
         };
 
         return {
