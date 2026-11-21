@@ -1,16 +1,43 @@
+import { z } from "zod";
+
 function base64UrlDecode(input: string): string {
   const padded =
     input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (input.length % 4)) % 4);
   return atob(padded);
 }
 
-interface AccessJwtPayload {
-  email?: string;
-  common_name?: string;
-  iss?: string;
-  aud?: string | string[];
-  exp?: number;
-  iat?: number;
+/** One RSA JWKS entry, with the JWK fields importKey reads. importKey checks their values. */
+const accessCertSchema = z.object({
+  kid: z.string().optional(),
+  kty: z.string(),
+  n: z.string().optional(),
+  e: z.string().optional(),
+  alg: z.string().optional(),
+  use: z.string().optional(),
+  key_ops: z.array(z.string()).optional(),
+  ext: z.boolean().optional(),
+});
+type AccessCert = z.infer<typeof accessCertSchema>;
+const accessCertsSchema = z.object({ keys: z.array(accessCertSchema).min(1) });
+
+/**
+ * Only RS256, the algorithm verified below. Rejecting anything else closes the classic
+ * "alg confusion" downgrade (e.g. `none`/HS256).
+ */
+const jwtHeaderSchema = z.object({ kid: z.string().min(1), alg: z.literal("RS256") });
+
+const jwtPayloadSchema = z.object({
+  email: z.string().optional(),
+  common_name: z.string().optional(),
+  iss: z.string().optional(),
+  aud: z.union([z.string(), z.array(z.string())]).optional(),
+  exp: z.number().optional(),
+});
+type AccessJwtPayload = z.infer<typeof jwtPayloadSchema>;
+
+function decodeSegment<T>(segment: string, schema: z.ZodType<T>): T | null {
+  const parsed = schema.safeParse(JSON.parse(base64UrlDecode(segment)));
+  return parsed.success ? parsed.data : null;
 }
 
 export interface AccessConfig {
@@ -64,25 +91,25 @@ export function parseAllowedServiceTokenIds(raw?: string): string[] {
     .filter((id) => id.length > 0);
 }
 
-let cachedCerts: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
+let cachedCerts: { keys: AccessCert[]; fetchedAt: number } | null = null;
 const CERTS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 async function fetchCerts(
   teamDomain: string,
-): Promise<{ keys: JsonWebKey[]; fetchedAt: number } | null> {
+): Promise<{ keys: AccessCert[]; fetchedAt: number } | null> {
   const res = await fetch(`${teamDomain}/cdn-cgi/access/certs`);
   if (!res.ok) return null;
 
-  const body = (await res.json()) as { keys?: unknown };
-  if (!Array.isArray(body.keys) || body.keys.length === 0) return null;
-  cachedCerts = { keys: body.keys as JsonWebKey[], fetchedAt: Date.now() };
+  const body = accessCertsSchema.safeParse(await res.json());
+  if (!body.success) return null;
+  cachedCerts = { keys: body.data.keys, fetchedAt: Date.now() };
   return cachedCerts;
 }
 
 async function getAccessCerts(
   teamDomain: string,
   forceRefresh = false,
-): Promise<{ keys: JsonWebKey[] } | null> {
+): Promise<{ keys: AccessCert[] } | null> {
   if (!forceRefresh && cachedCerts && Date.now() - cachedCerts.fetchedAt < CERTS_CACHE_TTL_MS) {
     return cachedCerts;
   }
@@ -110,6 +137,59 @@ export async function verifyCloudflareAccessJwt(
   }
 }
 
+/** The signing key for `kid`, refreshing the JWKS once when a rotation is not cached yet. */
+async function findSigningKey(teamDomain: string, kid: string): Promise<AccessCert | null> {
+  const cached = await getAccessCerts(teamDomain);
+  const jwk = cached?.keys.find((key) => key.kid === kid);
+  if (jwk || !cached) return jwk ?? null;
+  const refreshed = await getAccessCerts(teamDomain, true);
+  return refreshed?.keys.find((key) => key.kid === kid) ?? null;
+}
+
+async function hasValidSignature(parts: string[], jwk: AccessCert): Promise<boolean> {
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  const signatureBytes = Uint8Array.from(base64UrlDecode(parts[2]), (c) => c.charCodeAt(0));
+  const dataBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+  return crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signatureBytes, dataBytes);
+}
+
+/** exp, aud and iss, checked after the signature. */
+function hasValidClaims(
+  payload: AccessJwtPayload,
+  config: AccessConfig,
+  teamDomain: string,
+): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  // Reject on or after exp (RFC 7519: the token must not be accepted at/after exp).
+  if (payload.exp === undefined || payload.exp <= now) return false;
+  const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  return aud.includes(config.aud) && payload.iss === teamDomain;
+}
+
+function identityOf(payload: AccessJwtPayload, config: AccessConfig): AccessIdentity | null {
+  if (payload.email) {
+    // Case-insensitive: identity providers may return mixed-case local parts. The
+    // lowercased email is returned so attribution (Sentry.setUser) stays stable: the same
+    // identity in mixed case must not create duplicate users.
+    const email = payload.email.toLowerCase();
+    return config.allowedEmailDomains.some((d) => email.endsWith(`@${d}`))
+      ? { kind: "user", email }
+      : null;
+  }
+  // No email: an Access service token mints a non-identity app JWT carrying the token's
+  // client ID as `common_name`. Only explicitly allowlisted client IDs pass.
+  const clientId = payload.common_name;
+  return clientId && config.allowedServiceTokenIds?.includes(clientId)
+    ? { kind: "service", clientId }
+    : null;
+}
+
 async function verifyInner(jwt: string, config: AccessConfig): Promise<AccessIdentity | null> {
   const parts = jwt.split(".");
   if (parts.length !== 3) return null;
@@ -119,70 +199,12 @@ async function verifyInner(jwt: string, config: AccessConfig): Promise<AccessIde
   // fail the issuer check for every token (and double-slash the certs URL).
   const teamDomain = config.teamDomain.replace(/\/+$/, "");
 
-  let certs = await getAccessCerts(teamDomain);
-  if (!certs) return null;
+  const header = decodeSegment(parts[0], jwtHeaderSchema);
+  if (!header) return null;
+  const jwk = await findSigningKey(teamDomain, header.kid);
+  if (!jwk || !(await hasValidSignature(parts, jwk))) return null;
 
-  const header = JSON.parse(base64UrlDecode(parts[0])) as {
-    kid?: string;
-    alg?: string;
-  };
-  if (!header.kid) return null;
-  // Only accept RS256 — the algorithm we actually verify below. Rejecting anything
-  // else closes the classic "alg confusion" downgrade (e.g. `none`/HS256) vector.
-  if (header.alg !== "RS256") return null;
-
-  let jwk = certs.keys.find((k) => (k as JsonWebKey & { kid?: string }).kid === header.kid);
-  if (!jwk) {
-    certs = await getAccessCerts(teamDomain, true);
-    if (!certs) return null;
-    jwk = certs.keys.find((k) => (k as JsonWebKey & { kid?: string }).kid === header.kid);
-    if (!jwk) return null;
-  }
-
-  const key = await crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
-
-  const signatureBytes = Uint8Array.from(base64UrlDecode(parts[2]), (c) => c.charCodeAt(0));
-  const dataBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
-
-  const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signatureBytes, dataBytes);
-  if (!valid) return null;
-
-  const payload = JSON.parse(base64UrlDecode(parts[1])) as AccessJwtPayload;
-
-  const now = Math.floor(Date.now() / 1000);
-  // Reject on or after exp (RFC 7519: the token must not be accepted at/after exp).
-  if (payload.exp == null || payload.exp <= now) return null;
-
-  const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-  if (!aud.includes(config.aud)) return null;
-
-  if (!payload.iss || payload.iss !== teamDomain) return null;
-
-  const email = payload.email;
-  if (email) {
-    // Case-insensitive: identity providers may return mixed-case local parts.
-    const normalizedEmail = email.toLowerCase();
-    if (!config.allowedEmailDomains.some((d) => normalizedEmail.endsWith(`@${d}`))) {
-      return null;
-    }
-
-    // Return the normalized (lowercased) email so downstream attribution (Sentry.setUser)
-    // is stable — the same identity in mixed case must not create duplicate users.
-    return { kind: "user", email: normalizedEmail };
-  }
-
-  // No email: an Access service token mints a non-identity app JWT carrying the token's
-  // client ID as `common_name`. Only explicitly allowlisted client IDs pass.
-  const clientId = payload.common_name;
-  if (clientId && config.allowedServiceTokenIds?.includes(clientId)) {
-    return { kind: "service", clientId };
-  }
-
-  return null;
+  const payload = decodeSegment(parts[1], jwtPayloadSchema);
+  if (!payload || !hasValidClaims(payload, config, teamDomain)) return null;
+  return identityOf(payload, config);
 }
