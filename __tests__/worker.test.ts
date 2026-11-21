@@ -99,6 +99,26 @@ function mockCertsEndpoint(jwk: JsonWebKey) {
   );
 }
 
+/** Attributes of every span in the given Sentry envelopes, values unwrapped. */
+function exportedSpans(envelopes: string[]): Array<Record<string, unknown>> {
+  return envelopes.flatMap((text) => {
+    const lines = text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const spans: Array<Record<string, unknown>> = [];
+    for (let i = 1; i + 1 < lines.length; i += 2) {
+      if (lines[i].type !== "span") continue;
+      for (const span of lines[i + 1].items) {
+        spans.push({
+          is_segment: span.is_segment,
+          ...Object.fromEntries(
+            Object.entries(span.attributes ?? {}).map(([key, attribute]) => [key, (attribute as { value: unknown }).value]),
+          ),
+        });
+      }
+    }
+    return spans;
+  });
+}
+
 describe("verifyCloudflareAccessJwt", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -666,16 +686,20 @@ describe("MCP Worker entry", () => {
       await pending[index];
     }
     const recorded = envelopes.join("\n");
-    expect(recorded).toContain('"sentry.op":{"value":"mcp.server"');
-    expect(recorded).toContain('"sentry.op":{"value":"http.server"');
-    expect(recorded).toContain('"is_segment":true');
-    expect(recorded).not.toContain('"type":"transaction"');
-    expect(recorded).toContain('"mcp.method.name":{"value":"tools/call"');
-    expect(recorded).toContain('"mcp.client.name":{"value":"sentry-modern-test"');
-    expect(recorded).toContain(
-      '"mcp.request.argument.site_id":{"value":"\\"example.com\\""',
+    const internalSpans = exportedSpans(envelopes);
+    expect(internalSpans.map((span) => span["sentry.op"])).toEqual(
+      expect.arrayContaining(["mcp.server", "http.server"]),
     );
-    expect(recorded).toContain('"mcp.tool.result.content":');
+    expect(internalSpans.some((span) => span.is_segment)).toBe(true);
+    expect(recorded).not.toContain('"type":"transaction"');
+    expect(internalSpans).toContainEqual(expect.objectContaining({
+      "mcp.method.name": "tools/call",
+      "mcp.client.name": "sentry-modern-test",
+      "mcp.request.argument.site_id": '"example.com"',
+    }));
+    expect(internalSpans.some((span) => "mcp.tool.result.content" in span)).toBe(true);
+    // Positive control for the anonymous checks below: /internal does attribute the caller.
+    expect(internalSpans).toContainEqual(expect.objectContaining({ "user.email": "user@sentry.io" }));
     expect(recorded).not.toContain(jwt);
     expect(recorded).not.toContain("shared-test-key");
 
@@ -756,14 +780,15 @@ describe("MCP Worker entry", () => {
       await pending[index];
     }
     const anonymous = envelopes.join("\n");
-    expect(anonymous).toContain('"mcp.method.name":{"value":"tools/call"');
+    const anonymousSpans = exportedSpans(envelopes);
+    expect(anonymousSpans.some((span) => span["mcp.method.name"] === "tools/call")).toBe(true);
     expect(anonymous).not.toContain("mcp.request.argument.site_id");
     expect(anonymous).not.toContain('"mcp.tool.result.content":');
     expect(anonymous).not.toContain("private.example");
     expect(anonymous).not.toContain("private-test-key");
     // mcp.client.name/version are recorded on both endpoints — a client library
     // name and version identify software, not the person using it.
-    expect(anonymous).toContain('"mcp.client.name":{"value":"sentry-byok-test"');
+    expect(anonymousSpans.some((span) => span["mcp.client.name"] === "sentry-byok-test")).toBe(true);
     // Positive control: the feedback submission really did reach the transport, so the
     // canary assertions below are checking a populated envelope rather than an empty one.
     expect(anonymous).toContain("send_feedback");
@@ -777,8 +802,10 @@ describe("MCP Worker entry", () => {
     // mcp.client.name is kept, but sanitizeClientAttribute replaces a value shaped like a
     // person rather than a piece of software — including on the SDK's own write path.
     expect(anonymous).not.toContain("legacy-canary@example.com");
-    expect(anonymous).toContain('"mcp.client.name":{"value":"[redacted]"');
-    expect(anonymous).not.toContain('"user.');
+    expect(anonymousSpans.some((span) => span["mcp.client.name"] === "[redacted]")).toBe(true);
+    // The SDK derives no user.* here today, so this guards a future SDK change; the
+    // stripping itself is covered by redaction.test.ts "anonymizeSpanWithoutIdentity".
+    expect(anonymousSpans.flatMap((span) => Object.keys(span).filter((key) => key.startsWith("user.")))).toEqual([]);
   });
 
   it("samples heartbeat/keepalive spans down to the heartbeat keep-rate", async () => {
