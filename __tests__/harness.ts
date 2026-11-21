@@ -148,6 +148,24 @@ export function captureSentry() {
         return payloads;
       });
     },
+    /** Metrics sent, with their attribute values unwrapped. */
+    metrics() {
+      return this.items("trace_metric").flatMap((payload) =>
+        payload.items.map((metric: Record<string, any>) => ({
+          name: metric.name as string,
+          value: metric.value as number,
+          attributes: Object.fromEntries(
+            Object.entries(metric.attributes ?? {})
+              .filter(([key]) => !key.startsWith("sentry."))
+              .map(([key, attribute]) => [key, (attribute as { value: unknown }).value]),
+          ),
+        })),
+      );
+    },
+    clear() {
+      envelopes.length = 0;
+      spans.length = 0;
+    },
     flush: () => sentryClient.flush(2000),
   };
 }
