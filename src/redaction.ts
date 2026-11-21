@@ -14,21 +14,23 @@
  * `sanitizeClientAttribute` first, because nothing stops a caller putting a person in them.
  */
 
-export interface RedactableUser {
-  email?: unknown;
-  username?: unknown;
-  ip_address?: string | null;
-  [key: string]: unknown;
-}
+import type { CloudflareOptions, User } from "@sentry/cloudflare";
+import { z } from "zod";
 
+/** A span as the Sentry SDK hands it to `beforeSendSpan`. */
+type SentryStreamedSpan = Parameters<NonNullable<CloudflareOptions["beforeSendSpan"]>>[0];
+/** The attribute map of a streamed span, also used for event trace and span data. */
+export type SentryAttributes = SentryStreamedSpan["attributes"];
+
+/** The parts of a Sentry event this module redacts. Sentry's `Event` has all of them. */
 export interface RedactableEvent {
-  user?: RedactableUser | null;
-  contexts?: { trace?: { data?: Record<string, unknown> } };
-  spans?: Array<{ data?: Record<string, unknown> }>;
+  user?: User | null;
+  contexts?: { trace?: { data?: SentryAttributes } };
+  spans?: Array<{ data?: SentryAttributes }>;
   request?: {
     data?: unknown;
-    headers?: Record<string, string | null | undefined>;
-    url?: unknown;
+    headers?: { [header: string]: string };
+    url?: string;
   } | null;
 }
 
@@ -50,7 +52,7 @@ const CLIENT_ATTRIBUTE_MAX_LENGTH = 64;
  * opaque-id rule requires a digit in the run, so a long all-letter name is truncated rather
  * than mistaken for a hex session id.
  */
-const IDENTITY_SHAPES = [
+const IDENTITY_PATTERNS = [
   /[^\s@]+@[^\s@]+\.[a-z]{2,}/i,
   /[a-z][a-z0-9+.-]*:\/\//i,
   /(^|[^\w])~?\/[^\s/]/,
@@ -76,7 +78,7 @@ const IDENTITY_SHAPES = [
 export function sanitizeClientAttribute(value: string): string | undefined {
   const trimmed = value.trim();
   if (trimmed.length === 0) return undefined;
-  if (IDENTITY_SHAPES.some((shape) => shape.test(trimmed))) return "[redacted]";
+  if (IDENTITY_PATTERNS.some((pattern) => pattern.test(trimmed))) return "[redacted]";
   if (trimmed.length <= CLIENT_ATTRIBUTE_MAX_LENGTH) return trimmed;
   // The cut can end on a shape the whole value did not have, such as a hex run that ran into
   // letters, so the truncated value is checked again.
@@ -123,7 +125,7 @@ export function stripUrlQuery(url: string): string {
  * `mcp.client.name`/`version` reach this function by that same SDK path, so they are
  * sanitized here rather than only where `recordMcpClientInfo` writes them.
  */
-export function stripRequestAttributes(data: Record<string, unknown>): void {
+export function stripRequestAttributes(data: SentryAttributes): void {
   for (const key of Object.keys(data)) {
     const lower = key.toLowerCase();
     if (HEADER_ATTRIBUTE_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
@@ -133,13 +135,12 @@ export function stripRequestAttributes(data: Record<string, unknown>): void {
   delete data["mcp.client.title"];
   delete data["url.query"];
   delete data["user_agent.original"];
-  if (typeof data["url.full"] === "string") {
-    data["url.full"] = stripUrlQuery(data["url.full"]);
-  }
+  const url = text.safeParse(data["url.full"]);
+  if (url.success) data["url.full"] = stripUrlQuery(url.data);
   for (const key of CLIENT_ATTRIBUTES) {
-    const value = data[key];
-    if (typeof value !== "string") continue;
-    const sanitized = sanitizeClientAttribute(value);
+    const value = text.safeParse(data[key]);
+    if (!value.success) continue;
+    const sanitized = sanitizeClientAttribute(value.data);
     if (sanitized === undefined) delete data[key];
     else data[key] = sanitized;
   }
@@ -154,53 +155,60 @@ export function stripRequestAttributes(data: Record<string, unknown>): void {
  * place; callers return the same event.
  */
 export function anonymizeEventWithoutEmail(event: RedactableEvent): void {
-  const headers = event.request?.headers;
-  if (headers) {
-    for (const key of Object.keys(headers)) {
-      const lower = key.toLowerCase();
-      if (
-        lower.includes("authorization") ||
-        lower.includes("cookie") ||
-        lower.includes("jwt-assertion") ||
-        lower.includes("cf-access")
-      ) {
-        headers[key] = "[Filtered]";
-      }
-    }
-  }
+  filterCredentialHeaders(event.request?.headers);
+  stripEventAttributes(event);
+  if (event.request?.url !== undefined) event.request.url = stripUrlQuery(event.request.url);
 
+  if (!isIdentifiedUser(event.user)) {
+    event.user = { ip_address: null };
+    if (event.request) delete event.request.data;
+  }
+}
+
+function stripEventAttributes(event: RedactableEvent): void {
   for (const data of [
     event.contexts?.trace?.data,
     ...(event.spans ?? []).map((span) => span.data),
   ]) {
     if (data) stripRequestAttributes(data);
   }
+}
 
-  if (typeof event.request?.url === "string") {
-    event.request.url = stripUrlQuery(event.request.url);
-  }
+const CREDENTIAL_HEADER_PARTS = ["authorization", "cookie", "jwt-assertion", "cf-access"];
 
-  if (!isIdentifiedUser(event.user?.email, event.user?.username)) {
-    event.user = { ip_address: null };
-    if (event.request) delete event.request.data;
+function filterCredentialHeaders(headers: { [header: string]: string } | undefined): void {
+  for (const key of Object.keys(headers ?? {})) {
+    const lower = key.toLowerCase();
+    if (headers && CREDENTIAL_HEADER_PARTS.some((part) => lower.includes(part))) {
+      headers[key] = "[Filtered]";
+    }
   }
 }
+
+const text = z.string();
+const identifier = z.string().min(1);
 
 /**
  * `/internal` identifies a caller by email for a person and by username (the service
  * token's client id) for a machine; either one counts. Everything else, including the
  * IP the SDK infers, is anonymous.
  */
-export function isIdentifiedUser(email: unknown, username: unknown): boolean {
-  return (
-    (typeof email === "string" && email.length > 0) ||
-    (typeof username === "string" && username.length > 0)
-  );
+const identifiedUser = z.union([
+  z.object({ email: identifier }),
+  z.object({ username: identifier }),
+]);
+const identifiedSpanUser = z.union([
+  z.object({ "user.email": identifier }),
+  z.object({ "user.username": identifier }),
+]);
+
+function isIdentifiedUser(user: User | null | undefined): boolean {
+  return identifiedUser.safeParse(user).success;
 }
 
 export interface RedactableSpan {
   is_segment?: boolean;
-  attributes: Record<string, unknown>;
+  attributes: SentryAttributes;
 }
 
 /**
@@ -212,7 +220,7 @@ export function anonymizeSpanWithoutIdentity(span: RedactableSpan): void {
   stripRequestAttributes(span.attributes);
   if (!span.is_segment) return;
   const { attributes } = span;
-  if (isIdentifiedUser(attributes["user.email"], attributes["user.username"])) return;
+  if (identifiedSpanUser.safeParse(attributes).success) return;
   for (const key of Object.keys(attributes)) {
     if (key.startsWith("user.")) delete attributes[key];
   }

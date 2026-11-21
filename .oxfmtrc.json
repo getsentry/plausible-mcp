@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "ignorePatterns": [
+    ".agent/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".cursor/**",
+    "CHANGELOG.md",
+    "package.json",
+    "pnpm-lock.yaml",
+    "coverage/**",
+    "dist/**",
+    "__tests__/__snapshots__/**",
+    "tools/oxlint/anti-slop/**"
+  ]
+}

@@ -11,10 +11,7 @@ import {
   pageSchema,
   goalSchema,
   propertyFiltersSchema,
-  buildPageFilter,
-  buildGoalFilter,
-  buildPropertyFilters,
-  assertNoShortcutOverlap,
+  buildQueryFilters,
   queryResultOutputSchema,
   buildQueryStructuredContent,
   CUSTOM_PROPERTY_PREFIX,
@@ -25,7 +22,7 @@ export function register(
   server: McpServer,
   client: PlausibleClient,
   defaultSiteId?: string,
-  offerFeedback = false
+  offerFeedback = false,
 ) {
   server.registerTool(
     "get_conversions",
@@ -46,7 +43,7 @@ export function register(
           .boolean()
           .default(false)
           .describe(
-            "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted"
+            "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted",
           )
           .optional(),
       }),
@@ -60,20 +57,9 @@ export function register(
           ? [...queriedMetrics, "group_conversion_rate"]
           : queriedMetrics;
 
-        assertNoShortcutOverlap(args.property_filters, {
-          page: args.page,
-          goal: args.goal,
-        });
-        const filters: unknown[][] = [];
-        if (args.goal) filters.push(buildGoalFilter(args.goal));
-        if (args.page) filters.push(buildPageFilter(args.page));
-        if (args.property_filters?.length) {
-          filters.push(...buildPropertyFilters(args.property_filters));
-        }
+        const filters = buildQueryFilters(args);
 
-        const dimensions = args.breakdown_by_page
-          ? ["event:goal", "event:page"]
-          : ["event:goal"];
+        const dimensions = args.breakdown_by_page ? ["event:goal", "event:page"] : ["event:goal"];
 
         // Plausible's own group_conversion_rate is always 0 when grouped by event:goal, so
         // the per-page rate is computed here the way Plausible computes it: converting
@@ -97,22 +83,18 @@ export function register(
               })
             : undefined,
         ]);
-        const result = pageTotals
-          ? withPageConversionRates(conversions, pageTotals)
-          : conversions;
+        const result = pageTotals ? withPageConversionRates(conversions, pageTotals) : conversions;
 
         const structuredContent = buildQueryStructuredContent(result, metrics, dimensions);
         const { notes } = structuredContent;
         return {
-          content: [
-            { type: "text" as const, text: JSON.stringify({ ...result, notes }, null, 2) },
-          ],
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, notes }, null, 2) }],
           structuredContent,
         };
       } catch (error) {
         return toolErrorResult(error, "get_conversions", offerFeedback);
       }
-    }
+    },
   );
 }
 
@@ -128,26 +110,26 @@ function isGoalOrPropsFilter(filter: unknown[]): boolean {
  */
 function withPageConversionRates(
   conversions: PlausibleResponse,
-  pageTotals: PlausibleResponse
+  pageTotals: PlausibleResponse,
 ): PlausibleResponse {
   const visitorsByPage = new Map(
-    pageTotals.results.map((row) => [row.dimensions[0], row.metrics[0]])
+    pageTotals.results.map((row) => [row.dimensions[0], row.metrics[0]]),
   );
   // The text block labels each row's values from query.metrics, so it names the new one too.
-  const queriedMetrics = conversions.query.metrics;
+  const queriedMetrics = z.array(z.string()).safeParse(conversions.query.metrics);
   return {
     ...conversions,
     query: {
       ...conversions.query,
-      ...(Array.isArray(queriedMetrics) && {
-        metrics: [...queriedMetrics, "group_conversion_rate"],
+      ...(queriedMetrics.success && {
+        metrics: [...queriedMetrics.data, "group_conversion_rate"],
       }),
     },
     results: conversions.results.map((row) => {
       const converted = row.metrics[0];
       const total = visitorsByPage.get(row.dimensions[1]);
       const rate =
-        typeof converted !== "number" || typeof total !== "number"
+        converted === null || total === null || total === undefined
           ? null
           : total > 0
             ? Math.round((converted / total) * 10_000) / 100

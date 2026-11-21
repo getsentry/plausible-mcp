@@ -48,18 +48,11 @@ export const VALID_DIMENSIONS = [
   "visit:city_name",
 ] as const;
 
-export const DEFAULT_METRICS = [
-  "visitors",
-  "pageviews",
-  "bounce_rate",
-  "visit_duration",
-];
+export const DEFAULT_METRICS = ["visitors", "pageviews", "bounce_rate", "visit_duration"];
 
 export const siteIdSchema = z
   .string()
-  .describe(
-    "Plausible site domain (e.g. example.com). Uses PLAUSIBLE_DEFAULT_SITE_ID if omitted."
-  )
+  .describe("Plausible site domain (e.g. example.com). Uses PLAUSIBLE_DEFAULT_SITE_ID if omitted.")
   .optional();
 
 const requiredSiteIdSchema = z
@@ -82,19 +75,19 @@ export const dateRangeSchema = z
   .string()
   .regex(
     new RegExp(
-      String.raw`^(\d+h|\d+d|\d+mo|day|month|year|all|\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2}|${ISO_DATETIME},${ISO_DATETIME})$`
+      String.raw`^(\d+h|\d+d|\d+mo|day|month|year|all|\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2}|${ISO_DATETIME},${ISO_DATETIME})$`,
     ),
-    'Must be "Nh", "Nd", "Nmo", "day", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD", or two ISO 8601 datetimes with offsets'
+    'Must be "Nh", "Nd", "Nmo", "day", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD", or two ISO 8601 datetimes with offsets',
   )
   .describe(
-    'Date range: "1h", "24h" (last N hours, ending now), "7d", "30d", "12mo", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive), or "YYYY-MM-DDTHH:MM:SSZ,YYYY-MM-DDTHH:MM:SSZ" for a sub-day window (any offset, e.g. +02:00). Days after today count as zero.'
+    'Date range: "1h", "24h" (last N hours, ending now), "7d", "30d", "12mo", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive), or "YYYY-MM-DDTHH:MM:SSZ,YYYY-MM-DDTHH:MM:SSZ" for a sub-day window (any offset, e.g. +02:00). Days after today count as zero.',
   );
 
 export const pageSchema = z
   .string()
   .max(1024)
   .describe(
-    "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected."
+    "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected.",
   )
   .optional();
 
@@ -102,7 +95,7 @@ export const goalSchema = z
   .string()
   .max(1024)
   .describe(
-    "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected."
+    "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected.",
   )
   .optional();
 
@@ -128,7 +121,7 @@ export const metricsSchema = z
 export const rowMetricsSchema = z
   .array(z.enum(VALID_METRICS))
   .describe(
-    `Metrics to return. Defaults vary by tool. ${CONVERSION_RATES_MEANING} Both need a goal. ${METRIC_COMBINATION_RULES}`
+    `Metrics to return. Defaults vary by tool. ${CONVERSION_RATES_MEANING} Both need a goal. ${METRIC_COMBINATION_RULES}`,
   )
   .optional();
 
@@ -149,7 +142,7 @@ export function buildResultNotes(metrics: string[], dimensions: string[]): strin
  * Build a Plausible filter for a page path.
  * Trailing * → contains match, otherwise exact match.
  */
-export function buildPageFilter(page: string): unknown[] {
+function buildPageFilter(page: string): unknown[] {
   if (page.endsWith("*")) {
     const prefix = page.slice(0, -1);
     return ["contains", "event:page", [prefix]];
@@ -160,7 +153,7 @@ export function buildPageFilter(page: string): unknown[] {
 /**
  * Build a Plausible filter for a goal name.
  */
-export function buildGoalFilter(goal: string): unknown[] {
+function buildGoalFilter(goal: string): unknown[] {
   return ["is", "event:goal", [goal]];
 }
 
@@ -174,39 +167,28 @@ export const CUSTOM_PROPERTY_PREFIX = "event:props:";
 const MAX_CUSTOM_PROPERTY_NAME_LENGTH = 300;
 
 export function isCustomPropertyDimension(value: string): boolean {
-  return (
-    value.startsWith(CUSTOM_PROPERTY_PREFIX) &&
-    value.length > CUSTOM_PROPERTY_PREFIX.length
-  );
+  return value.startsWith(CUSTOM_PROPERTY_PREFIX) && value.length > CUSTOM_PROPERTY_PREFIX.length;
 }
 
 const customPropertyDimensionSchema = z
   .string()
-  .regex(
-    /^event:props:/,
-    'Custom property dimension must look like "event:props:<name>"'
-  )
+  .regex(/^event:props:/, 'Custom property dimension must look like "event:props:<name>"')
   .min(
     CUSTOM_PROPERTY_PREFIX.length + 1,
-    'Custom property dimension must look like "event:props:<name>"'
+    'Custom property dimension must look like "event:props:<name>"',
   )
   .max(CUSTOM_PROPERTY_PREFIX.length + MAX_CUSTOM_PROPERTY_NAME_LENGTH);
 
 export const dimensionSchema = z
   .union([z.enum(VALID_DIMENSIONS), customPropertyDimensionSchema])
   .describe(
-    'Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan). Prefer visit:country_name/region_name/city_name over the code variants when presenting geography to people. An empty visit:entry_page or visit:exit_page value means a session with no recorded pageview.'
+    'Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan). Prefer visit:country_name/region_name/city_name over the code variants when presenting geography to people. An empty visit:entry_page or visit:exit_page value means a session with no recorded pageview.',
   );
 
 /** Matches the cap on the `page`/`goal` shortcut params, which compile to the same filters. */
 const MAX_FILTER_VALUE_LENGTH = 1024;
 
-export const PROPERTY_FILTER_OPERATORS = [
-  "is",
-  "is_not",
-  "contains",
-  "contains_not",
-] as const;
+export const PROPERTY_FILTER_OPERATORS = ["is", "is_not", "contains", "contains_not"] as const;
 
 export type PropertyFilter = {
   property: string;
@@ -220,11 +202,10 @@ export type PropertyFilter = {
  * value containing ":" is rejected up front — silently prefixing it would turn a
  * typo like "visit:chanel" into a nonsense event:props:visit:chanel filter.
  */
+const VALID_DIMENSION_NAMES = new Set<string>(VALID_DIMENSIONS);
+
 function isFilterableDimension(property: string): boolean {
-  return (
-    isCustomPropertyDimension(property) ||
-    (VALID_DIMENSIONS as readonly string[]).includes(property)
-  );
+  return isCustomPropertyDimension(property) || VALID_DIMENSION_NAMES.has(property);
 }
 
 export const propertyFilterSchema = z
@@ -233,23 +214,18 @@ export const propertyFilterSchema = z
       .string()
       .min(1)
       .max(CUSTOM_PROPERTY_PREFIX.length + MAX_CUSTOM_PROPERTY_NAME_LENGTH)
+      .refine((property) => !property.includes(":") || isFilterableDimension(property), {
+        message:
+          'A property containing ":" must be a built-in dimension (e.g. "visit:channel") or "event:props:<name>"',
+      })
       .refine(
-        (property) => !property.includes(":") || isFilterableDimension(property),
-        {
-          message:
-            'A property containing ":" must be a built-in dimension (e.g. "visit:channel") or "event:props:<name>"',
-        }
-      )
-      .refine(
-        (property) =>
-          property.includes(":") ||
-          property.length <= MAX_CUSTOM_PROPERTY_NAME_LENGTH,
+        (property) => property.includes(":") || property.length <= MAX_CUSTOM_PROPERTY_NAME_LENGTH,
         {
           message: `Custom property name must be at most ${MAX_CUSTOM_PROPERTY_NAME_LENGTH} characters`,
-        }
+        },
       )
       .describe(
-        'What to filter on: a built-in dimension (e.g. "visit:channel", "visit:source", "event:page") or a custom event property as its bare name (e.g. "plan" targets event:props:plan)'
+        'What to filter on: a built-in dimension (e.g. "visit:channel", "visit:source", "event:page") or a custom event property as its bare name (e.g. "plan" targets event:props:plan)',
       ),
     operator: z
       .enum(PROPERTY_FILTER_OPERATORS)
@@ -261,18 +237,14 @@ export const propertyFilterSchema = z
       .describe("One or more values to match the property against"),
   })
   // Plausible rejects negated goal filters, so catch them before they become a 400.
-  .refine(
-    (f) =>
-      f.property !== "event:goal" || f.operator === "is" || f.operator === "contains",
-    {
-      message: 'event:goal filters only support the "is" and "contains" operators',
-    }
-  );
+  .refine((f) => f.property !== "event:goal" || f.operator === "is" || f.operator === "contains", {
+    message: 'event:goal filters only support the "is" and "contains" operators',
+  });
 
 export const propertyFiltersSchema = z
   .array(propertyFilterSchema)
   .describe(
-    'Filter results by built-in dimensions or custom event properties, e.g. [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }] or [{ "property": "plan", "values": ["pro"] }]. Entries are combined with AND.'
+    'Filter results by built-in dimensions or custom event properties, e.g. [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }] or [{ "property": "plan", "values": ["pro"] }]. Entries are combined with AND.',
   )
   .optional();
 
@@ -284,7 +256,7 @@ export const propertyFiltersSchema = z
  */
 export function assertNoShortcutOverlap(
   propertyFilters: PropertyFilter[] | undefined,
-  shortcuts: { page?: string; goal?: string }
+  shortcuts: { page?: string; goal?: string },
 ): void {
   if (!propertyFilters?.length) return;
   const pairs = [
@@ -294,10 +266,30 @@ export function assertNoShortcutOverlap(
   for (const { param, value, dimension } of pairs) {
     if (value && propertyFilters.some((f) => f.property === dimension)) {
       throw new UserFacingError(
-        `The "${param}" parameter and a property_filters entry both target ${dimension}; combined they almost always match nothing. Drop "${param}" and express the whole constraint in property_filters.`
+        `The "${param}" parameter and a property_filters entry both target ${dimension}; combined they almost always match nothing. Drop "${param}" and express the whole constraint in property_filters.`,
       );
     }
   }
+}
+
+/** The filter arguments every query tool accepts. */
+interface QueryFilterArgs {
+  page?: string;
+  goal?: string;
+  property_filters?: PropertyFilter[];
+}
+
+/**
+ * The Plausible filters for a query tool's page, goal and property_filters arguments.
+ * Rejects a page or goal shortcut that a property filter also targets.
+ */
+export function buildQueryFilters(args: QueryFilterArgs): unknown[][] {
+  assertNoShortcutOverlap(args.property_filters, { page: args.page, goal: args.goal });
+  const filters: unknown[][] = [];
+  if (args.page) filters.push(buildPageFilter(args.page));
+  if (args.goal) filters.push(buildGoalFilter(args.goal));
+  filters.push(...buildPropertyFilters(args.property_filters ?? []));
+  return filters;
 }
 
 /**
@@ -334,7 +326,7 @@ export const queryResultOutputSchema = z.object({
       z.object({
         dimensions: z.array(z.union([z.string(), z.number()])),
         metrics: z.array(z.union([z.number(), z.string(), z.null()])),
-      })
+      }),
     )
     .describe("One row per dimension-value combination returned by Plausible"),
   pagination: z
@@ -359,7 +351,7 @@ export function buildQueryStructuredContent(
   response: PlausibleResponse,
   metrics: string[],
   dimensions: string[],
-  pagination?: z.infer<typeof queryResultOutputSchema>["pagination"]
+  pagination?: z.infer<typeof queryResultOutputSchema>["pagination"],
 ) {
   const notes = buildResultNotes(metrics, dimensions);
   return {

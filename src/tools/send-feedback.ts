@@ -4,11 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
 import { TOOL_NAMES } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
-import {
-  anonymizeEventWithoutEmail,
-  scrubFeedbackText,
-  type RedactableEvent,
-} from "../redaction.js";
+import { anonymizeEventWithoutEmail, scrubFeedbackText } from "../redaction.js";
 
 // Sentry truncates User Feedback messages beyond this length.
 const FEEDBACK_MAX_LENGTH = 4096;
@@ -47,7 +43,7 @@ export function register(server: McpServer, apiKey: string) {
         kind: z
           .enum(["missing", "broken", "confusing", "idea"])
           .describe(
-            "missing: no tool or argument for it; broken: an error or wrong data; confusing: an unclear description, error, or result; idea: an improvement"
+            "missing: no tool or argument for it; broken: an error or wrong data; confusing: an unclear description, error, or result; idea: an improvement",
           ),
         impact: z.enum(["blocked", "worked_around", "friction"]),
         description: z
@@ -58,18 +54,18 @@ export function register(server: McpServer, apiKey: string) {
         tool_name: z.enum(TOOL_NAMES).optional(),
       }),
     },
-    async (args, ctx) => {
+    (args, ctx) => {
       recordMcpClientInfo(ctx);
       const header = args.tool_name
         ? `Task: ${args.task}\nTool: ${args.tool_name}`
         : `Task: ${args.task}`;
       const message = scrubFeedbackText(`${header}\n\n${args.description}`, apiKey).slice(
         0,
-        FEEDBACK_MAX_LENGTH
+        FEEDBACK_MAX_LENGTH,
       );
       const feedbackId = Sentry.withScope((scope) => {
         scope.addEventProcessor((event) => {
-          anonymizeEventWithoutEmail(event as RedactableEvent);
+          anonymizeEventWithoutEmail(event);
           return event;
         });
         return Sentry.captureFeedback({
@@ -88,6 +84,6 @@ export function register(server: McpServer, apiKey: string) {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
         structuredContent: result,
       };
-    }
+    },
   );
 }

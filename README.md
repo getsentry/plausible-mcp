@@ -3,17 +3,18 @@
 MCP server for [Plausible Analytics](https://plausible.io) — query traffic, conversions, and compare time periods from any AI tool that supports [Model Context Protocol](https://modelcontextprotocol.io).
 
 Built for teams that want to ask questions like:
+
 - "Did our deploy on Tuesday affect traffic to /pricing?"
 - "What's the signup conversion rate on /blog this month?"
 - "How does this week's bounce rate compare to last week?"
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `get_timeseries` | Traffic and conversion metrics over time (daily/weekly/monthly) |
-| `get_breakdown` | Break down by page, source, country, device, browser, OS, UTM params |
-| `get_conversions` | Goal conversion rates, optionally per-page |
+| Tool              | Description                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get_timeseries`  | Traffic and conversion metrics over time (daily/weekly/monthly)                                                                                                                                                          |
+| `get_breakdown`   | Break down by page, source, country, device, browser, OS, UTM params                                                                                                                                                     |
+| `get_conversions` | Goal conversion rates, optionally per-page                                                                                                                                                                               |
 | `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas, measured from `period_a` (the baseline) to `period_b`. Leave out `period_a` to compare with the period of the same length right before `period_b` |
 
 All query tools are **read-only** and annotated with `readOnlyHint: true`.
@@ -197,26 +198,26 @@ The Worker runs **no OAuth server** — Cloudflare Access is the authorization s
 
 **Troubleshooting.** All of these are Cloudflare Access configuration, not the Worker — a request only reaches the Worker (and its Sentry spans) once Access forwards it:
 
-| Symptom (in the connector) | Cause | Fix |
-|---|---|---|
-| `Couldn't register … / add an OAuth Client ID` | Connector callback isn't in **Allowed redirect URIs** | Add the exact callback (step 1); read the rejected `redirect_uri` from Zero Trust → Logs → Access |
-| `domain can not have a path if oauth is configured` | Managed OAuth app scoped to a path | Rescope app 1 to the bare host (step 1) |
-| `/mcp`: `Unexpected content type: text/html` | `/mcp` app policy is `Allow`, not `Bypass` | Set the app-2 policy Action to `Bypass` (step 2) |
-| `/mcp`: OAuth `401 invalid_token` | No `/mcp` bypass app; the whole-host OAuth app is gating it | Create app 2 (step 2) |
+| Symptom (in the connector)                          | Cause                                                       | Fix                                                                                               |
+| --------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `Couldn't register … / add an OAuth Client ID`      | Connector callback isn't in **Allowed redirect URIs**       | Add the exact callback (step 1); read the rejected `redirect_uri` from Zero Trust → Logs → Access |
+| `domain can not have a path if oauth is configured` | Managed OAuth app scoped to a path                          | Rescope app 1 to the bare host (step 1)                                                           |
+| `/mcp`: `Unexpected content type: text/html`        | `/mcp` app policy is `Allow`, not `Bypass`                  | Set the app-2 policy Action to `Bypass` (step 2)                                                  |
+| `/mcp`: OAuth `401 invalid_token`                   | No `/mcp` bypass app; the whole-host OAuth app is gating it | Create app 2 (step 2)                                                                             |
 
 ## Configuration
 
-| Environment Variable | Required | Default | Description |
-|---------------------|----------|---------|-------------|
-| `PLAUSIBLE_API_KEY` | Yes (STDIO; Worker `/internal`) | — | Your Plausible API key ([get one here](https://plausible.io/docs/stats-api)). On the Worker this is the shared key for `/internal`; `/mcp` takes each user's own key via Bearer. |
-| `PLAUSIBLE_BASE_URL` | No | `https://plausible.io` | URL of your Plausible instance (for self-hosted) |
-| `PLAUSIBLE_DEFAULT_SITE_ID` | No | — | Default site domain so you don't have to pass `site_id` every call |
-| `CF_ACCESS_TEAM_DOMAIN` | Yes (Worker `/internal`) | — | `https://<team>.cloudflareaccess.com` — verifies the `Cf-Access-Jwt-Assertion` JWKS + issuer. No trailing slash. |
-| `CF_ACCESS_AUD` | Yes (Worker `/internal`) | — | The Access application's Application Audience (AUD) tag — checked against the assertion's `aud`. |
-| `SENTRY_DSN` | No (Worker) | — | Sentry DSN for the Worker's own telemetry (`wrangler secret put SENTRY_DSN`). Unset disables Sentry — use your own DSN if you want telemetry on a self-hosted deployment. |
-| `ALLOWED_EMAIL_DOMAIN` | No (Worker `/internal`) | `sentry.io` | Comma-separated email domain(s) allowed to sign in to `/internal`. Set to your own domain when self-hosting. |
-| `MCP_ALLOWED_HOSTNAMES` | Yes (Worker) | — | Comma-separated hostname allowlist used to validate MCP `Host` headers. |
-| `MCP_ALLOWED_ORIGIN_HOSTNAMES` | No (Worker `/internal`) | — | Comma-separated browser Origin hostnames allowed to call `/internal`. A present Origin is rejected when the list is empty. |
+| Environment Variable           | Required                        | Default                | Description                                                                                                                                                                      |
+| ------------------------------ | ------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLAUSIBLE_API_KEY`            | Yes (STDIO; Worker `/internal`) | —                      | Your Plausible API key ([get one here](https://plausible.io/docs/stats-api)). On the Worker this is the shared key for `/internal`; `/mcp` takes each user's own key via Bearer. |
+| `PLAUSIBLE_BASE_URL`           | No                              | `https://plausible.io` | URL of your Plausible instance (for self-hosted)                                                                                                                                 |
+| `PLAUSIBLE_DEFAULT_SITE_ID`    | No                              | —                      | Default site domain so you don't have to pass `site_id` every call                                                                                                               |
+| `CF_ACCESS_TEAM_DOMAIN`        | Yes (Worker `/internal`)        | —                      | `https://<team>.cloudflareaccess.com` — verifies the `Cf-Access-Jwt-Assertion` JWKS + issuer. No trailing slash.                                                                 |
+| `CF_ACCESS_AUD`                | Yes (Worker `/internal`)        | —                      | The Access application's Application Audience (AUD) tag — checked against the assertion's `aud`.                                                                                 |
+| `SENTRY_DSN`                   | No (Worker)                     | —                      | Sentry DSN for the Worker's own telemetry (`wrangler secret put SENTRY_DSN`). Unset disables Sentry — use your own DSN if you want telemetry on a self-hosted deployment.        |
+| `ALLOWED_EMAIL_DOMAIN`         | No (Worker `/internal`)         | `sentry.io`            | Comma-separated email domain(s) allowed to sign in to `/internal`. Set to your own domain when self-hosting.                                                                     |
+| `MCP_ALLOWED_HOSTNAMES`        | Yes (Worker)                    | —                      | Comma-separated hostname allowlist used to validate MCP `Host` headers.                                                                                                          |
+| `MCP_ALLOWED_ORIGIN_HOSTNAMES` | No (Worker `/internal`)         | —                      | Comma-separated browser Origin hostnames allowed to call `/internal`. A present Origin is rejected when the list is empty.                                                       |
 
 On the Worker, the `/mcp` endpoint needs no server-side key — each user passes their own via `Authorization: Bearer`. The `/internal` endpoint is fronted by Cloudflare Access Managed OAuth and uses a shared server-side `PLAUSIBLE_API_KEY` secret (see [self-hosting](#setting-up-the-internal-endpoint-cloudflare-access-managed-oauth)).
 

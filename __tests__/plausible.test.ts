@@ -7,11 +7,14 @@ import {
   PlausibleUnreachableError,
 } from "../src/plausible.js";
 import { dateRangeSchema } from "../src/schemas.js";
+import { z } from "zod";
+import type { JsonObject } from "../src/json.js";
+import type { PlausibleQueryBody } from "../src/plausible.js";
 
-const mockFetch = vi.fn();
+const mockFetch = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", mockFetch);
 
-function mockOk(data: unknown = { results: [], meta: {}, query: {} }) {
+function mockOk(data: JsonObject = { results: [], meta: {}, query: {} }) {
   mockFetch.mockResolvedValueOnce(Response.json(data));
 }
 
@@ -21,8 +24,19 @@ function mockError(status: number, body: string, headers: Record<string, string>
 
 const base = { site_id: "example.com", metrics: ["visitors"], date_range: "7d" };
 
-function sentBody(call = 0) {
-  return JSON.parse(mockFetch.mock.calls[call][1].body);
+function sentBody(call = 0): PlausibleQueryBody {
+  // SAFETY: PlausibleClient sends JSON.stringify of a PlausibleQueryBody as the body.
+  return JSON.parse(z.string().parse(mockFetch.mock.calls[call][1]?.body)) as PlausibleQueryBody;
+}
+
+/** The error a query rejects with; throws if it resolves. */
+async function rejectionOf(query: Promise<unknown>): Promise<Error> {
+  return query.then(
+    () => {
+      throw new Error("Expected the query to reject");
+    },
+    (cause: Error) => cause,
+  );
 }
 
 describe("PlausibleClient", () => {
@@ -36,14 +50,18 @@ describe("PlausibleClient", () => {
   it("sends correct request to /api/v2/query", async () => {
     mockOk();
 
-    await client.query({ site_id: "example.com", metrics: ["visitors", "pageviews"], date_range: "30d" });
+    await client.query({
+      site_id: "example.com",
+      metrics: ["visitors", "pageviews"],
+      date_range: "30d",
+    });
 
     expect(mockFetch).toHaveBeenCalledWith(
       "https://plausible.io/api/v2/query",
       expect.objectContaining({
         method: "POST",
         headers: { Authorization: "Bearer test-key", "Content-Type": "application/json" },
-      })
+      }),
     );
     expect(sentBody()).toEqual({
       site_id: "example.com",
@@ -59,7 +77,9 @@ describe("PlausibleClient", () => {
     const offset = fc.constantFrom("Z", "+02:00", "-05:30");
     const range = fc.oneof(
       fc.tuple(date, date).map(([a, b]) => `${a.slice(0, 10)},${b.slice(0, 10)}`),
-      fc.tuple(date, date, offset).map(([a, b, o]) => `${a.slice(0, 19)}${o},${b.slice(0, 19)}${o}`)
+      fc
+        .tuple(date, date, offset)
+        .map(([a, b, o]) => `${a.slice(0, 19)}${o},${b.slice(0, 19)}${o}`),
     );
     await fc.assert(
       fc.asyncProperty(range, async (dateRange) => {
@@ -69,10 +89,9 @@ describe("PlausibleClient", () => {
 
         await client.query({ ...base, date_range: dateRange });
 
-        const sent = sentBody().date_range;
-        expect(sent).toHaveLength(2);
+        const sent = z.tuple([z.string(), z.string()]).parse(sentBody().date_range);
         expect(sent.join(",")).toBe(dateRange);
-      })
+      }),
     );
   });
 
@@ -83,7 +102,7 @@ describe("PlausibleClient", () => {
     const error = await client.query(base).catch((e) => e);
 
     expect(error).toBeInstanceOf(PlausibleUnreachableError);
-    expect((error as Error).cause).toBe(cause);
+    expect(error).toHaveProperty("cause", cause);
   });
 
   // Regression (bab4cf7): Plausible's only hour shorthand is "24h".
@@ -93,7 +112,11 @@ describe("PlausibleClient", () => {
       await fc.assert(
         fc.asyncProperty(
           fc.integer({ min: 1, max: 9999 }),
-          fc.date({ min: new Date("2020-01-01"), max: new Date("2030-01-01"), noInvalidDate: true }),
+          fc.date({
+            min: new Date("2020-01-01"),
+            max: new Date("2030-01-01"),
+            noInvalidDate: true,
+          }),
           async (hours, now) => {
             vi.setSystemTime(now);
             mockFetch.mockReset();
@@ -101,12 +124,12 @@ describe("PlausibleClient", () => {
 
             await client.query({ ...base, date_range: `${hours}h` });
 
-            const [start, end] = sentBody().date_range as [string, string];
+            const [start, end] = z.tuple([z.string(), z.string()]).parse(sentBody().date_range);
             expect(end).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
             expect(Date.parse(end)).toBe(Math.floor(now.getTime() / 1000) * 1000);
             expect(Date.parse(end) - Date.parse(start)).toBe(hours * 3_600_000);
-          }
-        )
+          },
+        ),
       );
     } finally {
       vi.useRealTimers();
@@ -138,8 +161,17 @@ describe("PlausibleClient", () => {
 
   it("includes order_by when provided and omits it when empty", async () => {
     mockOk();
-    await client.query({ ...base, order_by: [["visitors", "desc"], ["event:page", "asc"]] });
-    expect(sentBody(0).order_by).toEqual([["visitors", "desc"], ["event:page", "asc"]]);
+    await client.query({
+      ...base,
+      order_by: [
+        ["visitors", "desc"],
+        ["event:page", "asc"],
+      ],
+    });
+    expect(sentBody(0).order_by).toEqual([
+      ["visitors", "desc"],
+      ["event:page", "asc"],
+    ]);
 
     mockOk();
     await client.query({ ...base, order_by: [] });
@@ -163,7 +195,7 @@ describe("PlausibleClient", () => {
     "refuses the base URL %s",
     (baseUrl) => {
       expect(() => new PlausibleClient({ apiKey: "key", baseUrl })).toThrow(/HTTPS/);
-    }
+    },
   );
 
   it.each([400, 401, 402, 403, 404, 429, 500, 502, 503])(
@@ -176,7 +208,7 @@ describe("PlausibleClient", () => {
       expect(error).toBeInstanceOf(PlausibleApiError);
       expect(error.status).toBe(status);
       expect(error.detail).toBe("Invalid metric");
-    }
+    },
   );
 
   describe("Retry-After", () => {
@@ -191,8 +223,9 @@ describe("PlausibleClient", () => {
 
     async function retryAfterFor(header?: string) {
       mockError(429, "Rate limit exceeded", header === undefined ? {} : { "Retry-After": header });
-      const error = await client.query(base).catch((e) => e);
-      return (error as PlausibleApiError).retryAfterSeconds;
+      const error = await rejectionOf(client.query(base));
+      if (!(error instanceof PlausibleApiError)) throw error;
+      return error.retryAfterSeconds;
     }
 
     it("reads delta-seconds and an HTTP-date for the same moment as the same wait", async () => {
@@ -201,7 +234,7 @@ describe("PlausibleClient", () => {
           const date = new Date(Date.now() + seconds * 1000).toUTCString();
           expect(await retryAfterFor(String(seconds))).toBe(seconds);
           expect(await retryAfterFor(date)).toBe(seconds);
-        })
+        }),
       );
     });
 
@@ -218,12 +251,22 @@ describe("PlausibleClient", () => {
       "reads the obsolete HTTP-date form %j",
       async (header) => {
         expect(await retryAfterFor(header)).toBe(30);
-      }
+      },
     );
 
     // Not valid Retry-After values, but Date.parse reads most of them as dates in 2001, which
     // would have told the caller to retry at once.
-    it.each(["soon", "1.5", "-5", "5x", "1e3", "Monday 5", "January 1, 2001", "Monkeys 1 Jan 2001", "2026-10-21T07:00:30Z"])("ignores the invalid value %j", async (header) => {
+    it.each([
+      "soon",
+      "1.5",
+      "-5",
+      "5x",
+      "1e3",
+      "Monday 5",
+      "January 1, 2001",
+      "Monkeys 1 Jan 2001",
+      "2026-10-21T07:00:30Z",
+    ])("ignores the invalid value %j", async (header) => {
       expect(await retryAfterFor(header)).toBeUndefined();
     });
 
@@ -238,12 +281,16 @@ describe("parsePlausibleErrorDetail", () => {
     expect(parsePlausibleErrorDetail('{"error":"bad metric"}')).toBe("bad metric");
   });
 
-  it.each(["<html>502</html>", '{"errors":["bad"]}', '{"error":""}', '{"error":{"detail":"bad"}}', "null", '"bad"'])(
-    "returns undefined for %s, which is not the documented shape",
-    (body) => {
-      expect(parsePlausibleErrorDetail(body)).toBeUndefined();
-    }
-  );
+  it.each([
+    "<html>502</html>",
+    '{"errors":["bad"]}',
+    '{"error":""}',
+    '{"error":{"detail":"bad"}}',
+    "null",
+    '"bad"',
+  ])("returns undefined for %s, which is not the documented shape", (body) => {
+    expect(parsePlausibleErrorDetail(body)).toBeUndefined();
+  });
 
   it("keeps a message of up to 500 characters and truncates a longer one", () => {
     const of = (n: number) => parsePlausibleErrorDetail(JSON.stringify({ error: "x".repeat(n) }));

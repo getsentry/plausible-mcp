@@ -7,7 +7,7 @@ const apiKey = process.env.PLAUSIBLE_API_KEY;
 if (!apiKey) {
   console.error(
     "Error: PLAUSIBLE_API_KEY environment variable is required.\n" +
-      "Get your API key from Plausible Settings > API Keys."
+      "Get your API key from Plausible Settings > API Keys.",
   );
   process.exit(1);
 }

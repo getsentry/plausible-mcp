@@ -3,16 +3,16 @@
 import { expect, it, vi } from "vitest";
 import instrumentedWorker from "../src/worker.js";
 import type { Env } from "../src/env.js";
+import { executionContext } from "./worker-fixtures.js";
 
 // Regression (ea7490d): forks of this public repo once reported into our Sentry project.
 it("sends nothing to Sentry when no DSN is configured, even for a captured failure", async () => {
   const sent: string[] = [];
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     sent.push(new Request(input, init).url);
-    return new Response(null, { status: 200 });
+    return Promise.resolve(new Response(null, { status: 200 }));
   });
-  const pending: Promise<unknown>[] = [];
-  const ctx = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
+  const { ctx, pending } = executionContext();
   // An HTTP Plausible base URL makes server creation throw, which is reported when Sentry runs.
   const env = {
     CF_ACCESS_TEAM_DOMAIN: "https://team.cloudflareaccess.com",
@@ -31,7 +31,7 @@ it("sends nothing to Sentry when no DSN is configured, even for a captured failu
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   });
 
-  const response = await instrumentedWorker.fetch!(request, env, ctx);
+  const response = await instrumentedWorker.fetch(request, env, ctx);
   for (let i = 0; i < pending.length; i++) await pending[i];
 
   expect(response.status).toBe(500);

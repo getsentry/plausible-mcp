@@ -20,6 +20,9 @@
  */
 
 import { UnsupportedProtocolVersionError } from "@modelcontextprotocol/server";
+import type { Event } from "@sentry/cloudflare";
+import { z } from "zod";
+import type { JsonValue } from "./json.js";
 
 export type RouteGroup = "mcp" | "internal";
 export type McpRequestKind = "heartbeat" | "tool_call" | "control" | "unknown";
@@ -85,36 +88,23 @@ export function classifyMcpMethod(rawMethod: string): McpRequestTelemetry {
   };
 }
 
+const jsonRpcRequest = z.object({ method: z.string().min(1) });
+const healthcheckInitialize = z.object({
+  params: z.object({ clientInfo: z.object({ name: z.literal("healthcheck") }) }),
+});
+
 /**
  * Extract only bounded protocol metadata from an already-parsed JSON-RPC body.
  * Request ids, params, tool arguments, and caller-defined method names are ignored.
  */
-export function classifyMcpRequest(payload: unknown): McpRequestTelemetry {
+export function classifyMcpRequest(payload: JsonValue): McpRequestTelemetry {
   if (Array.isArray(payload)) return { method: "batch", kind: "control" };
-  if (!payload || typeof payload !== "object") {
-    return { method: "unknown", kind: "unknown" };
+  const request = jsonRpcRequest.safeParse(payload);
+  if (!request.success) return { method: "unknown", kind: "unknown" };
+  const classified = classifyMcpMethod(request.data.method);
+  if (classified.method === "initialize" && healthcheckInitialize.safeParse(payload).success) {
+    return { method: classified.method, kind: "heartbeat" };
   }
-
-  const message = payload as Record<string, unknown>;
-  const rawMethod = typeof message.method === "string" ? message.method : "";
-  if (!rawMethod) return { method: "unknown", kind: "unknown" };
-  const classified = classifyMcpMethod(rawMethod);
-
-  if (classified.method === "initialize") {
-    const params = message.params;
-    const clientInfo =
-      params && typeof params === "object"
-        ? (params as Record<string, unknown>).clientInfo
-        : undefined;
-    const clientName =
-      clientInfo && typeof clientInfo === "object"
-        ? (clientInfo as Record<string, unknown>).name
-        : undefined;
-    if (clientName === "healthcheck") {
-      return { method: classified.method, kind: "heartbeat" };
-    }
-  }
-
   return classified;
 }
 
@@ -160,59 +150,49 @@ export function statusClass(status: number): string {
  * and collapse into `mcp-remote`/`node`/`python`/`other` rather than a product
  * name. That's the intended cost of a bounded dimension.
  */
+/** Client families by user agent, lowercased. The first match wins, so order matters. */
+const CLIENT_FAMILIES = [
+  { family: "claude-code", matches: (ua: string) => ua.startsWith("claude-code/") },
+  { family: "cursor", matches: (ua: string) => ua.startsWith("cursor/") },
+  { family: "codex", matches: (ua: string) => ua.includes("codex") },
+  { family: "mcp-remote", matches: (ua: string) => ua.includes("mcp-remote") },
+  {
+    family: "claude",
+    matches: (ua: string) =>
+      ua.startsWith("claude-user") || ua.includes("claude-ai") || ua.includes("anthropic"),
+  },
+  { family: "openai", matches: (ua: string) => ua.includes("openai") },
+  { family: "go", matches: (ua: string) => ua.startsWith("go-http-client/") },
+  {
+    family: "java",
+    matches: (ua: string) => ua.startsWith("java") || ua.startsWith("reactornetty/"),
+  },
+  {
+    family: "python",
+    matches: (ua: string) =>
+      ua.startsWith("python") || ua.startsWith("aiohttp/") || ua.includes("httpx"),
+  },
+  {
+    family: "node",
+    matches: (ua: string) =>
+      ua === "node" ||
+      ua.startsWith("node-fetch/") ||
+      ua.startsWith("undici") ||
+      ua.startsWith("bun/"),
+  },
+] as const;
+
 export function resolveClientFamily(userAgent: string | null | undefined): string {
   if (!userAgent) return "unknown";
   const ua = userAgent.toLowerCase();
-
-  if (ua.startsWith("claude-code/")) return "claude-code";
-  if (ua.startsWith("cursor/")) return "cursor";
-  if (ua.includes("codex")) return "codex";
-  if (ua.includes("mcp-remote")) return "mcp-remote";
-  if (
-    ua.startsWith("claude-user") ||
-    ua.includes("claude-ai") ||
-    ua.includes("anthropic")
-  ) {
-    return "claude";
-  }
-  if (ua.includes("openai")) return "openai";
-  if (ua.startsWith("go-http-client/")) return "go";
-  if (ua.startsWith("java") || ua.startsWith("reactornetty/")) return "java";
-  if (
-    ua.startsWith("python") ||
-    ua.startsWith("aiohttp/") ||
-    ua.includes("httpx")
-  ) {
-    return "python";
-  }
-  if (
-    ua === "node" ||
-    ua.startsWith("node-fetch/") ||
-    ua.startsWith("undici") ||
-    ua.startsWith("bun/")
-  ) {
-    return "node";
-  }
-
-  return "other";
+  return CLIENT_FAMILIES.find(({ matches }) => matches(ua))?.family ?? "other";
 }
 
 // --- Expected error filtering (beforeSend) -----------------------------------
 
-interface ErrorMechanismLike {
-  type?: string;
-  data?: Record<string, unknown>;
-}
-
-export interface ErrorEventLike {
-  exception?: {
-    values?: Array<{
-      type?: string;
-      value?: string;
-      mechanism?: ErrorMechanismLike;
-    }>;
-  };
-}
+/** The part of a Sentry error event that the drop rules read. */
+export type ErrorEventLike = Pick<Event, "exception">;
+type SentryException = NonNullable<NonNullable<Event["exception"]>["values"]>[number];
 
 /**
  * Drop expected protocol rejections that the MCP SDK reports through its error hook.
@@ -227,23 +207,27 @@ export interface ErrorEventLike {
  */
 export function errorDropReason(event: ErrorEventLike): string | null {
   for (const exception of event.exception?.values ?? []) {
-    if (exception.mechanism?.type !== "auto.ai.mcp_server") continue;
-    const fromTransport = exception.mechanism.data?.["error_type"] === "transport";
-    if (
-      exception.value === "Not Acceptable: Client must accept text/event-stream" &&
-      fromTransport
-    ) {
-      return "mcp-get-without-sse-accept";
-    }
-    if (
-      exception.value === "Parse error: Invalid JSON" ||
-      exception.value === "Parse error: Invalid JSON-RPC message" ||
-      (exception.type === "SyntaxError" && fromTransport)
-    ) {
-      return "mcp-body-parse-error";
-    }
+    const reason = mcpTransportDropReason(exception);
+    if (reason) return reason;
   }
   return null;
+}
+
+const PARSE_ERROR_MESSAGES = new Set([
+  "Parse error: Invalid JSON",
+  "Parse error: Invalid JSON-RPC message",
+]);
+
+function mcpTransportDropReason(exception: SentryException): string | null {
+  if (exception.mechanism?.type !== "auto.ai.mcp_server") return null;
+  const fromTransport = exception.mechanism.data?.["error_type"] === "transport";
+  if (exception.value === "Not Acceptable: Client must accept text/event-stream" && fromTransport) {
+    return "mcp-get-without-sse-accept";
+  }
+  const parseError =
+    PARSE_ERROR_MESSAGES.has(exception.value ?? "") ||
+    (exception.type === "SyntaxError" && fromTransport);
+  return parseError ? "mcp-body-parse-error" : null;
 }
 
 /**
@@ -298,7 +282,7 @@ export interface RootSpanSampleInput {
  * `app.server.response` still counts 100% of requests.
  */
 export function rootSampleRate(input: RootSpanSampleInput): number {
-  if (typeof input.parentSampled === "boolean") return Number(input.parentSampled);
+  if (input.parentSampled !== undefined) return Number(input.parentSampled);
   if (input.pathname === null) return 1;
   if (classifyRoute(input.pathname) === null) return 0;
   if (isTrackedSubpath(input.pathname) && input.mcpMethod === null) return 0;
@@ -306,14 +290,17 @@ export function rootSampleRate(input: RootSpanSampleInput): number {
     // The transport answers a GET with 405: there is no standalone event stream.
     return input.requestMethod === "GET" ? HEARTBEAT_SPAN_KEEP_RATE : 1;
   }
+  return mcpMethodSampleRate(input.mcpMethod);
+}
 
-  const classified = classifyMcpMethod(input.mcpMethod);
-  if (
-    classified.method === "notifications/initialized" ||
-    classified.method === "notifications/roots/list_changed"
-  ) {
-    return 0;
-  }
+const UNSAMPLED_NOTIFICATIONS = new Set([
+  "notifications/initialized",
+  "notifications/roots/list_changed",
+]);
+
+function mcpMethodSampleRate(mcpMethod: string): number {
+  const classified = classifyMcpMethod(mcpMethod);
+  if (UNSAMPLED_NOTIFICATIONS.has(classified.method)) return 0;
   if (classified.kind === "heartbeat" || LOW_SIGNAL_MCP_METHODS.has(classified.method)) {
     return HEARTBEAT_SPAN_KEEP_RATE;
   }

@@ -45,7 +45,9 @@ const standardCases = [
     "compare_periods",
     {
       site_id: period.site_id,
-      page: "/docs*", goal: "Signup", property_filters: [{property:"plan", values:["trial"]}],
+      page: "/docs*",
+      goal: "Signup",
+      property_filters: [{ property: "plan", values: ["trial"] }],
       period_a: "2026-09-17,2026-09-30",
       period_b: period.date_range,
       metrics: ["visitors", "bounce_rate"],
@@ -55,30 +57,45 @@ const standardCases = [
   [
     "Feedback receipt",
     "send_feedback",
-    { task: "Review the chart", kind: "idea", impact: "friction", description: "Show the date for each observation." },
+    {
+      task: "Review the chart",
+      kind: "idea",
+      impact: "friction",
+      description: "Show the date for each observation.",
+    },
     [],
   ],
 ];
 const cases = [
   ...standardCases,
   [
-    "Hourly traffic", "get_timeseries", { ...period, granularity: "hour", metrics: ["visitors"] },
-    [[0, 0], [1, null], [2, 7], [8, 12]].map(([hour, value]) => row(["2026-10-01T0" + hour + ":00:00"], [value])),
+    "Hourly traffic",
+    "get_timeseries",
+    { ...period, granularity: "hour", metrics: ["visitors"] },
+    [
+      [0, 0],
+      [1, null],
+      [2, 7],
+      [8, 12],
+    ].map(([hour, value]) => row(["2026-10-01T0" + hour + ":00:00"], [value])),
   ],
   [
-    "Weekly traffic", "get_timeseries",
+    "Weekly traffic",
+    "get_timeseries",
     { ...period, date_range: "2026-10-01,2026-10-25", granularity: "week", metrics: ["visitors"] },
     ["2026-10-01", "2026-10-05", "2026-10-19"].map((date, i) => row([date], [i + 1])),
   ],
   [
-    "Monthly traffic", "get_timeseries",
+    "Monthly traffic",
+    "get_timeseries",
     { ...period, date_range: "2025-12-01,2026-03-31", granularity: "month", metrics: ["visitors"] },
     ["2025-12-01", "2026-01-01", "2026-03-01"].map((date, i) => row([date], [i + 1])),
   ],
   [
-    "Empty baseline", "compare_periods",
+    "Empty baseline",
+    "compare_periods",
     { site_id: period.site_id, period_a: "7d", period_b: "30d", metrics: ["visitors"] },
-    (q) => q.date_range === "7d" ? [] : [row([], [24])],
+    (q) => (q.date_range === "7d" ? [] : [row([], [24])]),
   ],
 ];
 for (const [, name, args] of standardCases) {
@@ -86,16 +103,20 @@ for (const [, name, args] of standardCases) {
   cases.push(["Empty result", name, args, []], ["Query error", name, args, null]);
 }
 let fixture;
-globalThis.fetch = async (url, init) => {
-  assert.equal(String(url), "https://fixture.invalid/api/v2/query");
+globalThis.fetch = (url, init) => {
+  assert.equal(new Request(url, init).url, "https://fixture.invalid/api/v2/query");
   if (fixture === null)
-    return Response.json({ error: "This fixture site is unavailable." }, { status: 400 });
+    return Promise.resolve(
+      Response.json({ error: "This fixture site is unavailable." }, { status: 400 }),
+    );
   const q = JSON.parse(init.body);
-  return Response.json({
-    results: typeof fixture === "function" ? fixture(q) : fixture,
-    query: q,
-    meta: {},
-  });
+  return Promise.resolve(
+    Response.json({
+      results: fixture instanceof Function ? fixture(q) : fixture,
+      query: q,
+      meta: {},
+    }),
+  );
 };
 const server = createServer({
   apiKey: "fixture-only",
@@ -103,7 +124,9 @@ const server = createServer({
   enableFeedbackTool: true,
 });
 const appClientOptions = {
-  capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } },
+  capabilities: {
+    extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } },
+  },
 };
 const client = new Client({ name: "ui-review", version: "1" }, appClientOptions);
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -112,7 +135,9 @@ await client.connect(clientTransport);
 try {
   const { tools } = await client.listTools();
   assert.deepEqual(new Set(tools.map((tool) => tool.name)), new Set(cases.map((c) => c[1])));
-  assert.deepEqual(tools.find(tool => tool.name === "send_feedback")._meta.ui.visibility, ["model"]);
+  assert.deepEqual(tools.find((tool) => tool.name === "send_feedback")._meta.ui.visibility, [
+    "model",
+  ]);
   const resources = await client.listResources();
   const uri = resources.resources[0]?.uri;
   assert.ok(uri?.startsWith("ui://"));
@@ -148,14 +173,20 @@ try {
     const result = await client.callTool({ name, arguments: args });
     assert.equal(Boolean(result.isError), label === "Query error", label);
     assert.ok(result.isError || result.structuredContent, label);
-    assert.ok(result.content.some((block) => block.type === "text" && block.text.length), label);
+    assert.ok(
+      result.content.some((block) => block.type === "text" && block.text.length),
+      label,
+    );
     scenarios.push({ label, tool: tools.find((tool) => tool.name === name), args, result });
   }
   const feedback = scenarios.find((s) => s.tool.name === "send_feedback");
   scenarios.push({
     ...feedback,
     label: "Feedback error",
-    result: { isError: true, content: [{ type: "text", text: "The feedback service could not save this report." }] },
+    result: {
+      isError: true,
+      content: [{ type: "text", text: "The feedback service could not save this report." }],
+    },
   });
   const directory = new URL("../coverage/ui-review/", import.meta.url);
   const hostScript = await build({
@@ -166,26 +197,61 @@ try {
     write: false,
   });
   const template = await readFile(new URL("ui-host.html", import.meta.url), "utf8");
-  const comparison = scenarios.find(s => s.label === "Compare periods").args;
+  const comparison = scenarios.find((s) => s.label === "Compare periods").args;
   const dailyReadings = {};
   for (const range of [comparison.period_a, comparison.period_b]) {
     const start = Date.parse(range.split(",")[0]);
-    fixture = [0, 2, 3, 4].map((day, i) => row([new Date(start + day * 86400000).toISOString().slice(0, 10)],
-      range === comparison.period_a ? [[19, 40], [29, null], [0, 35], [44, 49]][i] : [[23, 44], [34, 39], [41, 37], [40, 42]][i]));
-    const {site_id, goal, page, property_filters, metrics} = comparison;
-    const args = {site_id, goal, page, property_filters, metrics, date_range: range, granularity: "day"};
-    const result = await client.callTool({name: "get_timeseries", arguments: args});
+    fixture = [0, 2, 3, 4].map((day, i) =>
+      row(
+        [new Date(start + day * 86400000).toISOString().slice(0, 10)],
+        range === comparison.period_a
+          ? [
+              [19, 40],
+              [29, null],
+              [0, 35],
+              [44, 49],
+            ][i]
+          : [
+              [23, 44],
+              [34, 39],
+              [41, 37],
+              [40, 42],
+            ][i],
+      ),
+    );
+    const { site_id, goal, page, property_filters, metrics } = comparison;
+    const args = {
+      site_id,
+      goal,
+      page,
+      property_filters,
+      metrics,
+      date_range: range,
+      granularity: "day",
+    };
+    const result = await client.callTool({ name: "get_timeseries", arguments: args });
     assert.ok(!result.isError && result.structuredContent);
-    dailyReadings[range] = {args, result};
+    dailyReadings[range] = { args, result };
   }
-  const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings }).replaceAll("<", "\\u003c");
+  const fixtures = JSON.stringify({ html: resource.text, scenarios, dailyReadings }).replaceAll(
+    "<",
+    "\\u003c",
+  );
   const document = template
-    .replace("<!--fixtures-->", () => '<script type="application/json" id="fixtures">' + fixtures + "</script>")
+    .replace(
+      "<!--fixtures-->",
+      () => '<script type="application/json" id="fixtures">' + fixtures + "</script>",
+    )
     .replace("<!--bridge-->", () => "<script>" + hostScript.outputFiles[0].text + "</script>");
   await mkdir(directory, { recursive: true });
   await writeFile(new URL("index.html", directory), document);
-  await writeFile(new URL("landing.html", directory), landingHtml("https://plausible-mcp.sentry.dev/mcp"));
-  console.log(`Verified ${tools.length} tools and ${cases.length + Object.keys(dailyReadings).length} calls. Open coverage/ui-review/index.html or landing.html.`);
+  await writeFile(
+    new URL("landing.html", directory),
+    landingHtml("https://plausible-mcp.sentry.dev/mcp"),
+  );
+  console.log(
+    `Verified ${tools.length} tools and ${cases.length + Object.keys(dailyReadings).length} calls. Open coverage/ui-review/index.html or landing.html.`,
+  );
 } finally {
   await client.close();
   await server.close();

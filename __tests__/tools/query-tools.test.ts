@@ -59,17 +59,20 @@ describe.each(QUERY_TOOLS)("$name", ({ name, args }) => {
   it.each([
     ["page", "/pricing", "event:page"],
     ["goal", "Signup", "event:goal"],
-  ])("rejects the %s shortcut with a filter on the same dimension, before any request", async (param, value, property) => {
-    const result = await h.call(name, {
-      ...args,
-      [param]: value,
-      property_filters: [{ property, values: ["other"] }],
-    });
+  ])(
+    "rejects the %s shortcut with a filter on the same dimension, before any request",
+    async (param, value, property) => {
+      const result = await h.call(name, {
+        ...args,
+        [param]: value,
+        property_filters: [{ property, values: ["other"] }],
+      });
 
-    expect(result.isError).toBe(true);
-    expect(errorOf(result).code).toBe("invalid_input");
-    expect(h.requests).toHaveLength(0);
-  });
+      expect(result.isError).toBe(true);
+      expect(errorOf(result).code).toBe("invalid_input");
+      expect(h.requests).toHaveLength(0);
+    },
+  );
 
   it("returns a retryable rate_limited error with Plausible's wait time", async () => {
     h.reply(() => plausibleError(429, "", { "Retry-After": "30" }));
@@ -123,21 +126,26 @@ describe("without a default site", () => {
 
   it("lists site_id as required on every query tool", async () => {
     const { tools } = await bare.client.listTools();
-    for (const tool of tools) expect(tool.inputSchema.required, tool.name).toContain("site_id");
+    expect(tools.map((tool) => [tool.name, tool.inputSchema.required])).toEqual(
+      tools.map((tool) => [tool.name, expect.arrayContaining(["site_id"])]),
+    );
   });
 
-  it.each(QUERY_TOOLS)("rejects $name without site_id before any request", async ({ name, args }) => {
-    const result = await bare.call(name, args);
+  it.each(QUERY_TOOLS)(
+    "rejects $name without site_id before any request",
+    async ({ name, args }) => {
+      const result = await bare.call(name, args);
 
-    expect(result.isError).toBe(true);
-    expect(result.content.map((block) => block.text).join("\n")).toContain("site_id");
-    expect(bare.requests).toHaveLength(0);
-  });
+      expect(result.isError).toBe(true);
+      expect(result.content.map((block) => block.text).join("\n")).toContain("site_id");
+      expect(bare.requests).toHaveLength(0);
+    },
+  );
 });
 
 describe("with a default site", () => {
   it("lists site_id as optional", async () => {
     const { tools } = await h.client.listTools();
-    for (const tool of tools) expect(tool.inputSchema.required ?? [], tool.name).not.toContain("site_id");
+    expect(tools.filter((tool) => tool.inputSchema.required?.includes("site_id"))).toEqual([]);
   });
 });

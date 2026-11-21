@@ -13,17 +13,19 @@ import {
   metricsSchema,
   propertyFiltersSchema,
   DEFAULT_METRICS,
-  buildPageFilter,
-  buildGoalFilter,
-  buildPropertyFilters,
-  assertNoShortcutOverlap,
+  buildQueryFilters,
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
+/** Each requested metric's aggregate value for one period. */
+type PeriodMetrics = Record<string, number | null>;
+/** Each metric's change from period_a to period_b. */
+type PeriodDeltas = Record<string, { absolute: number | null; percent: number | null }>;
+
 type PeriodComparison = {
-  period_a: { range: string; metrics: Record<string, number | null> };
-  period_b: { range: string; metrics: Record<string, number | null> };
-  deltas: Record<string, { absolute: number | null; percent: number | null }>;
+  period_a: { range: string; metrics: PeriodMetrics };
+  period_b: { range: string; metrics: PeriodMetrics };
+  deltas: PeriodDeltas;
 };
 
 const nullableNumber = z.union([z.number(), z.null()]);
@@ -35,53 +37,36 @@ const periodSchema = z.object({
 });
 
 /** `outputSchema` for compare_periods — two period aggregates plus per-metric deltas. */
-const comparePeriodsOutputSchema = z.object({
+export const comparePeriodsOutputSchema = z.object({
   period_a: periodSchema,
   period_b: periodSchema,
   deltas: z
-    .record(
-      z.string(),
-      z.object({ absolute: nullableNumber, percent: nullableNumber })
-    )
+    .record(z.string(), z.object({ absolute: nullableNumber, percent: nullableNumber }))
     .describe(
-      "Per-metric change from period_a (baseline) to period_b: absolute is period_b - period_a, percent is that change relative to period_a. A positive value means period_b is higher."
+      "Per-metric change from period_a (baseline) to period_b: absolute is period_b - period_a, percent is that change relative to period_a. A positive value means period_b is higher.",
     ),
 });
 
-function extractAggregateMetrics(
-  response: PlausibleResponse,
-  metricNames: string[]
-): Record<string, number | null> {
-  const result: Record<string, number | null> = {};
-  if (response.results.length > 0) {
-    const row = response.results[0];
-    for (let i = 0; i < metricNames.length; i++) {
-      result[metricNames[i]] = row.metrics[i];
-    }
-  }
-  return result;
+function extractAggregateMetrics(response: PlausibleResponse, metricNames: string[]) {
+  const [row] = response.results;
+  if (!row) return {};
+  return Object.fromEntries(metricNames.map((name, i) => [name, row.metrics[i]]));
 }
 
-function computeDeltas(
-  a: Record<string, number | null>,
-  b: Record<string, number | null>
-): Record<string, { absolute: number | null; percent: number | null }> {
-  const deltas: Record<string, { absolute: number | null; percent: number | null }> = {};
-  for (const key of Object.keys(a)) {
-    const va = a[key];
-    const vb = b[key];
-    if (va == null || vb == null) {
-      deltas[key] = { absolute: null, percent: null };
-    } else {
-      const abs = vb - va;
-      const pct = va !== 0 ? (abs / va) * 100 : null;
-      deltas[key] = {
-        absolute: Math.round(abs * 100) / 100,
-        percent: pct != null ? Math.round(pct * 100) / 100 : null,
-      };
-    }
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/** A metric is missing (undefined) from a period whose query returned no rows. */
+function deltaOf(a: number | null | undefined, b: number | null | undefined) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return { absolute: null, percent: null };
   }
-  return deltas;
+  const change = b - a;
+  return { absolute: round2(change), percent: a === 0 ? null : round2((change / a) * 100) };
+}
+
+/** A delta for every requested metric, null where either period has no value for it. */
+function computeDeltas(metricNames: string[], a: PeriodMetrics, b: PeriodMetrics) {
+  return Object.fromEntries(metricNames.map((name) => [name, deltaOf(a[name], b[name])]));
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -95,20 +80,18 @@ export function isSubDayRange(range: string): boolean {
   return range === "day" || /^\d+h$/.test(range) || range.includes("T");
 }
 
+const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
+const resolvedRangeSchema = z.tuple([timestamp, timestamp]);
+
 /** The start and end Plausible resolved for a query's date_range, in `response.query`. */
 function resolvedRange(response: PlausibleResponse): [string, string] {
-  const [first, last] = Array.isArray(response.query.date_range) ? response.query.date_range : [];
-  if (
-    typeof first !== "string" ||
-    typeof last !== "string" ||
-    Number.isNaN(Date.parse(first)) ||
-    Number.isNaN(Date.parse(last))
-  ) {
+  const range = resolvedRangeSchema.safeParse(response.query.date_range);
+  if (!range.success) {
     throw new UserFacingError(
-      "Plausible did not return the dates it resolved, so the period before period_b is unknown. Pass period_a."
+      "Plausible did not return the dates it resolved, so the period before period_b is unknown. Pass period_a.",
     );
   }
-  return [first, last];
+  return range.data;
 }
 
 /**
@@ -128,7 +111,11 @@ function resolvedRange(response: PlausibleResponse): [string, string] {
  * A range that starts after today has no data and no fixed length. Plausible would compare
  * it with one day; an error that asks for period_a is clearer.
  */
-export function previousPeriod(periodB: string, [first, last]: [string, string], today?: string): string {
+export function previousPeriod(
+  periodB: string,
+  [first, last]: [string, string],
+  today?: string,
+): string {
   if (isSubDayRange(periodB)) {
     const start = Date.parse(first);
     const end = Date.parse(last);
@@ -139,7 +126,7 @@ export function previousPeriod(periodB: string, [first, last]: [string, string],
   const lastDate = today && today < last.slice(0, 10) ? today : last.slice(0, 10);
   if (lastDate < firstDate) {
     throw new UserFacingError(
-      "period_b starts after today, so it has no data and the period before it has no fixed length. Pass period_a."
+      "period_b starts after today, so it has no data and the period before it has no fixed length. Pass period_a.",
     );
   }
   const days = (Date.parse(lastDate) - Date.parse(firstDate)) / MS_PER_DAY + 1;
@@ -150,14 +137,14 @@ export function register(
   server: McpServer,
   client: PlausibleClient,
   defaultSiteId?: string,
-  offerFeedback = false
+  offerFeedback = false,
 ) {
   server.registerTool(
     "compare_periods",
     {
       title: "Compare Periods",
       description:
-        "Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To compare a period with the one of the same length right before it, such as this week with last week, pass only period_b (\"7d\").",
+        'Compare metrics between two date ranges side by side. Ideal for before/after deploy analysis. period_a is the baseline and period_b is measured against it: deltas are period_b minus period_a, and percent is relative to period_a. To compare a period with the one of the same length right before it, such as this week with last week, pass only period_b ("7d").',
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: comparePeriodsOutputSchema,
@@ -165,11 +152,11 @@ export function register(
         site_id: siteIdSchemaFor(defaultSiteId),
         period_a: dateRangeSchema
           .describe(
-            'Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". Omit it to use the period of the same length right before period_b, as Plausible\'s "previous period" does: period_b "7d" alone compares the last 7 days with the 7 days before them. The result gives the dates used.'
+            'Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". Omit it to use the period of the same length right before period_b, as Plausible\'s "previous period" does: period_b "7d" alone compares the last 7 days with the 7 days before them. The result gives the dates used.',
           )
           .optional(),
         period_b: dateRangeSchema.describe(
-          'Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range; omit period_a to compare it with the period right before it.'
+          'Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range; omit period_a to compare it with the period right before it.',
         ),
         page: pageSchema,
         metrics: metricsSchema,
@@ -183,16 +170,7 @@ export function register(
         const siteId = resolveSiteId(args.site_id, defaultSiteId);
         const metrics = args.metrics ?? DEFAULT_METRICS;
 
-        assertNoShortcutOverlap(args.property_filters, {
-          page: args.page,
-          goal: args.goal,
-        });
-        const filters: unknown[][] = [];
-        if (args.page) filters.push(buildPageFilter(args.page));
-        if (args.goal) filters.push(buildGoalFilter(args.goal));
-        if (args.property_filters?.length) {
-          filters.push(...buildPropertyFilters(args.property_filters));
-        }
+        const filters = buildQueryFilters(args);
 
         const queryBase = {
           site_id: siteId,
@@ -227,18 +205,16 @@ export function register(
         const comparison: PeriodComparison = {
           period_a: { range: periodA, metrics: metricsA },
           period_b: { range: args.period_b, metrics: metricsB },
-          deltas: computeDeltas(metricsA, metricsB),
+          deltas: computeDeltas(metrics, metricsA, metricsB),
         };
 
         return {
-          content: [
-            { type: "text" as const, text: JSON.stringify(comparison, null, 2) },
-          ],
+          content: [{ type: "text" as const, text: JSON.stringify(comparison, null, 2) }],
           structuredContent: comparison,
         };
       } catch (error) {
         return toolErrorResult(error, "compare_periods", offerFeedback);
       }
-    }
+    },
   );
 }

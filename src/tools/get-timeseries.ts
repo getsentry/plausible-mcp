@@ -13,22 +13,19 @@ import {
   rowMetricsSchema,
   propertyFiltersSchema,
   DEFAULT_METRICS,
-  buildPageFilter,
-  buildGoalFilter,
-  buildPropertyFilters,
-  assertNoShortcutOverlap,
+  buildQueryFilters,
   queryResultOutputSchema,
   buildQueryStructuredContent,
 } from "../schemas.js";
 
 export function resolveSiteId(
   explicit: string | undefined,
-  defaultSiteId: string | undefined
+  defaultSiteId: string | undefined,
 ): string {
   const siteId = explicit ?? defaultSiteId;
   if (!siteId) {
     throw new UserFacingError(
-      "site_id is required. Pass it explicitly or set PLAUSIBLE_DEFAULT_SITE_ID."
+      "site_id is required. Pass it explicitly or set PLAUSIBLE_DEFAULT_SITE_ID.",
     );
   }
   return siteId;
@@ -38,7 +35,7 @@ export function register(
   server: McpServer,
   client: PlausibleClient,
   defaultSiteId?: string,
-  offerFeedback = false
+  offerFeedback = false,
 ) {
   server.registerTool(
     "get_timeseries",
@@ -69,16 +66,7 @@ export function register(
         const metrics = args.metrics ?? DEFAULT_METRICS;
         const timeKey = `time:${args.granularity ?? "day"}`;
 
-        assertNoShortcutOverlap(args.property_filters, {
-          page: args.page,
-          goal: args.goal,
-        });
-        const filters: unknown[][] = [];
-        if (args.page) filters.push(buildPageFilter(args.page));
-        if (args.goal) filters.push(buildGoalFilter(args.goal));
-        if (args.property_filters?.length) {
-          filters.push(...buildPropertyFilters(args.property_filters));
-        }
+        const filters = buildQueryFilters(args);
 
         const result = await client.query({
           site_id: siteId,
@@ -91,21 +79,19 @@ export function register(
         // present a series that silently ends early.
         if (result.results.length >= PLAUSIBLE_MAX_ROWS) {
           throw new UserFacingError(
-            `This query reached Plausible's ${PLAUSIBLE_MAX_ROWS.toLocaleString("en-US")}-bucket limit, so later buckets may be missing. Narrow date_range or use a coarser granularity.`
+            `This query reached Plausible's ${PLAUSIBLE_MAX_ROWS.toLocaleString("en-US")}-bucket limit, so later buckets may be missing. Narrow date_range or use a coarser granularity.`,
           );
         }
 
         const structuredContent = buildQueryStructuredContent(result, metrics, [timeKey]);
         const { notes } = structuredContent;
         return {
-          content: [
-            { type: "text" as const, text: JSON.stringify({ ...result, notes }, null, 2) },
-          ],
+          content: [{ type: "text" as const, text: JSON.stringify({ ...result, notes }, null, 2) }],
           structuredContent,
         };
       } catch (error) {
         return toolErrorResult(error, "get_timeseries", offerFeedback);
       }
-    }
+    },
   );
 }

@@ -15,6 +15,7 @@ beforeEach(() => {
 /** Attributes Sentry exports for a span in which the tool recorded the given request context. */
 async function exportedSpan(optIn: boolean) {
   Sentry.startSpan({ name: "tools/call get_timeseries" }, () =>
+    // SAFETY: the context holds only the ServerContext fields recordMcpClientInfo reads.
     recordMcpClientInfo({
       http: {
         authInfo: {
@@ -26,10 +27,14 @@ async function exportedSpan(optIn: boolean) {
       },
       mcpReq: {
         envelope: {
-          [CLIENT_INFO_META_KEY]: { name: "modern-client", title: "Ada's Laptop", version: "1.2.3" },
+          [CLIENT_INFO_META_KEY]: {
+            name: "modern-client",
+            title: "Ada's Laptop",
+            version: "1.2.3",
+          },
         },
       },
-    } as never)
+    } as never),
   );
   await sentry.flush();
   expect(sentry.spans).toHaveLength(1);
@@ -40,7 +45,10 @@ describe("recordMcpClientInfo", () => {
   it("exports the per-request client name and version, never the title, when the endpoint opts in", async () => {
     const span = await exportedSpan(true);
 
-    expect(span).toMatchObject({ "mcp.client.name": "modern-client", "mcp.client.version": "1.2.3" });
+    expect(span).toMatchObject({
+      "mcp.client.name": "modern-client",
+      "mcp.client.version": "1.2.3",
+    });
     expect(JSON.stringify(sentry.envelopes)).not.toContain("Ada's Laptop");
   });
 
