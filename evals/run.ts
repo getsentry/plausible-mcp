@@ -3,7 +3,8 @@
 import OpenAI from "openai";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createServer } from "../src/server.js";
-import { cases } from "./cases.js";
+import { cases, evalArgsSchema, type EvalCase } from "./cases.js";
+import type { JsonValue } from "../src/json.js";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) {
@@ -41,7 +42,7 @@ async function getEvalContext() {
         function: {
           name: tool.name,
           description: tool.description ?? "",
-          parameters: tool.inputSchema as Record<string, unknown>,
+          parameters: tool.inputSchema,
         },
       })),
     };
@@ -51,11 +52,15 @@ async function getEvalContext() {
   }
 }
 
-async function runEval(
-  context: Awaited<ReturnType<typeof getEvalContext>>,
-  evalCase: (typeof cases)[0],
-): Promise<{ pass: boolean; errors: string[] }> {
-  const response = await openrouter.chat.completions.create({
+type EvalContext = Awaited<ReturnType<typeof getEvalContext>>;
+type ToolCallResponse = Awaited<ReturnType<typeof askModel>>;
+interface EvalResult {
+  pass: boolean;
+  errors: string[];
+}
+
+function askModel(context: EvalContext, evalCase: EvalCase) {
+  return openrouter.chat.completions.create({
     model,
     // Room for the model's thinking before its tool call; at 1024 it often ran out first.
     max_tokens: 4096,
@@ -70,38 +75,42 @@ async function runEval(
     ],
     tools: context.tools,
   });
+}
 
-  const toolCall = response.choices[0]?.message.tool_calls?.[0];
+/** The case's assertion errors for the model's arguments, which arrive as a JSON string. */
+function argumentErrors(evalCase: EvalCase, rawArguments: string): string[] {
+  let parsed: JsonValue;
+  try {
+    parsed = JSON.parse(rawArguments || "{}");
+  } catch {
+    return [`Tool arguments were not valid JSON: ${rawArguments}`];
+  }
+  const args = evalArgsSchema.safeParse(parsed);
+  if (!args.success) return [`Tool arguments had the wrong types: ${args.error.message}`];
+  return evalCase.assertions(args.data);
+}
 
-  if (!toolCall || toolCall.type !== "function") {
-    const choice = response.choices[0];
+function grade(evalCase: EvalCase, response: ToolCallResponse): EvalResult {
+  const choice = response.choices[0];
+  const toolCall = choice?.message.tool_calls?.[0];
+  if (toolCall?.type !== "function") {
     const said = choice?.message.content?.trim().slice(0, 300) ?? "";
     return {
       pass: false,
       errors: [`No tool call (finish_reason ${choice?.finish_reason}). The model said: ${said}`],
     };
   }
-
-  const errors: string[] = [];
-
-  if (toolCall.function.name !== evalCase.expectedTool) {
-    errors.push(`Wrong tool: expected "${evalCase.expectedTool}", got "${toolCall.function.name}"`);
-  }
-
-  // Arguments arrive as a JSON string, unlike Anthropic's already-parsed input.
-  let args: Record<string, unknown>;
-  try {
-    args = JSON.parse(toolCall.function.arguments || "{}");
-  } catch {
-    return {
-      pass: false,
-      errors: [...errors, `Tool arguments were not valid JSON: ${toolCall.function.arguments}`],
-    };
-  }
-
-  errors.push(...evalCase.assertions(args));
-
+  const errors = [
+    ...(toolCall.function.name === evalCase.expectedTool
+      ? []
+      : [`Wrong tool: expected "${evalCase.expectedTool}", got "${toolCall.function.name}"`]),
+    ...argumentErrors(evalCase, toolCall.function.arguments),
+  ];
   return { pass: errors.length === 0, errors };
+}
+
+async function runEval(context: EvalContext, evalCase: EvalCase): Promise<EvalResult> {
+  return grade(evalCase, await askModel(context, evalCase));
 }
 
 // Main

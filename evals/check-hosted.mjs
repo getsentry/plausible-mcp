@@ -66,6 +66,18 @@ await check("internal MCP challenges and advertises the configured OAuth issuer"
     assert.equal(new URL(url).protocol, "https:");
 });
 
+/** Every tool points at the one MCP Apps resource, and the resource is the shipped app. */
+async function checkSharedApp(client, tools, traffic) {
+  const uri = traffic._meta?.ui?.resourceUri;
+  assert.ok(uri?.startsWith("ui://"), "Missing analytics resource");
+  for (const name of ["get_breakdown", "get_conversions", "compare_periods", "send_feedback"]) {
+    assert.equal(tools.find((tool) => tool.name === name)?._meta?.ui?.resourceUri, uri, name);
+  }
+  const { contents } = await client.readResource({ uri });
+  assert.equal(contents[0]?.mimeType, "text/html;profile=mcp-app");
+  assert.ok(contents[0].text?.includes("ui/initialize"), "Missing UI handshake");
+}
+
 if (checkData)
   await check("authenticated tool discovery and read-only traffic query", async () => {
     const key = process.env.PLAUSIBLE_API_KEY;
@@ -90,21 +102,7 @@ if (checkData)
       const { tools } = await client.listTools();
       const traffic = tools.find((tool) => tool.name === "get_timeseries");
       assert.ok(traffic, "Missing traffic tool");
-      if (!baseline) {
-        const uri = traffic._meta?.ui?.resourceUri;
-        assert.ok(uri?.startsWith("ui://"), "Missing analytics resource");
-        for (const name of [
-          "get_breakdown",
-          "get_conversions",
-          "compare_periods",
-          "send_feedback",
-        ]) {
-          assert.equal(tools.find((tool) => tool.name === name)?._meta?.ui?.resourceUri, uri, name);
-        }
-        const { contents } = await client.readResource({ uri });
-        assert.equal(contents[0]?.mimeType, "text/html;profile=mcp-app");
-        assert.ok(contents[0].text?.includes("ui/initialize"), "Missing UI handshake");
-      }
+      if (!baseline) await checkSharedApp(client, tools, traffic);
       const result = await client.callTool({
         name: traffic.name,
         arguments: { site_id: site, date_range: "7d", metrics: ["visitors"] },

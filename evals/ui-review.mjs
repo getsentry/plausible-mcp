@@ -103,16 +103,20 @@ for (const [, name, args] of standardCases) {
   cases.push(["Empty result", name, args, []], ["Query error", name, args, null]);
 }
 let fixture;
-globalThis.fetch = async (url, init) => {
-  assert.equal(String(url), "https://fixture.invalid/api/v2/query");
+globalThis.fetch = (url, init) => {
+  assert.equal(new Request(url, init).url, "https://fixture.invalid/api/v2/query");
   if (fixture === null)
-    return Response.json({ error: "This fixture site is unavailable." }, { status: 400 });
+    return Promise.resolve(
+      Response.json({ error: "This fixture site is unavailable." }, { status: 400 }),
+    );
   const q = JSON.parse(init.body);
-  return Response.json({
-    results: typeof fixture === "function" ? fixture(q) : fixture,
-    query: q,
-    meta: {},
-  });
+  return Promise.resolve(
+    Response.json({
+      results: fixture instanceof Function ? fixture(q) : fixture,
+      query: q,
+      meta: {},
+    }),
+  );
 };
 const server = createServer({
   apiKey: "fixture-only",
