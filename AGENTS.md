@@ -10,4 +10,5 @@ craft owns the version in `package.json` and every `CHANGELOG.md` line — leave
 
 - **Sentry, spans, metrics, or anything user-identifying** — `TELEMETRY.md`, which owns the privacy posture: `/mcp` anonymous, `/internal` attributed.
 - **Deploying, or the Worker's auth and endpoints** — README "Self-Hosting". `SENTRY_DSN` stays an uncommitted secret; a hardcoded one once had forks of this public repo reporting into our Sentry project.
+- **Writing or changing a test** — CONTRIBUTING.md "Writing tests".
 - Scripts are in `package.json`, environment variables in README "Configuration", contributor procedure in `CONTRIBUTING.md`.

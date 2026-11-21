@@ -20,6 +20,18 @@ pnpm test:coverage # With coverage report
 
 Tests use [Vitest](https://vitest.dev) with mocked `fetch` — no Plausible account needed to run them.
 
+## Writing tests
+
+A test earns its place when it fails for a bug a user would notice and passes for every refactor that keeps the behavior.
+
+- **Test at the edges.** Drive a tool through `connect()` in `__tests__/harness.ts`: a real MCP client, a real server, and only the request to Plausible stubbed. Assert the request Plausible receives and the result the client receives. Test the Worker through its `fetch` handler, and Sentry through `captureSentry()`, which keeps the envelopes a real client would send.
+- **State the rule, not an example.** When a claim holds for all input (a mapping, a round-trip, a bound, a page walk), write it as a [fast-check](https://fast-check.dev) property. Keep a hand-picked example for a boundary or a past bug.
+- **Name the bug a regression test guards.** Put the fix commit in a comment above it, and check that the test fails with the fix reverted.
+- **Test once.** Behavior that every query tool shares goes in `__tests__/tools/query-tools.test.ts`. Before you add a test, search for one that already covers the behavior.
+- **Assert the contract.** Error codes, request bodies and output schemas are contracts. Description text, copy and CSS values are not; the evals and the screenshot checks cover them.
+
+There is no coverage target. `pnpm test:coverage` shows untested code to look at, not a number to reach.
+
 ## Reviewing MCP Apps results
 
 Run `pnpm review:ui` and open `coverage/ui-review/index.html` in a browser. The preview loads the same HTML that clients read from the MCP server. Choose a tool, then a result or lifecycle state. Switch the theme and width to check the same view at 320 px or full width. The theme control changes the host page and the host context together, as a real host does, and the host sends the spec's standard style variables. Add `?no-host-styles` to the URL to check a host that sends no `styles`. Add `?plain-proxy` to use a sandbox proxy that does not set a color scheme, as some hosts do. It works offline with fixture analytics and feedback data. Open the adjacent `landing.html` to try the public installation page and its embedded traffic chart. Both documents are included in the CI review artifact.
@@ -36,7 +48,7 @@ To check the deployed hostname before launch, run `pnpm verify:hosted --baseline
 2. Declare an `outputSchema` and return `structuredContent` alongside the text block. Every tool does this; query-shaped results reuse `queryResultOutputSchema` and `buildQueryStructuredContent` from `src/schemas.ts`.
 3. Set `annotations` to describe what the tool really does. The query tools are read-only; `send_feedback` writes to Sentry, so it sets `readOnlyHint: false`.
 4. Register it in `src/server.ts`
-5. Add tests in `__tests__/tools/your-tool.test.ts`
+5. Add tests in `__tests__/tools/your-tool.test.ts` through the harness (see "Writing tests"). If the tool queries Plausible, add it to `QUERY_TOOLS` in `__tests__/harness.ts` so the shared checks run for it too.
 6. Add an eval case in `evals/cases.ts`. Evals grade whether a model picks the right tool from a plain-language prompt, so this applies to tools a user would ask for in words — `send_feedback` has none.
 
 ## Running LLM Evals
