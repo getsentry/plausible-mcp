@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { PlausibleClient } from "../plausible.js";
+import type { PlausibleClient, PlausibleQueryBody, PlausibleResponse } from "../plausible.js";
 import {
   siteIdSchemaFor,
   VALID_METRICS,
@@ -39,7 +39,11 @@ export const advancedResult = queryResultOutputSchema.extend({
 function advancedInput(defaultSiteId?: string) {
   return z.strictObject({
     site_id: siteIdSchemaFor(defaultSiteId),
-    metrics: z.array(z.enum(VALID_METRICS)).min(1).max(VALID_METRICS.length),
+    metrics: z
+      .array(z.string())
+      .min(1)
+      .max(VALID_METRICS.length)
+      .pipe(z.array(z.enum(VALID_METRICS))),
     date_range: z.union([z.string().max(12), datePair]),
     dimensions: z.array(z.string().min(1).max(330)).max(8).optional(),
     filters: z
@@ -56,6 +60,45 @@ function advancedInput(defaultSiteId?: string) {
       })
       .optional(),
   });
+}
+
+function pagedOrder(
+  query: z.infer<ReturnType<typeof advancedInput>>,
+): PlausibleQueryBody["order_by"] {
+  const dimensions = query.dimensions ?? [];
+  if (!dimensions.length) return query.order_by;
+  const order = [...(query.order_by ?? [])];
+  if (!order.length) {
+    // Plausible defaults to time ascending (when present), then the first metric descending.
+    const time = dimensions.find((key) => key === "time" || key.startsWith("time:"));
+    if (time) order.push([time, "asc"]);
+    order.push([query.metrics[0], "desc"]);
+  }
+  for (const key of dimensions) {
+    if (key !== "event:goal" && !order.some(([field]) => field === key)) order.push([key, "asc"]);
+  }
+  return order;
+}
+
+function advancedPage(
+  response: PlausibleResponse,
+  metrics: string[],
+  dimensions: string[],
+  { limit, offset }: { limit: number; offset: number },
+) {
+  const pagination = { limit, offset, has_more: response.results.length > limit };
+  const page = { ...response, results: response.results.slice(0, limit) };
+  const structuredContent = {
+    ...buildQueryStructuredContent(page, metrics, dimensions, pagination),
+    meta: response.meta,
+    query: response.query,
+  };
+  if ((pagination.has_more || offset > 0) && dimensions.includes("event:goal")) {
+    const warning =
+      "Plausible cannot sort by goal. Rows tied on the other sort fields can move between pages. Increase the limit to fit all rows, or filter to one goal per query.";
+    structuredContent.notes = [...(structuredContent.notes ?? []), warning];
+  }
+  return structuredContent;
 }
 
 export function registerAdvanced(
@@ -97,15 +140,13 @@ export function registerAdvanced(
         const response = await client.queryBody({
           ...args,
           site_id,
+          order_by: pagedOrder(args),
           pagination: { limit: limit + 1, offset },
         });
-        const pagination = { limit, offset, has_more: response.results.length > limit };
-        const page = { ...response, results: response.results.slice(0, limit) };
-        const structuredContent = {
-          ...buildQueryStructuredContent(page, args.metrics, args.dimensions ?? [], pagination),
-          meta: response.meta,
-          query: response.query,
-        };
+        const structuredContent = advancedPage(response, args.metrics, args.dimensions ?? [], {
+          limit,
+          offset,
+        });
         return {
           structuredContent,
           content: [{ type: "text", text: JSON.stringify(structuredContent) }],

@@ -190,12 +190,10 @@ export function register(
       inputSchema: z.strictObject({
         site_id: siteIdSchemaFor(defaultSiteId),
         period_a: dateRangeSchema
-          .describe(
-            'Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". Omit it to use the period of the same length right before period_b, as Plausible\'s "previous period" does: period_b "7d" alone compares the last 7 days with the 7 days before them. The result gives the dates used.',
-          )
+          .describe("Baseline period. Omit for the equal period immediately before period_b.")
           .optional(),
         period_b: dateRangeSchema.describe(
-          'Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range; omit period_a to compare it with the period right before it.',
+          "Comparison period, e.g. 7d. Change is period_b minus period_a.",
         ),
         page: pageSchema,
         metrics: metricsSchema,

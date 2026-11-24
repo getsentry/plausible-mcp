@@ -115,7 +115,16 @@ it("executes a native two-dimensional AI referral query with one bounded read an
     pagination: { limit: 1, offset: 0, has_more: true },
   });
   expect(h.requests.map((r) => r.body)).toEqual([
-    { ...args, site_id: "example.com", pagination: { limit: 2, offset: 0 } },
+    {
+      ...args,
+      site_id: "example.com",
+      order_by: [
+        ["visits", "desc"],
+        ["visit:source", "asc"],
+        ["visit:entry_page", "asc"],
+      ],
+      pagination: { limit: 2, offset: 0 },
+    },
   ]);
   await telemetry.flush();
   const spans = telemetry

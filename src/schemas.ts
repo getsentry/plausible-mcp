@@ -50,14 +50,8 @@ export const VALID_DIMENSIONS = [
 
 export const DEFAULT_METRICS = ["visitors", "pageviews", "bounce_rate", "visit_duration"];
 
-export const siteIdSchema = z
-  .string()
-  .describe("Plausible site domain (e.g. example.com). Uses PLAUSIBLE_DEFAULT_SITE_ID if omitted.")
-  .optional();
-
-const requiredSiteIdSchema = z
-  .string()
-  .describe("Plausible site domain (e.g. example.com). Required.");
+export const siteIdSchema = z.string().optional();
+const requiredSiteIdSchema = z.string();
 
 /**
  * site_id is only truly optional when the server has a default site to fall back
@@ -71,33 +65,23 @@ export function siteIdSchemaFor(defaultSiteId: string | undefined) {
 
 const ISO_DATETIME = String.raw`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})`;
 
-export const dateRangeSchema = z
+const validatedDateRange = z
   .string()
   .regex(
     new RegExp(
       String.raw`^(\d+h|\d+d|\d+mo|day|month|year|all|\d{4}-\d{2}-\d{2},\d{4}-\d{2}-\d{2}|${ISO_DATETIME},${ISO_DATETIME})$`,
     ),
     'Must be "Nh", "Nd", "Nmo", "day", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD", or two ISO 8601 datetimes with offsets',
-  )
-  .describe(
-    'Date range: "1h", "24h" (last N hours, ending now), "7d", "30d", "12mo", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive), or "YYYY-MM-DDTHH:MM:SSZ,YYYY-MM-DDTHH:MM:SSZ" for a sub-day window (any offset, e.g. +02:00). Days after today count as zero.',
   );
 
-export const pageSchema = z
+// Keep the repeated date pattern out of clients' limited tool catalogs.
+export const dateRangeSchema = z
   .string()
-  .max(1024)
-  .describe(
-    "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected.",
-  )
-  .optional();
+  .pipe(validatedDateRange)
+  .describe("e.g. 7d or start,end (ISO dates or datetimes).");
 
-export const goalSchema = z
-  .string()
-  .max(1024)
-  .describe(
-    "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected.",
-  )
-  .optional();
+export const pageSchema = z.string().max(1024).optional();
+export const goalSchema = z.string().max(1024).optional();
 
 /**
  * Plausible divides both conversion rates by visitors with the goal and props filters
@@ -109,20 +93,12 @@ export const goalSchema = z
 export const CONVERSION_RATES_MEANING =
   "conversion_rate is a percent of all visitors in the query, so every row shares one denominator. group_conversion_rate is a percent of each row's own visitors.";
 
-const METRIC_COMBINATION_RULES =
-  "Plausible rejects these combinations: bounce_rate or visit_duration with event:goal or event:props:<name> dimensions; pageviews, events, scroll_depth or time_on_page with visit:entry_page or visit:exit_page dimensions; views_per_visit with any non-time dimension or a page filter. For goal conversions use get_conversions.";
+export const metricsSchema = z.array(z.enum(VALID_METRICS)).optional();
 
-export const metricsSchema = z
-  .array(z.enum(VALID_METRICS))
-  .describe(`Metrics to return. Defaults vary by tool. ${METRIC_COMBINATION_RULES}`)
-  .optional();
-
-/** For tools that return rows, where the two conversion rates differ. */
+/** For grouped rows, use the denominator that matches the question. */
 export const rowMetricsSchema = z
   .array(z.enum(VALID_METRICS))
-  .describe(
-    `Metrics to return. Defaults vary by tool. ${CONVERSION_RATES_MEANING} Both need a goal. ${METRIC_COMBINATION_RULES}`,
-  )
+  .describe("group_conversion_rate uses each row's visitors.")
   .optional();
 
 /**
@@ -180,9 +156,10 @@ const customPropertyDimensionSchema = z
   .max(CUSTOM_PROPERTY_PREFIX.length + MAX_CUSTOM_PROPERTY_NAME_LENGTH);
 
 export const dimensionSchema = z
-  .union([z.enum(VALID_DIMENSIONS), customPropertyDimensionSchema])
+  .string()
+  .pipe(z.union([z.enum(VALID_DIMENSIONS), customPropertyDimensionSchema]))
   .describe(
-    'Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan). Prefer visit:country_name/region_name/city_name over the code variants when presenting geography to people. An empty visit:entry_page or visit:exit_page value means a session with no recorded pageview.',
+    "Group by a dimension, e.g. event:page, visit:source, visit:country_name or event:props:plan. See server instructions for built-in dimensions.",
   );
 
 /** Matches the cap on the `page`/`goal` shortcut params, which compile to the same filters. */
@@ -223,18 +200,9 @@ export const propertyFilterSchema = z
         {
           message: `Custom property name must be at most ${MAX_CUSTOM_PROPERTY_NAME_LENGTH} characters`,
         },
-      )
-      .describe(
-        'What to filter on: a built-in dimension (e.g. "visit:channel", "visit:source", "event:page") or a custom event property as its bare name (e.g. "plan" targets event:props:plan)',
       ),
-    operator: z
-      .enum(PROPERTY_FILTER_OPERATORS)
-      .default("is")
-      .describe("Match operator: is, is_not, contains, contains_not (default: is)"),
-    values: z
-      .array(z.string().max(MAX_FILTER_VALUE_LENGTH))
-      .min(1)
-      .describe("One or more values to match the property against"),
+    operator: z.enum(PROPERTY_FILTER_OPERATORS).default("is"),
+    values: z.array(z.string().max(MAX_FILTER_VALUE_LENGTH)).min(1),
   })
   // Plausible rejects negated goal filters, so catch them before they become a 400.
   .refine((f) => f.property !== "event:goal" || f.operator === "is" || f.operator === "contains", {
@@ -243,9 +211,7 @@ export const propertyFilterSchema = z
 
 export const propertyFiltersSchema = z
   .array(propertyFilterSchema)
-  .describe(
-    'Filter results by built-in dimensions or custom event properties, e.g. [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }] or [{ "property": "plan", "values": ["pro"] }]. Entries are combined with AND.',
-  )
+  .describe("Built-in dimensions or custom properties, combined with AND.")
   .optional();
 
 /**

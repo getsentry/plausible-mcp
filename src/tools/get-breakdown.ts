@@ -74,16 +74,9 @@ function breakdownInputSchema(defaultSiteId: string | undefined) {
       .min(1)
       .max(1000)
       .default(20)
-      .describe(
-        "Max results to return per page. Use offset to fetch further pages; pagination.has_more in the result says whether more rows exist.",
-      )
+      .describe("Rows per page. Advance offset when pagination.has_more is true.")
       .optional(),
-    offset: z
-      .number()
-      .int()
-      .min(0)
-      .describe("Number of rows to skip, for paging past the first `limit` rows")
-      .optional(),
+    offset: z.number().int().min(0).describe("Rows to skip.").optional(),
   });
 }
 
@@ -151,7 +144,7 @@ export function register(
     {
       title: "Get Breakdown",
       description:
-        "Break down metrics by a dimension: page, traffic source, country, device, etc. Use to find top pages, sources, or segment traffic.",
+        "Rank one dimension, e.g. top pages or traffic sources. For a named goal's rate per landing page or source, set goal and use group_conversion_rate.",
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,

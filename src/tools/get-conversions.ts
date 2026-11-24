@@ -29,7 +29,7 @@ export function register(
     {
       title: "Get Conversions",
       description:
-        "Get goal conversion rates and counts. Can break down by page to see which pages drive conversions.",
+        "Measure conversions for a named goal and optional page. Pass the supplied goal directly. Can also report conversions by page.",
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,
