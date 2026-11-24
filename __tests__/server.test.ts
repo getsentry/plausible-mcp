@@ -16,13 +16,17 @@ describe("MCP server", () => {
   });
   afterAll(() => h.close());
 
-  it("lists the four query tools and no others", async () => {
+  it("lists the analytics and discovery tools on STDIO", async () => {
     const { tools } = await h.client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "compare_breakdown",
       "compare_periods",
       "get_breakdown",
       "get_conversions",
+      "get_site_metadata",
       "get_timeseries",
+      "list_sites",
+      "query_stats",
     ]);
   });
 
@@ -149,6 +153,10 @@ describe("MCP HTTP protocol eras", () => {
         "get_breakdown",
         "get_conversions",
         "compare_periods",
+        "list_sites",
+        "get_site_metadata",
+        "query_stats",
+        "compare_breakdown",
       ]);
     } finally {
       await modernClient.close();

@@ -54,6 +54,8 @@ The view does not use the SDK's `App` class, so it must do what the SDK helpers 
 
 To check the deployed hostname before launch, run `pnpm verify:hosted --baseline`. After the Worker release and the exact-root Access override, run `pnpm verify:hosted` from the released commit. The check verifies the landing document, bearer challenge, OAuth challenge, and discovery metadata. Set `PLAUSIBLE_API_KEY` and `PLAUSIBLE_SITE_ID` and add `--read` to check authenticated discovery, read the shipped app after launch, and query traffic. Also run a traffic query through an existing SSO connector to check the authenticated `/internal` path. The checker prints no analytics rows or credentials.
 
+The read-only report check exercises site discovery, goal and property metadata, AI referral breakdowns, a two-dimensional report and ranked changes against Plausible Cloud. Run `pnpm build`, then `node --env-file=.env.local evals/check-reports.mjs stdio` or use `worker` for the local Cloudflare runtime. After release, `hosted` checks the same calls against the deployed endpoint. It uses `PLAUSIBLE_SITE_ID` or the first accessible site and prints timings and result shape checks. Add `--compare` to verify that one advanced query returns the same assistant, landing page and visit counts as the separate breakdowns. This bounded comparison uses the preceding 30 completed UTC dates and prints call counts and elapsed time.
+
 ## Adding a New Tool
 
 1. Create `src/tools/your-tool.ts`, starting from the closest existing tool. A tool that queries Plausible exports `register(server, client, defaultSiteId?)` — copy `get-timeseries.ts`. A tool that does not needs no client, so it exports `register(server)` — copy `send-feedback.ts`.

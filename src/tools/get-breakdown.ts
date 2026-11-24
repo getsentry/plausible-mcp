@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
-import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
+import { metricAmount, PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient, PlausibleResult } from "../plausible.js";
 import { toolErrorResult, UserFacingError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -46,7 +46,14 @@ function defaultMetrics(dimension: string, hasGoal: boolean): string[] {
 }
 
 function byFirstMetricThenName(a: PlausibleResult, b: PlausibleResult): number {
-  const byMetric = (b.metrics[0] ?? 0) - (a.metrics[0] ?? 0);
+  const first = a.metrics[0],
+    second = b.metrics[0];
+  const byMissingValue = Number(first == null) - Number(second == null);
+  if (byMissingValue) return byMissingValue;
+  if (first instanceof Object && second instanceof Object && first.currency !== second.currency) {
+    return first.currency.localeCompare(second.currency);
+  }
+  const byMetric = (metricAmount(b.metrics[0]) ?? 0) - (metricAmount(a.metrics[0]) ?? 0);
   if (byMetric !== 0) return byMetric;
   const [nameA, nameB] = [String(a.dimensions[0]), String(b.dimensions[0])];
   return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;

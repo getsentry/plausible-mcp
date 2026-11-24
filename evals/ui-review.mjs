@@ -69,6 +69,12 @@ const standardCases = [
 const cases = [
   ...standardCases,
   [
+    "Purchase revenue",
+    "get_breakdown",
+    { ...period, dimension: "visit:utm_source", goal: "Purchase", metrics: ["total_revenue"] },
+    [row(["newsletter"], [{ value: 125, currency: "USD", short: "$125", long: "$125.00" }])],
+  ],
+  [
     "Hourly traffic",
     "get_timeseries",
     { ...period, granularity: "hour", metrics: ["visitors"] },
@@ -134,14 +140,17 @@ await server.connect(serverTransport);
 await client.connect(clientTransport);
 try {
   const { tools } = await client.listTools();
-  assert.deepEqual(new Set(tools.map((tool) => tool.name)), new Set(cases.map((c) => c[1])));
+  assert.deepEqual(
+    new Set(tools.filter((tool) => tool._meta?.ui?.resourceUri).map((tool) => tool.name)),
+    new Set(cases.map((c) => c[1])),
+  );
   assert.deepEqual(tools.find((tool) => tool.name === "send_feedback")._meta.ui.visibility, [
     "model",
   ]);
   const resources = await client.listResources();
-  const uri = resources.resources[0]?.uri;
+  const uri = resources.resources.find((r) => r.uri.startsWith("ui://"))?.uri;
   assert.ok(uri?.startsWith("ui://"));
-  for (const tool of tools) assert.equal(tool._meta.ui.resourceUri, uri);
+  for (const tool of tools.filter((t) => t._meta?.ui)) assert.equal(tool._meta.ui.resourceUri, uri);
   const {
     contents: [resource],
   } = await client.readResource({ uri });
@@ -157,10 +166,11 @@ try {
       }),
     );
     const { tools: stdioTools } = await stdio.listTools();
-    assert.equal(stdioTools.length, 4);
+    assert.equal(stdioTools.length, 8);
     assert.ok(
       stdioTools.every(
-        (tool) => tool.name !== "send_feedback" && tool._meta.ui.resourceUri === uri,
+        (tool) =>
+          tool.name !== "send_feedback" && (!tool._meta?.ui || tool._meta.ui.resourceUri === uri),
       ),
     );
     assert.equal((await stdio.readResource({ uri })).contents[0].text, resource.text);

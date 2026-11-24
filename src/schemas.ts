@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PlausibleResponse } from "./plausible.js";
+import { revenueSchema, type PlausibleResponse } from "./plausible.js";
 import { UserFacingError } from "./errors.js";
 
 export const VALID_METRICS = [
@@ -311,8 +311,7 @@ export function buildPropertyFilters(filters: PropertyFilter[]): unknown[][] {
  * human-readable text block. `metrics`/`dimensions` label the parallel arrays in each row so
  * consumers know what each number means without re-deriving it from the request.
  *
- * Value types are kept permissive (`number | string | null`) so an unexpected Plausible value
- * can't trip the SDK's output validation and turn a successful query into a tool error.
+ * Revenue cells carry their currency and display values alongside the numeric amount.
  */
 export const queryResultOutputSchema = z.object({
   metrics: z
@@ -325,7 +324,7 @@ export const queryResultOutputSchema = z.object({
     .array(
       z.object({
         dimensions: z.array(z.union([z.string(), z.number()])),
-        metrics: z.array(z.union([z.number(), z.string(), z.null()])),
+        metrics: z.array(z.union([z.number(), z.string(), z.null(), revenueSchema])),
       }),
     )
     .describe("One row per dimension-value combination returned by Plausible"),
@@ -335,7 +334,7 @@ export const queryResultOutputSchema = z.object({
       offset: z.number().describe("Rows skipped before the first returned row"),
       has_more: z.boolean().describe("True when rows exist beyond this page"),
     })
-    .describe("Present only on paged tools (get_breakdown)")
+    .describe("Present on paged reports. Advance offset by limit when has_more is true.")
     .optional(),
   notes: z
     .array(z.string())
@@ -343,17 +342,24 @@ export const queryResultOutputSchema = z.object({
     .optional(),
 });
 
-/**
- * Normalize a raw Plausible response into the `structuredContent` shape described by
- * {@link queryResultOutputSchema}, tagging the rows with the metric/dimension keys used.
- */
+const metricWarningsSchema = z.record(z.string(), z.object({ warning: z.string() }));
+
+export function queryWarnings(response: PlausibleResponse): string[] {
+  if (!response.meta.metric_warnings) return [];
+  const warnings = metricWarningsSchema.safeParse(response.meta.metric_warnings);
+  return warnings.success
+    ? Object.entries(warnings.data).map(([key, detail]) => key + ": " + detail.warning)
+    : [];
+}
+
+/** Label Plausible's ordered rows with the metric and dimension keys used in the query. */
 export function buildQueryStructuredContent(
   response: PlausibleResponse,
   metrics: string[],
   dimensions: string[],
   pagination?: z.infer<typeof queryResultOutputSchema>["pagination"],
 ) {
-  const notes = buildResultNotes(metrics, dimensions);
+  const notes = [...buildResultNotes(metrics, dimensions), ...queryWarnings(response)];
   return {
     metrics,
     dimensions,

@@ -134,6 +134,9 @@ export function stripRequestAttributes(data: SentryAttributes): void {
   }
   delete data["mcp.client.title"];
   delete data["url.query"];
+  delete data["http.query"];
+  const httpUrl = text.safeParse(data["http.url"]);
+  if (httpUrl.success) data["http.url"] = stripUrlQuery(httpUrl.data);
   delete data["user_agent.original"];
   const url = text.safeParse(data["url.full"]);
   if (url.success) data["url.full"] = stripUrlQuery(url.data);
@@ -207,6 +210,7 @@ function isIdentifiedUser(user: User | null | undefined): boolean {
 }
 
 export interface RedactableSpan {
+  name?: string;
   is_segment?: boolean;
   attributes: SentryAttributes;
 }
@@ -218,6 +222,7 @@ export interface RedactableSpan {
  */
 export function anonymizeSpanWithoutIdentity(span: RedactableSpan): void {
   stripRequestAttributes(span.attributes);
+  if (span.name && /^(GET|POST) https?:\/\//.test(span.name)) span.name = stripUrlQuery(span.name);
   if (!span.is_segment) return;
   const { attributes } = span;
   if (identifiedSpanUser.safeParse(attributes).success) return;

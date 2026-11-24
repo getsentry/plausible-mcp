@@ -126,8 +126,9 @@ describe("without a default site", () => {
 
   it("lists site_id as required on every query tool", async () => {
     const { tools } = await bare.client.listTools();
-    expect(tools.map((tool) => [tool.name, tool.inputSchema.required])).toEqual(
-      tools.map((tool) => [tool.name, expect.arrayContaining(["site_id"])]),
+    const siteTools = tools.filter((tool) => tool.name !== "list_sites");
+    expect(siteTools.map((tool) => [tool.name, tool.inputSchema.required])).toEqual(
+      siteTools.map((tool) => [tool.name, expect.arrayContaining(["site_id"])]),
     );
   });
 

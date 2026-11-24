@@ -6,6 +6,10 @@ export const TOOL_NAMES = [
   "get_breakdown",
   "get_conversions",
   "compare_periods",
+  "compare_breakdown",
+  "list_sites",
+  "get_site_metadata",
+  "query_stats",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -31,6 +35,7 @@ export interface ToolErrorInfo {
   message: string;
   retryable: boolean;
   retry_after_seconds?: number;
+  access_reason?: "plan_required" | "key_or_site";
 }
 
 /**
@@ -68,8 +73,13 @@ function classifyPlausibleApiError(error: PlausibleApiError): ToolErrorInfo {
   const summary = PLAUSIBLE_STATUS_SUMMARIES.get(status) ?? `Plausible API returned ${status}`;
   const message = error.detail ? `${summary}: ${error.detail}` : summary;
 
-  if (status === 401 || status === 402 || status === 403) {
-    return { code: "unauthorized", message, retryable: false };
+  if ([401, 402, 403].includes(status)) {
+    return {
+      code: "unauthorized",
+      message,
+      retryable: false,
+      access_reason: status === 402 ? "plan_required" : "key_or_site",
+    };
   }
   if (status !== 429 && status < 500) return { code: "invalid_query", message, retryable: false };
   return {

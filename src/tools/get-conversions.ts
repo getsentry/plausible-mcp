@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
-import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
+import { metricAmount, PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
 import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -126,10 +126,10 @@ function withPageConversionRates(
       }),
     },
     results: conversions.results.map((row) => {
-      const converted = row.metrics[0];
-      const total = visitorsByPage.get(row.dimensions[1]);
+      const converted = metricAmount(row.metrics[0]);
+      const total = metricAmount(visitorsByPage.get(row.dimensions[1]));
       const rate =
-        converted === null || total === null || total === undefined
+        converted === null || total === null
           ? null
           : total > 0
             ? Math.round((converted / total) * 10_000) / 100

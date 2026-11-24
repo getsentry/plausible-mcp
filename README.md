@@ -10,16 +10,47 @@ Built for teams that want to ask questions like:
 
 ## Tools
 
-| Tool              | Description                                                                                                                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `get_timeseries`  | Traffic and conversion metrics over time (daily/weekly/monthly)                                                                                                                                                          |
-| `get_breakdown`   | Break down by page, source, country, device, browser, OS, UTM params                                                                                                                                                     |
-| `get_conversions` | Goal conversion rates, optionally per-page                                                                                                                                                                               |
-| `compare_periods` | Side-by-side comparison of two date ranges with absolute and % deltas, measured from `period_a` (the baseline) to `period_b`. Leave out `period_a` to compare with the period of the same length right before `period_b` |
+| Tool                | Description                                                                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `get_timeseries`    | Traffic and conversion metrics over time (daily/weekly/monthly)                                                                                                                                                          |
+| `get_breakdown`     | Break down by page, source, country, device, browser, OS, UTM params                                                                                                                                                     |
+| `get_conversions`   | Goal conversion rates, optionally per-page                                                                                                                                                                               |
+| `compare_periods`   | Side-by-side comparison of two date ranges with absolute and % deltas, measured from `period_a` (the baseline) to `period_b`. Leave out `period_a` to compare with the period of the same length right before `period_b` |
+| `list_sites`        | List site domains and time zones accessible to the caller’s key. Available on STDIO and the public bring-your-own-key endpoint.                                                                                          |
+| `get_site_metadata` | Find exact goal names or custom property keys, including configured goals with zero conversions.                                                                                                                         |
+| `compare_breakdown` | Rank pageview gains or losses by page, or visit changes by source or channel. Both periods use the same filters.                                                                                                         |
+| `query_stats`       | Send one advanced Stats v2 query for multiple dimensions, nested filters, explicit ordering or imports.                                                                                                                  |
 
 All query tools are **read-only** and annotated with `readOnlyHint: true`.
 
 Hosted deployments additionally expose `send_feedback`, which files feedback about the server itself (confusing errors, missing capabilities) into the maintainers' Sentry User Feedback inbox. It is only registered when the server runs with Sentry (`enableFeedbackTool`). On those deployments, a rejected query or an unexpected failure ends with a pointer to `send_feedback`, so the agent can report an error message that did not help it.
+
+### AI referrals and advanced queries
+
+Ask “Which assistants sent visits, and where did people land?” Clients that support MCP prompts can choose **AI referral traffic**. Text-only clients can call `get_breakdown` with metric `visits`, dimension `visit:source` or `visit:entry_page`, and a `property_filters` entry for `visit:channel` with value `AI Assistants`. Divide the whole channel’s visits by all visits in the same window for its share of traffic. Plausible filters known crawlers. Origin or CDN logs measure crawler requests. [Plausible’s AI attribution](https://plausible.io/track-ai-traffic)
+
+For a combined report, `query_stats` accepts the native [Stats v2](https://plausible.io/docs/stats-api) JSON body. Read the public MCP resource `plausible://reference/stats-query` for the filter grammar. The input schema specifies the local limits. One call makes one authenticated read, defaults to 50 rows and accepts up to 1,000 per page. When `pagination.has_more` is true, advance the offset by the limit. Request `include.total_rows` for the overall count. This query ranks visits by assistant and landing page.
+
+```json
+{
+  "site_id": "example.com",
+  "date_range": "30d",
+  "metrics": ["visits"],
+  "dimensions": ["visit:source", "visit:entry_page"],
+  "filters": [["is", "visit:channel", ["AI Assistants"]]],
+  "order_by": [
+    ["visits", "desc"],
+    ["visit:source", "asc"],
+    ["visit:entry_page", "asc"]
+  ],
+  "include": { "total_rows": true },
+  "pagination": { "limit": 10 }
+}
+```
+
+The public [Sites API](https://plausible.io/docs/sites-api) supports discovery with a Stats-enabled key on Plausible Cloud. Older self-hosted instances can use explicit site and goal names. On the shared-key internal endpoint, supply a known site for metadata. Goal and site listings return the next page in `meta.after`.
+
+Revenue metrics preserve the amount, currency, and Plausible’s formatted values. Comparisons calculate monetary changes when both currencies match. Use the returned notes to explain missing revenue. For key or plan failures, `error.access_reason` distinguishes `key_or_site` from `plan_required`.
 
 ### Interactive results
 

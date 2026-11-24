@@ -115,6 +115,7 @@ const requestServerConfigSchema = z.object({
   baseUrl: z.string().optional(),
   defaultSiteId: z.string().optional(),
   recordToolIO: z.boolean(),
+  allowSiteListing: z.boolean().optional(),
 });
 type RequestServerConfig = z.infer<typeof requestServerConfigSchema>;
 
@@ -364,6 +365,7 @@ async function handleInternalMcp(request: Request, env: Env): Promise<Response> 
     // — and Authorization/Cookie/JWT headers are still stripped by the Sentry hooks.
     // BYOK (/mcp) deliberately leaves this off: that traffic is a third party's own data.
     recordToolIO: true,
+    allowSiteListing: false,
   });
 
   return workerMcpHandler.fetch(request, { authInfo });

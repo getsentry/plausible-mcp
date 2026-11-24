@@ -11,9 +11,21 @@ export interface PlausibleQueryParams {
   order_by?: [string, "asc" | "desc"][];
 }
 
+export const revenueSchema = z.object({
+  value: z.number(),
+  currency: z.string(),
+  short: z.string(),
+  long: z.string(),
+});
+export type MetricValue = number | z.infer<typeof revenueSchema> | null;
+
+export function metricAmount(value: MetricValue | undefined) {
+  return value instanceof Object ? value.value : (value ?? null);
+}
+
 export interface PlausibleResult {
   dimensions: (string | number)[];
-  metrics: (number | null)[];
+  metrics: MetricValue[];
 }
 
 export interface PlausibleResponse {
@@ -116,6 +128,12 @@ export interface PlausibleQueryBody {
   filters?: unknown[];
   pagination?: { limit: number; offset?: number };
   order_by?: [string, "asc" | "desc"][];
+  include?: {
+    imports?: boolean;
+    time_labels?: boolean;
+    total_rows?: boolean;
+    trim_relative_date_range?: boolean;
+  };
 }
 
 export interface PlausibleClientConfig {
@@ -159,8 +177,6 @@ export class PlausibleClient {
   }
 
   async query(params: PlausibleQueryParams): Promise<PlausibleResponse> {
-    const url = `${this.baseUrl}/api/v2/query`;
-
     const body: PlausibleQueryBody = {
       site_id: params.site_id,
       metrics: params.metrics,
@@ -183,15 +199,39 @@ export class PlausibleClient {
       body.order_by = params.order_by;
     }
 
+    return this.queryBody(body);
+  }
+
+  async metadata(
+    path: "sites" | "goals" | "custom-props",
+    params: URLSearchParams,
+  ): Promise<JsonValue> {
+    const suffix = path === "sites" ? "" : "/" + path;
+    const url = new URL(this.baseUrl + "/api/v1/sites" + suffix);
+    url.search = params.toString();
+    return this.request(url.href, { method: "GET" });
+  }
+
+  async queryBody(body: PlausibleQueryBody): Promise<PlausibleResponse> {
+    // SAFETY: /api/v2/query returns ordered metric rows. Every public tool validates
+    // its structured result against its declared MCP output schema.
+    return this.request<PlausibleResponse>(this.baseUrl + "/api/v2/query", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  private async request<T>(url: string, init: RequestInit): Promise<T> {
     let response: Response;
     try {
       response = await fetch(url, {
-        method: "POST",
+        ...init,
+        // A Workers fetch that follows a cross-origin redirect can forward the bearer key.
+        redirect: "manual",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(body),
       });
     } catch (cause) {
       throw new PlausibleUnreachableError(cause);
@@ -206,9 +246,7 @@ export class PlausibleClient {
       );
     }
 
-    // SAFETY: a 200 from /api/v2/query has the Stats API v2 response layout. The rows reach a
-    // client only through structuredContent, which the MCP SDK validates against each tool's
-    // outputSchema, so a layout change fails there rather than passing on wrong data.
-    return (await response.json()) as PlausibleResponse;
+    // SAFETY: callers either parse metadata with their endpoint schema or validate Stats rows through the MCP output schema.
+    return (await response.json()) as T;
   }
 }

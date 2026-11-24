@@ -83,6 +83,7 @@ describe("reportToolError", () => {
     expect(info).toEqual({
       code: "unauthorized",
       message: "Plausible rejected the API key or site_id (401)",
+      access_reason: "key_or_site",
       retryable: false,
     });
     expect(metrics).toEqual([

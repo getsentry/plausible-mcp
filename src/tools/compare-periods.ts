@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
-import { toIsoSeconds } from "../plausible.js";
-import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
+import { metricAmount, revenueSchema, toIsoSeconds, type MetricValue } from "../plausible.js";
+import type { PlausibleClient, PlausibleQueryParams, PlausibleResponse } from "../plausible.js";
 import { toolErrorResult, UserFacingError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
 import {
@@ -14,11 +14,12 @@ import {
   propertyFiltersSchema,
   DEFAULT_METRICS,
   buildQueryFilters,
+  queryWarnings,
 } from "../schemas.js";
 import { resolveSiteId } from "./get-timeseries.js";
 
 /** Each requested metric's aggregate value for one period. */
-type PeriodMetrics = Record<string, number | null>;
+type PeriodMetrics = Record<string, MetricValue>;
 /** Each metric's change from period_a to period_b. */
 type PeriodDeltas = Record<string, { absolute: number | null; percent: number | null }>;
 
@@ -26,18 +27,20 @@ type PeriodComparison = {
   period_a: { range: string; metrics: PeriodMetrics };
   period_b: { range: string; metrics: PeriodMetrics };
   deltas: PeriodDeltas;
+  notes?: string[];
 };
 
 const nullableNumber = z.union([z.number(), z.null()]);
 const periodSchema = z.object({
   range: z.string().describe("The date range this period covers"),
   metrics: z
-    .record(z.string(), nullableNumber)
+    .record(z.string(), z.union([nullableNumber, revenueSchema]))
     .describe("Aggregate value per requested metric for this period"),
 });
 
 /** `outputSchema` for compare_periods — two period aggregates plus per-metric deltas. */
 export const comparePeriodsOutputSchema = z.object({
+  notes: z.array(z.string()).optional(),
   period_a: periodSchema,
   period_b: periodSchema,
   deltas: z
@@ -53,11 +56,17 @@ function extractAggregateMetrics(response: PlausibleResponse, metricNames: strin
   return Object.fromEntries(metricNames.map((name, i) => [name, row.metrics[i]]));
 }
 
+function currencyOf(value: MetricValue | undefined) {
+  return value instanceof Object ? value.currency : undefined;
+}
+
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /** A metric is missing (undefined) from a period whose query returned no rows. */
-function deltaOf(a: number | null | undefined, b: number | null | undefined) {
-  if (a === null || a === undefined || b === null || b === undefined) {
+function deltaOf(first: MetricValue | undefined, second: MetricValue | undefined) {
+  const a = metricAmount(first);
+  const b = metricAmount(second);
+  if (a === null || b === null || currencyOf(first) !== currencyOf(second)) {
     return { absolute: null, percent: null };
   }
   const change = b - a;
@@ -133,6 +142,36 @@ export function previousPeriod(
   return `${addDays(firstDate, -days)},${addDays(firstDate, -1)}`;
 }
 
+/** Read explicit periods in parallel; resolve an implicit baseline in the site's timezone. */
+export async function readPeriods(
+  client: PlausibleClient,
+  queryBase: Omit<PlausibleQueryParams, "date_range">,
+  ranges: { period_a?: string; period_b: string },
+) {
+  let periodA = ranges.period_a;
+  let responseA: PlausibleResponse;
+  let responseB: PlausibleResponse;
+  if (periodA) {
+    [responseA, responseB] = await Promise.all([
+      client.query({ ...queryBase, date_range: periodA }),
+      client.query({ ...queryBase, date_range: ranges.period_b }),
+    ]);
+  } else {
+    const [b, day] = await Promise.all([
+      client.query({ ...queryBase, date_range: ranges.period_b }),
+      isSubDayRange(ranges.period_b)
+        ? undefined
+        : client.query({ site_id: queryBase.site_id, metrics: ["visitors"], date_range: "day" }),
+    ]);
+    responseB = b;
+    const today = day && resolvedRange(day)[0].slice(0, 10);
+    periodA = previousPeriod(ranges.period_b, resolvedRange(responseB), today);
+    responseA = await client.query({ ...queryBase, date_range: periodA });
+  }
+
+  return { periodA, responseA, responseB };
+}
+
 export function register(
   server: McpServer,
   client: PlausibleClient,
@@ -178,31 +217,25 @@ export function register(
           filters,
         };
 
-        let periodA = args.period_a;
-        let responseA: PlausibleResponse;
-        let responseB: PlausibleResponse;
-        if (periodA) {
-          [responseA, responseB] = await Promise.all([
-            client.query({ ...queryBase, date_range: periodA }),
-            client.query({ ...queryBase, date_range: args.period_b }),
-          ]);
-        } else {
-          const [b, day] = await Promise.all([
-            client.query({ ...queryBase, date_range: args.period_b }),
-            isSubDayRange(args.period_b)
-              ? undefined
-              : client.query({ site_id: siteId, metrics: ["visitors"], date_range: "day" }),
-          ]);
-          responseB = b;
-          const today = day && resolvedRange(day)[0].slice(0, 10);
-          periodA = previousPeriod(args.period_b, resolvedRange(responseB), today);
-          responseA = await client.query({ ...queryBase, date_range: periodA });
-        }
+        const { periodA, responseA, responseB } = await readPeriods(client, queryBase, args);
 
         const metricsA = extractAggregateMetrics(responseA, metrics);
         const metricsB = extractAggregateMetrics(responseB, metrics);
 
+        const notes = [...new Set([...queryWarnings(responseA), ...queryWarnings(responseB)])];
+        for (const key of metrics) {
+          if (
+            metricsA[key] != null &&
+            metricsB[key] != null &&
+            currencyOf(metricsA[key]) !== currencyOf(metricsB[key])
+          ) {
+            notes.push(
+              key + " has different currencies across periods; its change is unavailable.",
+            );
+          }
+        }
         const comparison: PeriodComparison = {
+          ...(notes.length && { notes }),
           period_a: { range: periodA, metrics: metricsA },
           period_b: { range: args.period_b, metrics: metricsB },
           deltas: computeDeltas(metrics, metricsA, metricsB),

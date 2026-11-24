@@ -10,6 +10,9 @@ import * as Sentry from "@sentry/cloudflare";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { createServer, type ServerConfig } from "../src/server.js";
 import { queryResultOutputSchema } from "../src/schemas.js";
+import { sitesSchema, metadataSchema } from "../src/tools/discovery.js";
+import { advancedResult } from "../src/tools/query-stats.js";
+import { groupedComparisonSchema } from "../src/tools/compare-breakdown.js";
 import { comparePeriodsOutputSchema } from "../src/tools/compare-periods.js";
 import type { JsonObject, JsonValue } from "../src/json.js";
 import type { PlausibleQueryBody, PlausibleResult } from "../src/plausible.js";
@@ -39,6 +42,10 @@ const OUTPUT_SCHEMAS = {
   get_breakdown: queryResultOutputSchema,
   get_conversions: queryResultOutputSchema,
   compare_periods: comparePeriodsOutputSchema,
+  compare_breakdown: groupedComparisonSchema,
+  query_stats: advancedResult,
+  list_sites: sitesSchema,
+  get_site_metadata: metadataSchema,
   send_feedback: z.object({ feedback_id: z.string() }),
 };
 export type ToolName = keyof typeof OUTPUT_SCHEMAS;

@@ -1,0 +1,597 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "clauses": {
+      "items": {
+        "type": ["string", "integer"]
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "custom_property_filter_dimensions": {
+      "examples": ["event:props:url", "event:props:path"],
+      "markdownDescription": "Custom property. See [documentation](https://plausible.io/docs/custom-props/introduction) for more information",
+      "pattern": "^event:props:.+",
+      "tsType": "`event:props:${string}`",
+      "type": "string"
+    },
+    "date_range": {
+      "additionalItems": false,
+      "examples": [["2024-09-01", "2024-09-30"]],
+      "items": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "format": "date",
+          "type": "string"
+        }
+      ],
+      "markdownDescription": "A list of two ISO8601 dates.",
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "date_range_shorthand": {
+      "anyOf": [
+        {
+          "const": "all",
+          "description": "Since the start of stats in Plausible"
+        },
+        {
+          "const": "day",
+          "description": "Last day"
+        },
+        {
+          "const": "24h",
+          "description": "Last 24 hours (rolling window from now-24h to now)"
+        },
+        {
+          "const": "7d",
+          "description": "Last 7 days relative to today"
+        },
+        {
+          "const": "28d",
+          "description": "Last 28 days relative to today"
+        },
+        {
+          "const": "30d",
+          "description": "Last 30 days relative to today"
+        },
+        {
+          "const": "91d",
+          "description": "Last 91 days relative to today"
+        },
+        {
+          "const": "month",
+          "description": "Current calendar month"
+        },
+        {
+          "const": "6mo",
+          "description": "Last 6 calendar months relative to this month"
+        },
+        {
+          "const": "12mo",
+          "description": "Last 12 calendar months relative to this month"
+        },
+        {
+          "const": "year",
+          "description": "Since the start of this year"
+        },
+        {
+          "description": "Last n days relative to today",
+          "pattern": "^\\d+d$",
+          "type": "string"
+        },
+        {
+          "description": "Last n months relative to this month",
+          "pattern": "^\\d+mo$",
+          "type": "string"
+        }
+      ]
+    },
+    "date_time_range": {
+      "additionalItems": false,
+      "examples": [["2024-01-01T00:00:00+03:00", "2024-01-02T12:00:00+03:00"]],
+      "items": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "format": "date-time",
+          "type": "string"
+        }
+      ],
+      "markdownDescription": "A list of two ISO8601 datetimes.",
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "dimensions": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/simple_filter_dimensions"
+        },
+        {
+          "$ref": "#/definitions/custom_property_filter_dimensions"
+        },
+        {
+          "$ref": "#/definitions/goal_dimension"
+        },
+        {
+          "$ref": "#/definitions/time_dimensions"
+        }
+      ]
+    },
+    "filter_and_or": {
+      "additionalItems": false,
+      "items": [
+        {
+          "enum": ["and", "or"],
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/filter_tree"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "filter_entry": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/filter_without_goals"
+        },
+        {
+          "$ref": "#/definitions/filter_with_is"
+        },
+        {
+          "$ref": "#/definitions/filter_with_contains"
+        },
+        {
+          "$ref": "#/definitions/filter_with_pattern"
+        }
+      ]
+    },
+    "filter_has_done": {
+      "additionalItems": false,
+      "items": [
+        {
+          "enum": ["has_done", "has_not_done"],
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/filter_tree"
+        }
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "filter_not": {
+      "additionalItems": false,
+      "items": [
+        {
+          "enum": ["not"],
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/filter_tree"
+        }
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "filter_operation_regex": {
+      "description": "filter operation",
+      "enum": ["matches", "matches_not"],
+      "type": "string"
+    },
+    "filter_operation_wildcard": {
+      "description": "filter operation",
+      "enum": ["matches_wildcard", "matches_wildcard_not"],
+      "type": "string"
+    },
+    "filter_operation_without_goals": {
+      "description": "filter operation",
+      "enum": ["is_not", "contains_not"],
+      "type": "string"
+    },
+    "filter_tree": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/filter_entry"
+        },
+        {
+          "$ref": "#/definitions/filter_and_or"
+        },
+        {
+          "$ref": "#/definitions/filter_not"
+        },
+        {
+          "$ref": "#/definitions/filter_has_done"
+        }
+      ]
+    },
+    "filter_with_contains": {
+      "additionalItems": false,
+      "items": [
+        {
+          "const": "contains",
+          "description": "filter operation"
+        },
+        {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/goal_dimension"
+            },
+            {
+              "$ref": "#/definitions/simple_filter_dimensions"
+            },
+            {
+              "$ref": "#/definitions/custom_property_filter_dimensions"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/clauses"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "case_sensitive": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "maxItems": 4,
+      "minItems": 3,
+      "type": "array"
+    },
+    "filter_with_is": {
+      "additionalItems": false,
+      "items": [
+        {
+          "const": "is",
+          "description": "filter operation"
+        },
+        {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/goal_dimension"
+            },
+            {
+              "$ref": "#/definitions/simple_filter_dimensions"
+            },
+            {
+              "$ref": "#/definitions/custom_property_filter_dimensions"
+            },
+            {
+              "const": "segment"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/clauses"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "case_sensitive": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "maxItems": 4,
+      "minItems": 3,
+      "type": "array"
+    },
+    "filter_with_pattern": {
+      "additionalItems": false,
+      "items": [
+        {
+          "$ref": "#/definitions/filter_operation_regex"
+        },
+        {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/simple_filter_dimensions"
+            },
+            {
+              "$ref": "#/definitions/custom_property_filter_dimensions"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/clauses"
+        }
+      ],
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    },
+    "filter_without_goals": {
+      "additionalItems": false,
+      "items": [
+        {
+          "$ref": "#/definitions/filter_operation_without_goals"
+        },
+        {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/simple_filter_dimensions"
+            },
+            {
+              "$ref": "#/definitions/custom_property_filter_dimensions"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/clauses"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "case_sensitive": {
+              "default": true,
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "maxItems": 4,
+      "minItems": 3,
+      "type": "array"
+    },
+    "goal_dimension": {
+      "const": "event:goal",
+      "markdownDescription": "Goal dimension"
+    },
+    "metric": {
+      "oneOf": [
+        {
+          "const": "visitors",
+          "description": "Metric counting the number of unique visitors"
+        },
+        {
+          "const": "visits",
+          "description": "Metric counting the number of visits/sessions"
+        },
+        {
+          "const": "pageviews",
+          "markdownDescription": "Metric counting the number of `pageview` events"
+        },
+        {
+          "const": "views_per_visit",
+          "description": "Metric for the number of pageviews divided by the number of visits. Returns a floating point number."
+        },
+        {
+          "const": "bounce_rate",
+          "description": "Bounce rate percentage"
+        },
+        {
+          "const": "visit_duration",
+          "description": "Visit duration in seconds"
+        },
+        {
+          "const": "events",
+          "markdownDescription": "The number of events (pageviews + custom events). When filtering by a goal, this metric corresponds to `Total Conversions` in the dashboard."
+        },
+        {
+          "const": "percentage",
+          "markdownDescription": "The percentage of visitors of total who fall into this category. Requires `dimensions` not to be empty"
+        },
+        {
+          "const": "conversion_rate",
+          "markdownDescription": "The percentage of visitors who completed the goal. Requires: `dimension` list passed, an `event:goal` filter or `event:goal` dimension"
+        },
+        {
+          "const": "group_conversion_rate",
+          "markdownDescription": "The percentage of visitors who completed the goal with the same dimension. Requires: dimension list passed, an `event:goal` filter or `event:goal` dimension"
+        },
+        {
+          "const": "time_on_page",
+          "markdownDescription": "Average time spent on a given page in a visit in seconds. Requires: `event:page` filter or dimension."
+        },
+        {
+          "const": "total_revenue",
+          "markdownDescription": "Total revenue"
+        },
+        {
+          "const": "average_revenue",
+          "markdownDescription": "Average revenue"
+        },
+        {
+          "const": "scroll_depth",
+          "markdownDescription": "Average page scroll depth. Requires: `event:page` filter or `event:page` dimension"
+        }
+      ]
+    },
+    "order_by_entry": {
+      "additionalItems": false,
+      "items": [
+        {
+          "markdownDescription": "Metric or dimension to order by. Must be listed under `metrics` or `dimensions`",
+          "oneOf": [
+            {
+              "$ref": "#/definitions/metric"
+            },
+            {
+              "$ref": "#/definitions/simple_filter_dimensions"
+            },
+            {
+              "$ref": "#/definitions/custom_property_filter_dimensions"
+            },
+            {
+              "$ref": "#/definitions/time_dimensions"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/sort_direction"
+        }
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "type": "array"
+    },
+    "pagination": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Number of rows to limit result to.",
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "description": "Pagination offset.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "simple_filter_dimensions": {
+      "enum": [
+        "event:name",
+        "event:page",
+        "event:hostname",
+        "visit:source",
+        "visit:channel",
+        "visit:referrer",
+        "visit:utm_medium",
+        "visit:utm_source",
+        "visit:utm_campaign",
+        "visit:utm_content",
+        "visit:utm_term",
+        "visit:screen",
+        "visit:device",
+        "visit:browser",
+        "visit:browser_version",
+        "visit:os",
+        "visit:os_version",
+        "visit:country",
+        "visit:region",
+        "visit:city",
+        "visit:country_name",
+        "visit:region_name",
+        "visit:city_name",
+        "visit:entry_page",
+        "visit:exit_page",
+        "visit:entry_page_hostname",
+        "visit:exit_page_hostname"
+      ],
+      "type": "string"
+    },
+    "sort_direction": {
+      "description": "Sorting order",
+      "enum": ["asc", "desc"],
+      "type": "string"
+    },
+    "time_dimensions": {
+      "oneOf": [
+        {
+          "enum": ["time", "time:month", "time:week", "time:day", "time:hour"],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "date_range": {
+      "description": "Date range to query",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/date_range_shorthand"
+        },
+        {
+          "$ref": "#/definitions/date_time_range"
+        },
+        {
+          "$ref": "#/definitions/date_range"
+        }
+      ]
+    },
+    "dimensions": {
+      "description": "What to group the results by. Same as `property` in Plausible API v1",
+      "items": {
+        "$ref": "#/definitions/dimensions"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "filters": {
+      "description": "How to drill into your data",
+      "items": {
+        "$ref": "#/definitions/filter_tree"
+      },
+      "type": "array"
+    },
+    "include": {
+      "additionalProperties": false,
+      "properties": {
+        "imports": {
+          "type": "boolean"
+        },
+        "time_labels": {
+          "markdownDescription": "Requires a `time` dimension. If enabled, returns each time bucket under `meta.time_labels`",
+          "type": "boolean"
+        },
+        "total_rows": {
+          "default": false,
+          "description": "If set, returns the total number of result rows rows before pagination under `meta.total_rows`",
+          "type": "boolean"
+        },
+        "trim_relative_date_range": {
+          "default": false,
+          "description": "If set and using `day`, `month` or `year` date_ranges, the query will be trimmed to the current date",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "metrics": {
+      "description": "List of metrics to query",
+      "items": {
+        "$ref": "#/definitions/metric"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "order_by": {
+      "description": "How to order query results",
+      "items": {
+        "$ref": "#/definitions/order_by_entry"
+      },
+      "type": "array"
+    },
+    "pagination": {
+      "$ref": "#/definitions/pagination"
+    },
+    "site_id": {
+      "description": "Domain of site to query",
+      "type": "string"
+    }
+  },
+  "required": ["site_id", "metrics", "date_range"],
+  "type": "object"
+}
