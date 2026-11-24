@@ -10,7 +10,7 @@ import {
   dateRangeSchema,
   pageSchema,
   goalSchema,
-  rowMetricsSchema,
+  metricsSchema,
   dimensionSchema,
   propertyFiltersSchema,
   isCustomPropertyDimension,
@@ -67,16 +67,9 @@ function breakdownInputSchema(defaultSiteId: string | undefined) {
     page: pageSchema,
     goal: goalSchema,
     property_filters: propertyFiltersSchema,
-    metrics: rowMetricsSchema,
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(1000)
-      .default(20)
-      .describe("Rows per page. Advance offset when pagination.has_more is true.")
-      .optional(),
-    offset: z.number().int().min(0).describe("Rows to skip.").optional(),
+    metrics: metricsSchema,
+    limit: z.number().int().min(1).max(1000).default(20).describe("Page size.").optional(),
+    offset: z.number().int().min(0).optional(),
   });
 }
 

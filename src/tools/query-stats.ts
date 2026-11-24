@@ -47,8 +47,9 @@ function advancedInput(defaultSiteId?: string) {
     date_range: z.union([z.string().max(12), datePair]),
     dimensions: z.array(z.string().min(1).max(330)).max(8).optional(),
     filters: z
-      .array(z.array(z.json()))
+      .array(z.array(z.unknown()))
       .max(32)
+      .pipe(z.array(z.array(z.json())))
       .optional()
       .describe('Native Stats v2 filters, e.g. [["is","visit:channel",["AI Assistants"]]].'),
     order_by: z.array(orderPair).max(22).optional(),
@@ -124,7 +125,7 @@ export function registerAdvanced(
     {
       title: "Run an advanced Stats query",
       description:
-        "Run one read-only Plausible Stats v2 query for multiple dimensions, nested or behavioral filters, saved segment IDs, custom ordering or imports. Prefer the named tools for ordinary reports. Read plausible://reference/stats-query for the native filter grammar. Returns at most 1,000 rows (default 50).",
+        "Advanced Stats v2 query for multiple dimensions, nested filters, segments, ordering or imports. Prefer named tools for ordinary reports. Read plausible://reference/stats-query for syntax. Up to 1,000 rows, default 50.",
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       inputSchema: advancedInput(defaultSiteId),
       outputSchema: advancedResult,

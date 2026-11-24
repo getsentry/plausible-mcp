@@ -54,7 +54,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "additionalProperties": false,
         "properties": {
           "date_range": {
-            "description": "e.g. 7d or start,end (ISO dates or datetimes).",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "goal": {
@@ -63,7 +63,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           },
           "granularity": {
             "default": "day",
-            "description": "Time bucket size. Use "hour" with a sub-day or few-day date_range.",
             "enum": [
               "hour",
               "day",
@@ -73,7 +72,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "metrics": {
-            "description": "group_conversion_rate uses each row's visitors.",
             "items": {
               "enum": [
                 "visitors",
@@ -100,7 +98,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "property_filters": {
-            "description": "Built-in dimensions or custom properties, combined with AND.",
             "items": {
               "properties": {
                 "operator": {
@@ -287,11 +284,11 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "additionalProperties": false,
         "properties": {
           "date_range": {
-            "description": "e.g. 7d or start,end (ISO dates or datetimes).",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "dimension": {
-            "description": "Group by a dimension, e.g. event:page, visit:source, visit:country_name or event:props:plan. See server instructions for built-in dimensions.",
+            "description": "e.g. event:page, visit:source, visit:country_name or event:props:plan.",
             "type": "string",
           },
           "goal": {
@@ -300,13 +297,12 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           },
           "limit": {
             "default": 20,
-            "description": "Rows per page. Advance offset when pagination.has_more is true.",
+            "description": "Page size.",
             "maximum": 1000,
             "minimum": 1,
             "type": "integer",
           },
           "metrics": {
-            "description": "group_conversion_rate uses each row's visitors.",
             "items": {
               "enum": [
                 "visitors",
@@ -329,7 +325,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "offset": {
-            "description": "Rows to skip.",
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer",
@@ -339,7 +334,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "property_filters": {
-            "description": "Built-in dimensions or custom properties, combined with AND.",
             "items": {
               "properties": {
                 "operator": {
@@ -528,11 +522,11 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "properties": {
           "breakdown_by_page": {
             "default": false,
-            "description": "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted",
+            "description": "Include each page's conversion rate.",
             "type": "boolean",
           },
           "date_range": {
-            "description": "e.g. 7d or start,end (ISO dates or datetimes).",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "goal": {
@@ -544,7 +538,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "property_filters": {
-            "description": "Built-in dimensions or custom properties, combined with AND.",
             "items": {
               "properties": {
                 "operator": {
@@ -769,7 +762,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "property_filters": {
-            "description": "Built-in dimensions or custom properties, combined with AND.",
             "items": {
               "properties": {
                 "operator": {
@@ -1146,43 +1138,10 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "openWorldHint": true,
         "readOnlyHint": true,
       },
-      "description": "Run one read-only Plausible Stats v2 query for multiple dimensions, nested or behavioral filters, saved segment IDs, custom ordering or imports. Prefer the named tools for ordinary reports. Read plausible://reference/stats-query for the native filter grammar. Returns at most 1,000 rows (default 50).",
+      "description": "Advanced Stats v2 query for multiple dimensions, nested filters, segments, ordering or imports. Prefer named tools for ordinary reports. Read plausible://reference/stats-query for syntax. Up to 1,000 rows, default 50.",
       "execution": undefined,
       "icons": undefined,
       "inputSchema": {
-        "$defs": {
-          "__schema0": {
-            "anyOf": [
-              {
-                "type": "string",
-              },
-              {
-                "type": "number",
-              },
-              {
-                "type": "boolean",
-              },
-              {
-                "type": "null",
-              },
-              {
-                "items": {
-                  "$ref": "#/$defs/__schema0",
-                },
-                "type": "array",
-              },
-              {
-                "additionalProperties": {
-                  "$ref": "#/$defs/__schema0",
-                },
-                "propertyNames": {
-                  "type": "string",
-                },
-                "type": "object",
-              },
-            ],
-          },
-        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
@@ -1215,9 +1174,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           "filters": {
             "description": "Native Stats v2 filters, e.g. [["is","visit:channel",["AI Assistants"]]].",
             "items": {
-              "items": {
-                "$ref": "#/$defs/__schema0",
-              },
+              "items": {},
               "type": "array",
             },
             "maxItems": 32,
@@ -1542,15 +1499,14 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "period_a": {
-            "description": "e.g. 7d or start,end (ISO dates or datetimes).",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "period_b": {
-            "description": "e.g. 7d or start,end (ISO dates or datetimes).",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "property_filters": {
-            "description": "Built-in dimensions or custom properties, combined with AND.",
             "items": {
               "properties": {
                 "operator": {

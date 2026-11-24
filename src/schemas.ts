@@ -75,10 +75,7 @@ const validatedDateRange = z
   );
 
 // Keep the repeated date pattern out of clients' limited tool catalogs.
-export const dateRangeSchema = z
-  .string()
-  .pipe(validatedDateRange)
-  .describe("e.g. 7d or start,end (ISO dates or datetimes).");
+export const dateRangeSchema = z.string().pipe(validatedDateRange).describe("7d or start,end.");
 
 export const pageSchema = z.string().max(1024).optional();
 export const goalSchema = z.string().max(1024).optional();
@@ -94,12 +91,6 @@ export const CONVERSION_RATES_MEANING =
   "conversion_rate is a percent of all visitors in the query, so every row shares one denominator. group_conversion_rate is a percent of each row's own visitors.";
 
 export const metricsSchema = z.array(z.enum(VALID_METRICS)).optional();
-
-/** For grouped rows, use the denominator that matches the question. */
-export const rowMetricsSchema = z
-  .array(z.enum(VALID_METRICS))
-  .describe("group_conversion_rate uses each row's visitors.")
-  .optional();
 
 /**
  * Facts a result needs to be read correctly, added only when they apply so other calls
@@ -158,9 +149,7 @@ const customPropertyDimensionSchema = z
 export const dimensionSchema = z
   .string()
   .pipe(z.union([z.enum(VALID_DIMENSIONS), customPropertyDimensionSchema]))
-  .describe(
-    "Group by a dimension, e.g. event:page, visit:source, visit:country_name or event:props:plan. See server instructions for built-in dimensions.",
-  );
+  .describe("e.g. event:page, visit:source, visit:country_name or event:props:plan.");
 
 /** Matches the cap on the `page`/`goal` shortcut params, which compile to the same filters. */
 const MAX_FILTER_VALUE_LENGTH = 1024;
@@ -211,7 +200,7 @@ export const propertyFilterSchema = z
 
 export const propertyFiltersSchema = z
   .array(propertyFilterSchema)
-  .describe("Built-in dimensions or custom properties, combined with AND.")
+
   .optional();
 
 /**

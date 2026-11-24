@@ -42,9 +42,7 @@ export function register(
         breakdown_by_page: z
           .boolean()
           .default(false)
-          .describe(
-            "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted",
-          )
+          .describe("Include each page's conversion rate.")
           .optional(),
       }),
     },

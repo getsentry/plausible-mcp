@@ -10,7 +10,7 @@ import {
   dateRangeSchema,
   pageSchema,
   goalSchema,
-  rowMetricsSchema,
+  metricsSchema,
   propertyFiltersSchema,
   DEFAULT_METRICS,
   buildQueryFilters,
@@ -49,12 +49,9 @@ export function register(
       inputSchema: z.strictObject({
         site_id: siteIdSchemaFor(defaultSiteId),
         date_range: dateRangeSchema,
-        granularity: z
-          .enum(["hour", "day", "week", "month"])
-          .default("day")
-          .describe('Time bucket size. Use "hour" with a sub-day or few-day date_range.'),
+        granularity: z.enum(["hour", "day", "week", "month"]).default("day"),
         page: pageSchema,
-        metrics: rowMetricsSchema,
+        metrics: metricsSchema,
         goal: goalSchema,
         property_filters: propertyFiltersSchema,
       }),
