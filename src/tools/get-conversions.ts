@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
-import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
+import { metricAmount, PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient, PlausibleResponse } from "../plausible.js";
 import { toolErrorResult } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -29,7 +29,7 @@ export function register(
     {
       title: "Get Conversions",
       description:
-        "Get goal conversion rates and counts. Can break down by page to see which pages drive conversions.",
+        "Measure conversions for a named goal and optional page. Pass the supplied goal directly. Can also report conversions by page.",
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,
@@ -42,9 +42,7 @@ export function register(
         breakdown_by_page: z
           .boolean()
           .default(false)
-          .describe(
-            "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted",
-          )
+          .describe("Include each page's conversion rate.")
           .optional(),
       }),
     },
@@ -126,10 +124,10 @@ function withPageConversionRates(
       }),
     },
     results: conversions.results.map((row) => {
-      const converted = row.metrics[0];
-      const total = visitorsByPage.get(row.dimensions[1]);
+      const converted = metricAmount(row.metrics[0]);
+      const total = metricAmount(visitorsByPage.get(row.dimensions[1]));
       const rate =
-        converted === null || total === null || total === undefined
+        converted === null || total === null
           ? null
           : total > 0
             ? Math.round((converted / total) * 10_000) / 100

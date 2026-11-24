@@ -70,6 +70,17 @@ test("breakdown and conversion bars retain their dimension labels and metric uni
   await expect(app.locator(".rank").first()).toHaveText("Signup · /pricing52");
 });
 
+test("purchase revenue retains its currency in the ranked view and the table", async ({
+  page,
+  app,
+}) => {
+  await page.getByRole("combobox", { name: "Tool", exact: true }).selectOption("get_breakdown");
+  await page.getByLabel("State").selectOption("Purchase revenue");
+  await expect(app.locator(".rank strong")).toHaveText("$125.00 USD");
+  await app.getByRole("button", { name: "Data", exact: true }).click();
+  await expect(app.getByRole("cell", { name: "$125.00 USD" })).toBeVisible();
+});
+
 for (const width of ["100%", "320px"]) {
   test("Top pages keeps its toolbar and results in place at " + width, async ({ page, app }) => {
     await page.getByLabel("Width").selectOption(width);
@@ -180,7 +191,7 @@ test("each tool can show its pending, cancelled and failed states", async ({ pag
     );
     if (name !== "send_feedback") {
       await state.selectOption("Empty result");
-      await expect(app.locator(".result")).toHaveText("No results for this query.");
+      await expect(app.getByText("No results for this query.", { exact: true })).toBeVisible();
       await expect(app.getByLabel("Metric")).toBeHidden();
     }
     await state.selectOption(name === "send_feedback" ? "Feedback error" : "Query error");

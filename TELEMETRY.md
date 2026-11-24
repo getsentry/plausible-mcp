@@ -85,6 +85,10 @@ request envelope onto attributed `/internal` tool spans for per-trace deep dives
 BYOK events strip it along with other caller-controlled identity. It remains a secondary
 debugging attribute, never a dashboard dimension.
 
+## Caller trace links and discovery reads
+
+A valid version 00 W3C `traceparent` in the MCP request metadata adds a Sentry span link from the tool call to the supplied trace and span. The Worker retains its own trace and sampling decision. Only the trace ID, span ID and sampled bit enter the link. The new discovery and advanced-query tools use the same MCP spans, HTTP child spans and error counters as the original analytics tools. Discovery sends site IDs and cursors as query parameters on fixed request paths. The export hooks strip URL query strings from HTTP span names and attributes.
+
 ## Span sampling at request start
 
 SDK v11 streams spans individually: once a span starts, nothing can drop it —

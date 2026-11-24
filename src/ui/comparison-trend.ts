@@ -69,12 +69,19 @@ export const comparisonTrend = String.raw`
     }
     const periods = [data.period_a, data.period_b].map(p => dailyWindow(p.range));
     const days = Math.max(...periods.map(p => p.days));
+    const currencies = new Set(trend.series.flatMap(s => s.results.map(row => row.metrics[s.metrics.indexOf(key)]?.currency)).filter(Boolean));
+    if (currencies.size > 1) {
+      output.append(node("p", "Daily readings use different currencies.", "detail"));
+      return;
+    }
+    const currency = [...currencies][0];
+    const reading = v => format(v, key) + (number(v) && currency ? " " + currency : "");
     const values = trend.series.map((series, i) => {
       const result = Array(periods[i].days).fill(null);
       const metric = series.metrics.indexOf(key);
       for (const row of series.results) {
         const day = (Date.parse(row.dimensions[0]) - periods[i].start) / dayMs;
-        if (Number.isInteger(day) && day >= 0 && day < result.length) result[day] = row.metrics[metric];
+        if (Number.isInteger(day) && day >= 0 && day < result.length) result[day] = amount(row.metrics[metric]);
       }
       return result;
     });
@@ -174,7 +181,7 @@ export const comparisonTrend = String.raw`
         const period = periods[index], v = values[index][selectedDay];
         const inPeriod = selectedDay < period.days;
         date.textContent = inPeriod ? dateLabel.format(period.start + selectedDay * dayMs) : "Outside period";
-        value.textContent = format(v, key);
+        value.textContent = reading(v);
         readings.push(inPeriod ? name + " " + date.textContent + ": " + (number(v) ? value.textContent : "no reading")
           : name + ": outside period");
         dot.style.display = number(v) ? "" : "none";

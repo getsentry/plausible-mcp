@@ -24,6 +24,7 @@ describe("Worker telemetry", () => {
     clearCertsCache();
     const { jwt, jwk } = await makeValidJwt();
     const envelopes: string[] = [];
+    const discoveryRequests: URL[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
       const url = new URL(request.url);
@@ -32,6 +33,10 @@ describe("Worker telemetry", () => {
         return new Response(JSON.stringify({ keys: [jwk] }), { status: 200 });
       }
       if (url.hostname === "plausible.io") {
+        if (url.pathname === "/api/v1/sites/goals") {
+          discoveryRequests.push(url);
+          return Response.json({ goals: [], meta: { after: null } });
+        }
         return new Response(
           JSON.stringify({
             results: [{ dimensions: ["2026-07-30"], metrics: [10, 20, 30, 40] }],
@@ -129,6 +134,16 @@ describe("Worker telemetry", () => {
     );
     try {
       await byokClient.connect(byokTransport);
+      const goals = await byokClient.callTool({
+        name: "get_site_metadata",
+        arguments: {
+          site_id: "discovery-canary.example",
+          kind: "goals",
+          after: "private-cursor-123",
+        },
+        _meta: { traceparent: "00-12121212121212121212121212121212-abababababababab-01" },
+      });
+      expect(goals.structuredContent).toMatchObject({ goals: [] });
       await byokClient.callTool({
         name: "get_timeseries",
         arguments: { site_id: "private.example", date_range: "7d" },
@@ -181,6 +196,13 @@ describe("Worker telemetry", () => {
     expect(anonymous).not.toContain("mcp.request.argument.site_id");
     expect(anonymous).not.toContain('"mcp.tool.result.content":');
     expect(anonymous).not.toContain("private.example");
+    expect(anonymous).toContain("get_site_metadata");
+    expect(discoveryRequests[0]?.searchParams.get("site_id")).toBe("discovery-canary.example");
+    expect(discoveryRequests[0]?.searchParams.get("after")).toBe("private-cursor-123");
+    expect(anonymous).toContain("/api/v1/sites/goals");
+    expect(anonymous).toContain("12121212121212121212121212121212");
+    expect(anonymous).not.toContain("discovery-canary.example");
+    expect(anonymous).not.toContain("private-cursor-123");
     expect(anonymous).not.toContain("private-test-key");
     // mcp.client.name/version are recorded on both endpoints — a client library
     // name and version identify software, not the person using it.

@@ -15,7 +15,7 @@ export const viewTimeseries = String.raw`
   }
   function timeseries(key) {
     const rows = data.results,
-      values = rows.map((r) => r.metrics[select.selectedIndex]);
+      values = rows.map((r) => amount(r.metrics[select.selectedIndex]));
     const valid = values.filter(number);
     if (!valid.length) {
       output.append(
@@ -139,7 +139,7 @@ export const viewTimeseries = String.raw`
     function inspect(i) {
       point = Math.max(0, Math.min(rows.length - 1, i));
       const v = values[point];
-      headline.textContent = format(v, key);
+      headline.textContent = format(rows[point].metrics[select.selectedIndex], key);
       detail.textContent = nice(key) + " · " + rowLabel(rows[point]);
       guide.setAttribute("x1", x(point));
       guide.setAttribute("x2", x(point));

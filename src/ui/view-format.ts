@@ -13,7 +13,9 @@ export const viewFormatting = String.raw`
   const formatNumber = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const rates = new Set(["bounce_rate", "conversion_rate", "group_conversion_rate", "percentage", "scroll_depth"]);
   const durations = new Set(["visit_duration", "time_on_page"]);
+  const amount = (value) => value?.value ?? value;
   function format(value, key) {
+    if (value && number(value.value)) return value.long + " " + value.currency;
     if (!number(value)) return readable(value);
     if (rates.has(key))
       return formatNumber.format(value) + "%";

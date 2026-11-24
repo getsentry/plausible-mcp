@@ -16,13 +16,17 @@ describe("MCP server", () => {
   });
   afterAll(() => h.close());
 
-  it("lists the four query tools and no others", async () => {
+  it("lists the analytics and discovery tools on STDIO", async () => {
     const { tools } = await h.client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "compare_breakdown",
       "compare_periods",
       "get_breakdown",
       "get_conversions",
+      "get_site_metadata",
       "get_timeseries",
+      "list_sites",
+      "query_stats",
     ]);
   });
 
@@ -36,6 +40,20 @@ describe("MCP server", () => {
         tool.name,
         expect.objectContaining({ readOnlyHint: true, idempotentHint: true }),
       ]),
+    );
+  });
+
+  it("describes items for the native query pairs that Antigravity validates on discovery", async () => {
+    const { tools } = await h.client.listTools();
+    const stringPair = expect.objectContaining({
+      type: "array",
+      items: expect.objectContaining({ type: "string" }),
+    });
+    expect(tools.find((tool) => tool.name === "query_stats")?.inputSchema.properties).toMatchObject(
+      {
+        date_range: { anyOf: expect.arrayContaining([stringPair]) },
+        order_by: { items: stringPair },
+      },
     );
   });
 
@@ -149,6 +167,10 @@ describe("MCP HTTP protocol eras", () => {
         "get_breakdown",
         "get_conversions",
         "compare_periods",
+        "list_sites",
+        "get_site_metadata",
+        "query_stats",
+        "compare_breakdown",
       ]);
     } finally {
       await modernClient.close();

@@ -9,6 +9,9 @@ export const evalArgsSchema = z.looseObject({
   page: z.string().optional(),
   goal: z.string().optional(),
   dimension: z.string().optional(),
+  dimensions: z.array(z.string()).optional(),
+  kind: z.string().optional(),
+  direction: z.string().optional(),
   metrics: z.array(z.string()).optional(),
   property_filters: z
     .array(
@@ -74,6 +77,65 @@ function weekBeforeDeployErrors(args: EvalArgs): string[] {
 }
 
 export const cases: EvalCase[] = [
+  {
+    name: "November - AI referral sources",
+    prompt: "Which AI assistants sent visits to example.com in the last 30 days?",
+    expectedTool: "get_breakdown",
+    assertions: (args) =>
+      args.dimension === "visit:source" &&
+      args.metrics?.includes("visits") &&
+      args.property_filters?.some(
+        (f) => f.property === "visit:channel" && f.values?.includes("AI Assistants"),
+      )
+        ? []
+        : ["Expected visits by source in the AI Assistants channel"],
+  },
+  {
+    // Feedback PLAUSIBLE-MCP-W. Execute the result schema regression in the MCP tests too.
+    name: "November - purchase revenue by source",
+    prompt:
+      "How much purchase revenue came from each utm_source for the Purchase goal on example.com in the last month?",
+    expectedTool: "get_breakdown",
+    assertions: (args) =>
+      args.goal === "Purchase" &&
+      args.dimension === "visit:utm_source" &&
+      args.metrics?.includes("total_revenue")
+        ? []
+        : ["Expected goal-filtered revenue by campaign source"],
+  },
+  {
+    name: "November - discover sites",
+    prompt: "Which sites does this Plausible API key cover?",
+    expectedTool: "list_sites",
+    assertions: () => [],
+  },
+  {
+    name: "November - configured goals",
+    prompt: "What goals are configured for example.com, even ones with no conversions?",
+    expectedTool: "get_site_metadata",
+    assertions: (args) => (args.kind === "goals" ? [] : ["Expected configured goals"]),
+  },
+  {
+    name: "November - pages losing traffic",
+    prompt:
+      "Which pages on example.com lost the most pageviews last week compared with the week before?",
+    expectedTool: "compare_breakdown",
+    assertions: (args) =>
+      args.dimension === "event:page" && args.direction === "losses"
+        ? []
+        : ["Expected pageview losses"],
+  },
+  {
+    name: "November - two-dimensional report",
+    prompt:
+      "Give me one table of visits to example.com for the last 30 days, grouped by both source and landing page together.",
+    expectedTool: "query_stats",
+    assertions: (args) =>
+      args.dimensions?.includes("visit:source") && args.dimensions.includes("visit:entry_page")
+        ? []
+        : ["Expected both source and landing page dimensions"],
+  },
+
   {
     name: "before/after deploy comparison",
     prompt: "Did traffic to /pricing drop after March 15, 2024? Compare the week before and after.",

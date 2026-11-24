@@ -85,6 +85,8 @@ export const analyticsHtml = String.raw`<!doctype html>
   }
   function formatChange(value, key) {
     if (!number(value)) return "—";
+    const currency = data?.period_b?.metrics[key]?.currency;
+    if (currency) return (value > 0 ? "+" : "") + formatNumber.format(value) + " " + currency;
     return (value > 0 ? "+" : "") + (rates.has(key) ? formatNumber.format(value) + " pp" : format(value, key));
   }
   function render() {
@@ -96,10 +98,15 @@ export const analyticsHtml = String.raw`<!doctype html>
     select.parentElement.style.visibility = mode === "data" ? "hidden" : "visible";
     for (const b of controls.querySelectorAll("button"))
       b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
-    if (data.period_a) comparison(key);
+    const currencies = new Set(data.results?.map(row => row.metrics[select.selectedIndex]?.currency).filter(Boolean));
+    if (currencies.size > 1 && mode === "chart") {
+      output.append(node("p", "Values use different currencies. Open Data to inspect each amount.", "detail"));
+    }
+    else if (data.period_a) comparison(key);
     else if (mode === "data") renderRows();
     else if (data.dimensions[0]?.startsWith("time:")) timeseries(key);
     else rank(key);
+    for (const note of data.notes ?? []) output.append(node("p", note, "note"));
     if (focusedTrend && find(".trend-tooltip")) {
       find(".trend-plot .plot").focus({preventScroll:true});
       find(".trend-tooltip").hidden = !inspecting;
@@ -147,6 +154,7 @@ export const analyticsHtml = String.raw`<!doctype html>
     const metrics = metricNames(d);
     if ((!compare && !d.results.length) || !metrics.length) {
       showMessage(title, "No results for this query.");
+      for (const note of d.notes ?? []) output.append(node("p", note, "note"));
       return;
     }
     setTitle(title);

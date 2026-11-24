@@ -157,14 +157,22 @@ describe("MCP Worker entry", () => {
       await modern.connect(makeTransport());
       expect(modern.getProtocolEra()).toBe("modern");
       const { tools } = await modern.listTools();
-      expect(tools).toHaveLength(5);
+      expect(tools).toHaveLength(9);
       const list = await modern.listResources();
       expect(list).toMatchObject({ ttlMs: 3_600_000, cacheScope: "public" });
       const { resources } = list;
-      expect(resources).toHaveLength(1);
-      const { uri, mimeType } = resources[0];
+      expect(resources).toHaveLength(2);
+      const { uri, mimeType } = resources.find((r) => r.uri.startsWith("ui://"))!;
       expect(mimeType).toBe("text/html;profile=mcp-app");
-      for (const tool of tools) {
+      for (const tool of tools.filter((t) =>
+        [
+          "get_timeseries",
+          "get_breakdown",
+          "get_conversions",
+          "compare_periods",
+          "send_feedback",
+        ].includes(t.name),
+      )) {
         const expected =
           tool.name === "send_feedback"
             ? { resourceUri: uri, visibility: ["model"] }
@@ -187,7 +195,7 @@ describe("MCP Worker entry", () => {
 
       await legacy.connect(makeTransport());
       expect(legacy.getProtocolEra()).toBe("legacy");
-      expect((await legacy.listTools()).tools).toHaveLength(5);
+      expect((await legacy.listTools()).tools).toHaveLength(9);
     } finally {
       await modern.close();
       await legacy.close();
@@ -270,6 +278,8 @@ describe("Worker endpoints end to end", () => {
     const internal = workerClient("/internal", { "Cf-Access-Jwt-Assertion": jwt }, env);
     try {
       await internal.connect();
+      const { tools } = await internal.client.listTools();
+      expect(tools.map((tool) => tool.name)).not.toContain("list_sites");
       const result = await internal.client.callTool(timeseries);
       expect(result.isError).toBeFalsy();
     } finally {

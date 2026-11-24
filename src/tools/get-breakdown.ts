@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { appToolMeta } from "../ui/resource.js";
-import { PLAUSIBLE_MAX_ROWS } from "../plausible.js";
+import { metricAmount, PLAUSIBLE_MAX_ROWS } from "../plausible.js";
 import type { PlausibleClient, PlausibleResult } from "../plausible.js";
 import { toolErrorResult, UserFacingError } from "../errors.js";
 import { recordMcpClientInfo } from "../mcp-telemetry.js";
@@ -10,7 +10,7 @@ import {
   dateRangeSchema,
   pageSchema,
   goalSchema,
-  rowMetricsSchema,
+  metricsSchema,
   dimensionSchema,
   propertyFiltersSchema,
   isCustomPropertyDimension,
@@ -46,7 +46,14 @@ function defaultMetrics(dimension: string, hasGoal: boolean): string[] {
 }
 
 function byFirstMetricThenName(a: PlausibleResult, b: PlausibleResult): number {
-  const byMetric = (b.metrics[0] ?? 0) - (a.metrics[0] ?? 0);
+  const first = a.metrics[0],
+    second = b.metrics[0];
+  const byMissingValue = Number(first == null) - Number(second == null);
+  if (byMissingValue) return byMissingValue;
+  if (first instanceof Object && second instanceof Object && first.currency !== second.currency) {
+    return first.currency.localeCompare(second.currency);
+  }
+  const byMetric = (metricAmount(b.metrics[0]) ?? 0) - (metricAmount(a.metrics[0]) ?? 0);
   if (byMetric !== 0) return byMetric;
   const [nameA, nameB] = [String(a.dimensions[0]), String(b.dimensions[0])];
   return nameA < nameB ? -1 : nameA > nameB ? 1 : 0;
@@ -60,23 +67,9 @@ function breakdownInputSchema(defaultSiteId: string | undefined) {
     page: pageSchema,
     goal: goalSchema,
     property_filters: propertyFiltersSchema,
-    metrics: rowMetricsSchema,
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(1000)
-      .default(20)
-      .describe(
-        "Max results to return per page. Use offset to fetch further pages; pagination.has_more in the result says whether more rows exist.",
-      )
-      .optional(),
-    offset: z
-      .number()
-      .int()
-      .min(0)
-      .describe("Number of rows to skip, for paging past the first `limit` rows")
-      .optional(),
+    metrics: metricsSchema,
+    limit: z.number().int().min(1).max(1000).default(20).describe("Page size.").optional(),
+    offset: z.number().int().min(0).optional(),
   });
 }
 
@@ -144,7 +137,7 @@ export function register(
     {
       title: "Get Breakdown",
       description:
-        "Break down metrics by a dimension: page, traffic source, country, device, etc. Use to find top pages, sources, or segment traffic.",
+        "Rank one dimension, e.g. top pages or traffic sources. For a named goal's rate per landing page or source, set goal and use group_conversion_rate.",
       _meta: appToolMeta,
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
       outputSchema: queryResultOutputSchema,

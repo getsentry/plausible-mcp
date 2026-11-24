@@ -14,20 +14,25 @@ METRICS: visitors, visits, pageviews, views_per_visit, bounce_rate, visit_durati
 
 DIMENSIONS (get_breakdown): event:page, event:goal, event:hostname, visit:entry_page, visit:exit_page, visit:source, visit:referrer, visit:channel, visit:utm_medium/source/campaign/content/term, visit:device, visit:browser(_version), visit:os(_version). Geography comes in two forms: visit:country/region/city return ISO/Geoname codes, while visit:country_name/region_name/city_name return human-readable names — prefer the *_name variants when presenting geography to users.
 
-FILTERS: every query tool accepts property_filters, which — despite the name — filters by built-in dimensions as well as custom properties. Each entry is { "property", "operator", "values" }: property is a built-in dimension (e.g. "visit:channel", "visit:source", "visit:country_name", "event:page") or a bare custom property name (e.g. "plan" targets event:props:plan); operators are is, is_not, contains, contains_not (event:goal supports only is and contains); entries combine with AND. Do not target event:page or event:goal in property_filters while also passing the page/goal shortcut parameter — that call is rejected; use one or the other. Example — top pages for organic search traffic: get_breakdown with dimension "event:page" and property_filters [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }].
+FILTERS: page accepts a path or trailing wildcard (e.g. /blog*). goal accepts the configured display name. get_breakdown, get_timeseries, get_conversions and both comparison tools accept property_filters for built-in dimensions and custom properties. query_stats uses native filters instead. Each entry is { "property", "operator", "values" }: property is a built-in dimension (e.g. "visit:channel", "visit:source", "visit:country_name", "event:page") or a bare custom property name (e.g. "plan" targets event:props:plan); operators are is, is_not, contains, contains_not (event:goal supports only is and contains); entries combine with AND. Do not target event:page or event:goal in property_filters while also passing the page/goal shortcut parameter — that call is rejected; use one or the other. Example — top pages for organic search traffic: get_breakdown with dimension "event:page" and property_filters [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }].
 
-CUSTOM PROPERTIES: sites send their own custom event properties, addressed as "event:props:<name>". Break down by one in get_breakdown with dimension "event:props:<name>" (e.g. "event:props:plan"). Property names are site-specific; if you don't know them, break down by the property to see its values, or ask the user.
+AI REFERRALS: For visits sent by AI assistants, call get_breakdown with dimension "visit:source" (or "visit:entry_page" for landing pages), metrics ["visits"] and property_filters [{"property":"visit:channel","values":["AI Assistants"]}]. For share of all visits, divide the whole channel's visits by total visits with the same dates and other filters. Crawler requests require server or CDN logs.
+
+DISCOVERY: Use list_sites when available to find domains. get_site_metadata lists configured goals or custom properties. compare_breakdown ranks changes in pageviews by page or visits by source/channel across two periods. For a question requiring more than the named tools, query_stats accepts one native read-only query; its reference resource includes the filter grammar.
+
+CUSTOM PROPERTIES: sites send their own custom event properties, addressed as "event:props:<name>". Break down by one in get_breakdown with dimension "event:props:<name>" (e.g. "event:props:plan"). Property names are site-specific; use get_site_metadata with kind custom_properties to find their names.
 
 COMBINATION RULES:
 - Session metrics bounce_rate and visit_duration cannot be combined with event:goal or event:props:<name> dimensions (goal filters are fine). event:page is compatible, and event:hostname is compatible when paired with event:page. Use visitors, visits, pageviews, or events for custom-property breakdowns.
 - The reverse also applies: event metrics pageviews, events, scroll_depth, and time_on_page cannot be combined with the visit:entry_page or visit:exit_page dimensions. Use visitors, visits, bounce_rate, or visit_duration for entry/exit page breakdowns. Filtering on visit:entry_page or visit:exit_page with event metrics is allowed.
 - views_per_visit cannot be combined with any non-time dimension or with a page/event:page filter, so it fails in every get_breakdown call. Use it in get_timeseries or compare_periods without page.
-- For goal conversions, use get_conversions rather than passing session metrics alongside a goal.
+- For a named goal’s conversion rate on a page, call get_conversions with goal and page. If the user supplied the goal, query it directly. Use get_site_metadata for a request to list configured goals.
+- To rank a named goal’s conversion rate across landing pages, sources or campaigns, call get_breakdown with the goal, the requested dimension and group_conversion_rate.
 - An empty-string visit:entry_page or visit:exit_page row is a session that recorded custom events but no pageview (e.g. the pageview was blocked). Its bounce_rate is always 0 because bounce counts single-pageview visits. Present it as "no pageview recorded", not as a page.
 
 ERRORS: a failed call returns isError. The first text block is a readable message; the second is JSON { "error": { code, message, retryable, retry_after_seconds? } }. Codes: invalid_input, unauthorized, rate_limited, upstream_unavailable, invalid_query, internal. For rate_limited and upstream_unavailable, wait retry_after_seconds (when present) before retrying. Arguments that fail the tool's input schema are rejected before the tool runs, with only the readable message and no JSON block; fix the arguments named in it.
 
-SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's default site is used; if there is no default, the call fails — ask the user which site to query.",
+SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's default site is used; if there is no default, use list_sites when available, then ask which site to query if necessary.",
   "tools": [
     {
       "_meta": {
@@ -49,18 +54,15 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "additionalProperties": false,
         "properties": {
           "date_range": {
-            "description": "Date range: "1h", "24h" (last N hours, ending now), "7d", "30d", "12mo", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive), or "YYYY-MM-DDTHH:MM:SSZ,YYYY-MM-DDTHH:MM:SSZ" for a sub-day window (any offset, e.g. +02:00). Days after today count as zero.",
-            "pattern": "^(\\d+h|\\d+d|\\d+mo|day|month|year|all|\\d{4}-\\d{2}-\\d{2},\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}),\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}))$",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "goal": {
-            "description": "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "granularity": {
             "default": "day",
-            "description": "Time bucket size. Use "hour" with a sub-day or few-day date_range.",
             "enum": [
               "hour",
               "day",
@@ -70,7 +72,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "string",
           },
           "metrics": {
-            "description": "Metrics to return. Defaults vary by tool. conversion_rate is a percent of all visitors in the query, so every row shares one denominator. group_conversion_rate is a percent of each row's own visitors. Both need a goal. Plausible rejects these combinations: bounce_rate or visit_duration with event:goal or event:props:<name> dimensions; pageviews, events, scroll_depth or time_on_page with visit:entry_page or visit:exit_page dimensions; views_per_visit with any non-time dimension or a page filter. For goal conversions use get_conversions.",
             "items": {
               "enum": [
                 "visitors",
@@ -93,17 +94,14 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "page": {
-            "description": "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "property_filters": {
-            "description": "Filter results by built-in dimensions or custom event properties, e.g. [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }] or [{ "property": "plan", "values": ["pro"] }]. Entries are combined with AND.",
             "items": {
               "properties": {
                 "operator": {
                   "default": "is",
-                  "description": "Match operator: is, is_not, contains, contains_not (default: is)",
                   "enum": [
                     "is",
                     "is_not",
@@ -113,13 +111,11 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                   "type": "string",
                 },
                 "property": {
-                  "description": "What to filter on: a built-in dimension (e.g. "visit:channel", "visit:source", "event:page") or a custom event property as its bare name (e.g. "plan" targets event:props:plan)",
                   "maxLength": 312,
                   "minLength": 1,
                   "type": "string",
                 },
                 "values": {
-                  "description": "One or more values to match the property against",
                   "items": {
                     "maxLength": 1024,
                     "type": "string",
@@ -137,7 +133,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "site_id": {
-            "description": "Plausible site domain (e.g. example.com). Uses PLAUSIBLE_DEFAULT_SITE_ID if omitted.",
             "type": "string",
           },
         },
@@ -174,7 +169,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           },
           "pagination": {
             "additionalProperties": false,
-            "description": "Present only on paged tools (get_breakdown)",
+            "description": "Present on paged reports. Advance offset by limit when has_more is true.",
             "properties": {
               "has_more": {
                 "description": "True when rows exist beyond this page",
@@ -212,10 +207,40 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                 },
                 "metrics": {
                   "items": {
-                    "type": [
-                      "number",
-                      "string",
-                      "null",
+                    "anyOf": [
+                      {
+                        "type": "number",
+                      },
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "currency": {
+                            "type": "string",
+                          },
+                          "long": {
+                            "type": "string",
+                          },
+                          "short": {
+                            "type": "string",
+                          },
+                          "value": {
+                            "type": "number",
+                          },
+                        },
+                        "required": [
+                          "value",
+                          "currency",
+                          "short",
+                          "long",
+                        ],
+                        "type": "object",
+                      },
                     ],
                   },
                   "type": "array",
@@ -251,7 +276,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "openWorldHint": true,
         "readOnlyHint": true,
       },
-      "description": "Break down metrics by a dimension: page, traffic source, country, device, etc. Use to find top pages, sources, or segment traffic.",
+      "description": "Rank one dimension, e.g. top pages or traffic sources. For a named goal's rate per landing page or source, set goal and use group_conversion_rate.",
       "execution": undefined,
       "icons": undefined,
       "inputSchema": {
@@ -259,64 +284,25 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "additionalProperties": false,
         "properties": {
           "date_range": {
-            "description": "Date range: "1h", "24h" (last N hours, ending now), "7d", "30d", "12mo", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive), or "YYYY-MM-DDTHH:MM:SSZ,YYYY-MM-DDTHH:MM:SSZ" for a sub-day window (any offset, e.g. +02:00). Days after today count as zero.",
-            "pattern": "^(\\d+h|\\d+d|\\d+mo|day|month|year|all|\\d{4}-\\d{2}-\\d{2},\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}),\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}))$",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "dimension": {
-            "anyOf": [
-              {
-                "enum": [
-                  "event:page",
-                  "event:goal",
-                  "event:hostname",
-                  "visit:entry_page",
-                  "visit:exit_page",
-                  "visit:source",
-                  "visit:referrer",
-                  "visit:channel",
-                  "visit:utm_medium",
-                  "visit:utm_source",
-                  "visit:utm_campaign",
-                  "visit:utm_content",
-                  "visit:utm_term",
-                  "visit:device",
-                  "visit:browser",
-                  "visit:browser_version",
-                  "visit:os",
-                  "visit:os_version",
-                  "visit:country",
-                  "visit:region",
-                  "visit:city",
-                  "visit:country_name",
-                  "visit:region_name",
-                  "visit:city_name",
-                ],
-                "type": "string",
-              },
-              {
-                "maxLength": 312,
-                "minLength": 13,
-                "pattern": "^event:props:",
-                "type": "string",
-              },
-            ],
-            "description": "Dimension to group results by: a standard dimension (e.g. event:page, visit:source), or a custom event property as "event:props:<name>" (e.g. event:props:plan). Prefer visit:country_name/region_name/city_name over the code variants when presenting geography to people. An empty visit:entry_page or visit:exit_page value means a session with no recorded pageview.",
+            "description": "e.g. event:page, visit:source, visit:country_name or event:props:plan.",
+            "type": "string",
           },
           "goal": {
-            "description": "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "limit": {
             "default": 20,
-            "description": "Max results to return per page. Use offset to fetch further pages; pagination.has_more in the result says whether more rows exist.",
+            "description": "Page size.",
             "maximum": 1000,
             "minimum": 1,
             "type": "integer",
           },
           "metrics": {
-            "description": "Metrics to return. Defaults vary by tool. conversion_rate is a percent of all visitors in the query, so every row shares one denominator. group_conversion_rate is a percent of each row's own visitors. Both need a goal. Plausible rejects these combinations: bounce_rate or visit_duration with event:goal or event:props:<name> dimensions; pageviews, events, scroll_depth or time_on_page with visit:entry_page or visit:exit_page dimensions; views_per_visit with any non-time dimension or a page filter. For goal conversions use get_conversions.",
             "items": {
               "enum": [
                 "visitors",
@@ -339,23 +325,19 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "offset": {
-            "description": "Number of rows to skip, for paging past the first \`limit\` rows",
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer",
           },
           "page": {
-            "description": "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "property_filters": {
-            "description": "Filter results by built-in dimensions or custom event properties, e.g. [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }] or [{ "property": "plan", "values": ["pro"] }]. Entries are combined with AND.",
             "items": {
               "properties": {
                 "operator": {
                   "default": "is",
-                  "description": "Match operator: is, is_not, contains, contains_not (default: is)",
                   "enum": [
                     "is",
                     "is_not",
@@ -365,13 +347,11 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                   "type": "string",
                 },
                 "property": {
-                  "description": "What to filter on: a built-in dimension (e.g. "visit:channel", "visit:source", "event:page") or a custom event property as its bare name (e.g. "plan" targets event:props:plan)",
                   "maxLength": 312,
                   "minLength": 1,
                   "type": "string",
                 },
                 "values": {
-                  "description": "One or more values to match the property against",
                   "items": {
                     "maxLength": 1024,
                     "type": "string",
@@ -389,7 +369,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "site_id": {
-            "description": "Plausible site domain (e.g. example.com). Uses PLAUSIBLE_DEFAULT_SITE_ID if omitted.",
             "type": "string",
           },
         },
@@ -427,7 +406,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           },
           "pagination": {
             "additionalProperties": false,
-            "description": "Present only on paged tools (get_breakdown)",
+            "description": "Present on paged reports. Advance offset by limit when has_more is true.",
             "properties": {
               "has_more": {
                 "description": "True when rows exist beyond this page",
@@ -465,10 +444,40 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                 },
                 "metrics": {
                   "items": {
-                    "type": [
-                      "number",
-                      "string",
-                      "null",
+                    "anyOf": [
+                      {
+                        "type": "number",
+                      },
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "currency": {
+                            "type": "string",
+                          },
+                          "long": {
+                            "type": "string",
+                          },
+                          "short": {
+                            "type": "string",
+                          },
+                          "value": {
+                            "type": "number",
+                          },
+                        },
+                        "required": [
+                          "value",
+                          "currency",
+                          "short",
+                          "long",
+                        ],
+                        "type": "object",
+                      },
                     ],
                   },
                   "type": "array",
@@ -504,7 +513,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "openWorldHint": true,
         "readOnlyHint": true,
       },
-      "description": "Get goal conversion rates and counts. Can break down by page to see which pages drive conversions.",
+      "description": "Measure conversions for a named goal and optional page. Pass the supplied goal directly. Can also report conversions by page.",
       "execution": undefined,
       "icons": undefined,
       "inputSchema": {
@@ -513,31 +522,26 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "properties": {
           "breakdown_by_page": {
             "default": false,
-            "description": "If true, adds event:page and each page's group_conversion_rate: the percent of that page's visitors who converted",
+            "description": "Include each page's conversion rate.",
             "type": "boolean",
           },
           "date_range": {
-            "description": "Date range: "1h", "24h" (last N hours, ending now), "7d", "30d", "12mo", "month", "year", "all", "YYYY-MM-DD,YYYY-MM-DD" (start,end, both inclusive), or "YYYY-MM-DDTHH:MM:SSZ,YYYY-MM-DDTHH:MM:SSZ" for a sub-day window (any offset, e.g. +02:00). Days after today count as zero.",
-            "pattern": "^(\\d+h|\\d+d|\\d+mo|day|month|year|all|\\d{4}-\\d{2}-\\d{2},\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}),\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}))$",
+            "description": "7d or start,end.",
             "type": "string",
           },
           "goal": {
-            "description": "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "page": {
-            "description": "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "property_filters": {
-            "description": "Filter results by built-in dimensions or custom event properties, e.g. [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }] or [{ "property": "plan", "values": ["pro"] }]. Entries are combined with AND.",
             "items": {
               "properties": {
                 "operator": {
                   "default": "is",
-                  "description": "Match operator: is, is_not, contains, contains_not (default: is)",
                   "enum": [
                     "is",
                     "is_not",
@@ -547,13 +551,11 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                   "type": "string",
                 },
                 "property": {
-                  "description": "What to filter on: a built-in dimension (e.g. "visit:channel", "visit:source", "event:page") or a custom event property as its bare name (e.g. "plan" targets event:props:plan)",
                   "maxLength": 312,
                   "minLength": 1,
                   "type": "string",
                 },
                 "values": {
-                  "description": "One or more values to match the property against",
                   "items": {
                     "maxLength": 1024,
                     "type": "string",
@@ -571,7 +573,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "site_id": {
-            "description": "Plausible site domain (e.g. example.com). Uses PLAUSIBLE_DEFAULT_SITE_ID if omitted.",
             "type": "string",
           },
         },
@@ -608,7 +609,7 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           },
           "pagination": {
             "additionalProperties": false,
-            "description": "Present only on paged tools (get_breakdown)",
+            "description": "Present on paged reports. Advance offset by limit when has_more is true.",
             "properties": {
               "has_more": {
                 "description": "True when rows exist beyond this page",
@@ -646,10 +647,40 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                 },
                 "metrics": {
                   "items": {
-                    "type": [
-                      "number",
-                      "string",
-                      "null",
+                    "anyOf": [
+                      {
+                        "type": "number",
+                      },
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "currency": {
+                            "type": "string",
+                          },
+                          "long": {
+                            "type": "string",
+                          },
+                          "short": {
+                            "type": "string",
+                          },
+                          "value": {
+                            "type": "number",
+                          },
+                        },
+                        "required": [
+                          "value",
+                          "currency",
+                          "short",
+                          "long",
+                        ],
+                        "type": "object",
+                      },
                     ],
                   },
                   "type": "array",
@@ -693,12 +724,10 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "additionalProperties": false,
         "properties": {
           "goal": {
-            "description": "Filter by goal name (e.g. Signup, Purchase). Do not also target event:goal in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "metrics": {
-            "description": "Metrics to return. Defaults vary by tool. Plausible rejects these combinations: bounce_rate or visit_duration with event:goal or event:props:<name> dimensions; pageviews, events, scroll_depth or time_on_page with visit:entry_page or visit:exit_page dimensions; views_per_visit with any non-time dimension or a page filter. For goal conversions use get_conversions.",
             "items": {
               "enum": [
                 "visitors",
@@ -721,27 +750,22 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "page": {
-            "description": "Filter by page path. Exact match by default, use * as trailing wildcard (e.g. /blog*). Do not also target event:page in property_filters; the call is rejected.",
             "maxLength": 1024,
             "type": "string",
           },
           "period_a": {
-            "description": "Baseline ("before") date range that deltas are measured from, e.g. "2024-01-01,2024-01-07". Omit it to use the period of the same length right before period_b, as Plausible's "previous period" does: period_b "7d" alone compares the last 7 days with the 7 days before them. The result gives the dates used.",
-            "pattern": "^(\\d+h|\\d+d|\\d+mo|day|month|year|all|\\d{4}-\\d{2}-\\d{2},\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}),\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}))$",
+            "description": "Baseline period. Omit for the equal period immediately before period_b.",
             "type": "string",
           },
           "period_b": {
-            "description": "Date range compared against period_a ("after"), e.g. "2024-01-08,2024-01-14". For a current-vs-prior comparison, this is the current range; omit period_a to compare it with the period right before it.",
-            "pattern": "^(\\d+h|\\d+d|\\d+mo|day|month|year|all|\\d{4}-\\d{2}-\\d{2},\\d{4}-\\d{2}-\\d{2}|\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}),\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:Z|[+-]\\d{2}:\\d{2}))$",
+            "description": "Comparison period, e.g. 7d. Change is period_b minus period_a.",
             "type": "string",
           },
           "property_filters": {
-            "description": "Filter results by built-in dimensions or custom event properties, e.g. [{ "property": "visit:channel", "operator": "is", "values": ["Organic Search"] }] or [{ "property": "plan", "values": ["pro"] }]. Entries are combined with AND.",
             "items": {
               "properties": {
                 "operator": {
                   "default": "is",
-                  "description": "Match operator: is, is_not, contains, contains_not (default: is)",
                   "enum": [
                     "is",
                     "is_not",
@@ -751,13 +775,11 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                   "type": "string",
                 },
                 "property": {
-                  "description": "What to filter on: a built-in dimension (e.g. "visit:channel", "visit:source", "event:page") or a custom event property as its bare name (e.g. "plan" targets event:props:plan)",
                   "maxLength": 312,
                   "minLength": 1,
                   "type": "string",
                 },
                 "values": {
-                  "description": "One or more values to match the property against",
                   "items": {
                     "maxLength": 1024,
                     "type": "string",
@@ -775,7 +797,6 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "type": "array",
           },
           "site_id": {
-            "description": "Plausible site domain (e.g. example.com). Uses PLAUSIBLE_DEFAULT_SITE_ID if omitted.",
             "type": "string",
           },
         },
@@ -818,14 +839,48 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             },
             "type": "object",
           },
+          "notes": {
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
           "period_a": {
             "additionalProperties": false,
             "properties": {
               "metrics": {
                 "additionalProperties": {
-                  "type": [
-                    "number",
-                    "null",
+                  "anyOf": [
+                    {
+                      "type": [
+                        "number",
+                        "null",
+                      ],
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "currency": {
+                          "type": "string",
+                        },
+                        "long": {
+                          "type": "string",
+                        },
+                        "short": {
+                          "type": "string",
+                        },
+                        "value": {
+                          "type": "number",
+                        },
+                      },
+                      "required": [
+                        "value",
+                        "currency",
+                        "short",
+                        "long",
+                      ],
+                      "type": "object",
+                    },
                   ],
                 },
                 "description": "Aggregate value per requested metric for this period",
@@ -850,9 +905,37 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
             "properties": {
               "metrics": {
                 "additionalProperties": {
-                  "type": [
-                    "number",
-                    "null",
+                  "anyOf": [
+                    {
+                      "type": [
+                        "number",
+                        "null",
+                      ],
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "currency": {
+                          "type": "string",
+                        },
+                        "long": {
+                          "type": "string",
+                        },
+                        "short": {
+                          "type": "string",
+                        },
+                        "value": {
+                          "type": "number",
+                        },
+                      },
+                      "required": [
+                        "value",
+                        "currency",
+                        "short",
+                        "long",
+                      ],
+                      "type": "object",
+                    },
                   ],
                 },
                 "description": "Aggregate value per requested metric for this period",
@@ -881,6 +964,661 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
         "type": "object",
       },
       "title": "Compare Periods",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+      },
+      "description": "Find site domains and time zones that the caller's Plausible key can access. Use when the site is unknown.",
+      "execution": undefined,
+      "icons": undefined,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Next-page cursor from the preceding response.",
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string",
+          },
+        },
+        "type": "object",
+      },
+      "name": "list_sites",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "additionalProperties": false,
+            "properties": {
+              "after": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+            },
+            "required": [
+              "after",
+            ],
+            "type": "object",
+          },
+          "sites": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "domain": {
+                  "type": "string",
+                },
+                "timezone": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "domain",
+                "timezone",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+        },
+        "required": [
+          "sites",
+          "meta",
+        ],
+        "type": "object",
+      },
+      "title": "List sites",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+      },
+      "description": "List configured goal names (including goals with zero conversions) or custom property keys for a site. Use a goal's display_name in a query.",
+      "execution": undefined,
+      "icons": undefined,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Next-page cursor from the preceding response.",
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string",
+          },
+          "kind": {
+            "enum": [
+              "goals",
+              "custom_properties",
+            ],
+            "type": "string",
+          },
+          "site_id": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "kind",
+        ],
+        "type": "object",
+      },
+      "name": "get_site_metadata",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "custom_properties": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "property": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "property",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "goals": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "display_name": {
+                  "type": "string",
+                },
+                "goal_type": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "display_name",
+                "goal_type",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "meta": {
+            "additionalProperties": false,
+            "properties": {
+              "after": {
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+            },
+            "required": [
+              "after",
+            ],
+            "type": "object",
+          },
+        },
+        "type": "object",
+      },
+      "title": "Discover goals or properties",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+      },
+      "description": "Advanced Stats v2 query for multiple dimensions, nested filters, segments, ordering or imports. Prefer named tools for ordinary reports. Read plausible://reference/stats-query for syntax. Up to 1,000 rows, default 50.",
+      "execution": undefined,
+      "icons": undefined,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "date_range": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "type": "string",
+              },
+              {
+                "items": {
+                  "maxLength": 40,
+                  "type": "string",
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array",
+              },
+            ],
+          },
+          "dimensions": {
+            "items": {
+              "maxLength": 330,
+              "minLength": 1,
+              "type": "string",
+            },
+            "maxItems": 8,
+            "type": "array",
+          },
+          "filters": {
+            "description": "Native Stats v2 filters, e.g. [["is","visit:channel",["AI Assistants"]]].",
+            "items": {
+              "items": {},
+              "type": "array",
+            },
+            "maxItems": 32,
+            "type": "array",
+          },
+          "include": {
+            "additionalProperties": false,
+            "properties": {
+              "imports": {
+                "type": "boolean",
+              },
+              "time_labels": {
+                "type": "boolean",
+              },
+              "total_rows": {
+                "type": "boolean",
+              },
+              "trim_relative_date_range": {
+                "type": "boolean",
+              },
+            },
+            "type": "object",
+          },
+          "metrics": {
+            "items": {
+              "type": "string",
+            },
+            "maxItems": 14,
+            "minItems": 1,
+            "type": "array",
+          },
+          "order_by": {
+            "items": {
+              "description": "A pair [metric or dimension, "asc" or "desc"].",
+              "items": {
+                "maxLength": 330,
+                "type": "string",
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array",
+            },
+            "maxItems": 22,
+            "type": "array",
+          },
+          "pagination": {
+            "additionalProperties": false,
+            "properties": {
+              "limit": {
+                "maximum": 1000,
+                "minimum": 1,
+                "type": "integer",
+              },
+              "offset": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer",
+              },
+            },
+            "type": "object",
+          },
+          "site_id": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "metrics",
+          "date_range",
+        ],
+        "type": "object",
+      },
+      "name": "query_stats",
+      "outputSchema": {
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string",
+              },
+              {
+                "type": "number",
+              },
+              {
+                "type": "boolean",
+              },
+              {
+                "type": "null",
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema0",
+                },
+                "type": "array",
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0",
+                },
+                "propertyNames": {
+                  "type": "string",
+                },
+                "type": "object",
+              },
+            ],
+          },
+          "__schema1": {
+            "anyOf": [
+              {
+                "type": "string",
+              },
+              {
+                "type": "number",
+              },
+              {
+                "type": "boolean",
+              },
+              {
+                "type": "null",
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/__schema1",
+                },
+                "type": "array",
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema1",
+                },
+                "propertyNames": {
+                  "type": "string",
+                },
+                "type": "object",
+              },
+            ],
+          },
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dimensions": {
+            "description": "Dimension keys, in the order they appear in each row's \`dimensions\` array",
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "meta": {
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0",
+            },
+            "propertyNames": {
+              "type": "string",
+            },
+            "type": "object",
+          },
+          "metrics": {
+            "description": "Metric keys, in the order they appear in each row's \`metrics\` array",
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "notes": {
+            "description": "Facts about this result that change how to read its numbers",
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "pagination": {
+            "additionalProperties": false,
+            "description": "Present on paged reports. Advance offset by limit when has_more is true.",
+            "properties": {
+              "has_more": {
+                "description": "True when rows exist beyond this page",
+                "type": "boolean",
+              },
+              "limit": {
+                "description": "Max rows requested",
+                "type": "number",
+              },
+              "offset": {
+                "description": "Rows skipped before the first returned row",
+                "type": "number",
+              },
+            },
+            "required": [
+              "limit",
+              "offset",
+              "has_more",
+            ],
+            "type": "object",
+          },
+          "query": {
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema1",
+            },
+            "propertyNames": {
+              "type": "string",
+            },
+            "type": "object",
+          },
+          "results": {
+            "description": "One row per dimension-value combination returned by Plausible",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "dimensions": {
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                    ],
+                  },
+                  "type": "array",
+                },
+                "metrics": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                      },
+                      {
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "currency": {
+                            "type": "string",
+                          },
+                          "long": {
+                            "type": "string",
+                          },
+                          "short": {
+                            "type": "string",
+                          },
+                          "value": {
+                            "type": "number",
+                          },
+                        },
+                        "required": [
+                          "value",
+                          "currency",
+                          "short",
+                          "long",
+                        ],
+                        "type": "object",
+                      },
+                    ],
+                  },
+                  "type": "array",
+                },
+              },
+              "required": [
+                "dimensions",
+                "metrics",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+        },
+        "required": [
+          "metrics",
+          "dimensions",
+          "results",
+          "meta",
+          "query",
+        ],
+        "type": "object",
+      },
+      "title": "Run an advanced Stats query",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": true,
+      },
+      "description": "Find which pages gained or lost pageviews, or which sources or channels gained or lost visits between two periods. Ranks changes across all groups, including groups that appeared or disappeared. Set direction to losses for a drop.",
+      "execution": undefined,
+      "icons": undefined,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "enum": [
+              "event:page",
+              "visit:source",
+              "visit:channel",
+            ],
+            "type": "string",
+          },
+          "direction": {
+            "default": "largest_change",
+            "enum": [
+              "losses",
+              "gains",
+              "largest_change",
+            ],
+            "type": "string",
+          },
+          "goal": {
+            "maxLength": 1024,
+            "type": "string",
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer",
+          },
+          "page": {
+            "maxLength": 1024,
+            "type": "string",
+          },
+          "period_a": {
+            "description": "7d or start,end.",
+            "type": "string",
+          },
+          "period_b": {
+            "description": "7d or start,end.",
+            "type": "string",
+          },
+          "property_filters": {
+            "items": {
+              "properties": {
+                "operator": {
+                  "default": "is",
+                  "enum": [
+                    "is",
+                    "is_not",
+                    "contains",
+                    "contains_not",
+                  ],
+                  "type": "string",
+                },
+                "property": {
+                  "maxLength": 312,
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "values": {
+                  "items": {
+                    "maxLength": 1024,
+                    "type": "string",
+                  },
+                  "minItems": 1,
+                  "type": "array",
+                },
+              },
+              "required": [
+                "property",
+                "values",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "site_id": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "period_b",
+          "dimension",
+        ],
+        "type": "object",
+      },
+      "name": "compare_breakdown",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "enum": [
+              "event:page",
+              "visit:source",
+              "visit:channel",
+            ],
+            "type": "string",
+          },
+          "groups_compared": {
+            "type": "number",
+          },
+          "metric": {
+            "enum": [
+              "visits",
+              "pageviews",
+            ],
+            "type": "string",
+          },
+          "period_a": {
+            "type": "string",
+          },
+          "period_b": {
+            "type": "string",
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "after": {
+                  "type": "number",
+                },
+                "before": {
+                  "type": "number",
+                },
+                "change": {
+                  "type": "number",
+                },
+                "group": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "group",
+                "before",
+                "after",
+                "change",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+        },
+        "required": [
+          "dimension",
+          "metric",
+          "period_a",
+          "period_b",
+          "groups_compared",
+          "results",
+        ],
+        "type": "object",
+      },
+      "title": "Compare pages or sources",
     },
     {
       "_meta": {
@@ -941,6 +1679,10 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
               "get_breakdown",
               "get_conversions",
               "compare_periods",
+              "compare_breakdown",
+              "list_sites",
+              "get_site_metadata",
+              "query_stats",
             ],
             "type": "string",
           },

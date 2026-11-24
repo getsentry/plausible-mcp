@@ -78,14 +78,14 @@ export const viewTables = String.raw`
     const rows = data.results.slice(0, 10);
     const max = Math.max(
       0,
-      ...rows.map((r) => (number(r.metrics[select.selectedIndex]) ? r.metrics[select.selectedIndex] : 0)),
+      ...rows.map((r) => (number(amount(r.metrics[select.selectedIndex])) ? amount(r.metrics[select.selectedIndex]) : 0)),
     );
     const list = node("ol", undefined, "ranking");
     for (const row of rows) {
       const item = node("li", undefined, "rank"),
         value = row.metrics[select.selectedIndex];
       const label = node("span", rowLabel(row), "rank-label");
-      const share = max && number(value) ? Math.max(0, value) / max : 0;
+      const share = max && number(amount(value)) ? Math.max(0, amount(value)) / max : 0;
       label.style.setProperty("--share", share * 100 + "%");
       item.append(label, node("strong", format(value, key)));
       list.append(item);
