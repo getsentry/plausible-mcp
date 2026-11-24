@@ -43,6 +43,20 @@ describe("MCP server", () => {
     );
   });
 
+  it("describes items for the native query pairs that Antigravity validates on discovery", async () => {
+    const { tools } = await h.client.listTools();
+    const stringPair = expect.objectContaining({
+      type: "array",
+      items: expect.objectContaining({ type: "string" }),
+    });
+    expect(tools.find((tool) => tool.name === "query_stats")?.inputSchema.properties).toMatchObject(
+      {
+        date_range: { anyOf: expect.arrayContaining([stringPair]) },
+        order_by: { items: stringPair },
+      },
+    );
+  });
+
   // Regression (42e1b20): serverInfo.version once stayed behind the released package.
   it("reports the package version as its serverInfo version", () => {
     const { version } = JSON.parse(

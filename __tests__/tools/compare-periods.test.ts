@@ -141,9 +141,14 @@ describe("compare_periods", () => {
   it("gives the percent change relative to a nonzero period_a, within half a hundredth", async () => {
     await fc.assert(
       fc.asyncProperty(nonZero, metric, async (a, b) => {
-        expect((await deltaFor(a, b)).percent).toBeCloseTo(((b - a) / a) * 100, 2);
+        const expected = ((b - a) / a) * 100;
+        const actual = (await deltaFor(a, b)).percent ?? Number.NaN;
+        // An exact half-cent can round to a float just beyond the decimal boundary.
+        expect(Math.abs(actual - expected)).toBeLessThanOrEqual(
+          0.005 + Math.abs(expected) * Number.EPSILON,
+        );
       }),
-      { numRuns: 60 },
+      { numRuns: 60, examples: [[8, 688060.27]] },
     );
   });
 

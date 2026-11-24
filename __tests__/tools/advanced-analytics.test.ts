@@ -88,8 +88,9 @@ it("executes a native two-dimensional AI referral query with one bounded read an
     spanId = "ab".repeat(8);
   const args = {
     metrics: ["visits"],
-    date_range: "30d",
+    date_range: ["2026-11-01", "2026-11-23"],
     dimensions: ["visit:source", "visit:entry_page"],
+    order_by: [["visits", "desc"]],
     filters: [["is", "visit:channel", ["AI Assistants"]]],
     include: { total_rows: true },
   };

@@ -1259,19 +1259,12 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
                 "type": "string",
               },
               {
-                "items": false,
+                "items": {
+                  "maxLength": 40,
+                  "type": "string",
+                },
                 "maxItems": 2,
                 "minItems": 2,
-                "prefixItems": [
-                  {
-                    "maxLength": 40,
-                    "type": "string",
-                  },
-                  {
-                    "maxLength": 40,
-                    "type": "string",
-                  },
-                ],
                 "type": "array",
               },
             ],
@@ -1340,22 +1333,13 @@ SITE: site_id is a bare domain (e.g. "example.com"). If omitted, the server's de
           },
           "order_by": {
             "items": {
-              "items": false,
+              "description": "A pair [metric or dimension, "asc" or "desc"].",
+              "items": {
+                "maxLength": 330,
+                "type": "string",
+              },
               "maxItems": 2,
               "minItems": 2,
-              "prefixItems": [
-                {
-                  "maxLength": 330,
-                  "type": "string",
-                },
-                {
-                  "enum": [
-                    "asc",
-                    "desc",
-                  ],
-                  "type": "string",
-                },
-              ],
               "type": "array",
             },
             "maxItems": 22,

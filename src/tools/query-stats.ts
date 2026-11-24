@@ -14,6 +14,17 @@ import statsQueryReference from "../stats-query-reference.cjs";
 
 const schemaText = JSON.stringify(statsQueryReference);
 const uri = "plausible://reference/stats-query";
+// Antigravity's Gemini adapter requires an items schema on every array. Publish
+// a homogeneous string pair and validate positional constraints when it arrives.
+const datePair = z
+  .array(z.string().max(40))
+  .length(2)
+  .pipe(z.tuple([z.string(), z.string()]));
+const orderPair = z
+  .array(z.string().max(330))
+  .length(2)
+  .describe('A pair [metric or dimension, "asc" or "desc"].')
+  .pipe(z.tuple([z.string(), z.enum(["asc", "desc"])]));
 const include = z.strictObject({
   imports: z.boolean().optional(),
   total_rows: z.boolean().optional(),
@@ -29,17 +40,14 @@ function advancedInput(defaultSiteId?: string) {
   return z.strictObject({
     site_id: siteIdSchemaFor(defaultSiteId),
     metrics: z.array(z.enum(VALID_METRICS)).min(1).max(VALID_METRICS.length),
-    date_range: z.union([z.string().max(12), z.tuple([z.string().max(40), z.string().max(40)])]),
+    date_range: z.union([z.string().max(12), datePair]),
     dimensions: z.array(z.string().min(1).max(330)).max(8).optional(),
     filters: z
       .array(z.array(z.json()))
       .max(32)
       .optional()
       .describe('Native Stats v2 filters, e.g. [["is","visit:channel",["AI Assistants"]]].'),
-    order_by: z
-      .array(z.tuple([z.string().max(330), z.enum(["asc", "desc"])]))
-      .max(22)
-      .optional(),
+    order_by: z.array(orderPair).max(22).optional(),
     include: include.optional(),
     pagination: z
       .strictObject({
