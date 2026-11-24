@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0
+
+### New Features ✨
+
+- Discover sites and goals, compare traffic changes, and query revenue and AI referrals by @sergical in [#99](https://github.com/getsentry/plausible-mcp/pull/99)
+
 ## 0.13.0
 
 ### Bug Fixes 🐛
